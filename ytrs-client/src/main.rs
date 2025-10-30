@@ -1,5 +1,6 @@
-use iced::widget::{Image, button, column, container, row, text, text_input};
+use iced::widget::{Image, button, column, container, row, scrollable, text, text_input};
 use iced::{Alignment, Element, Length, Task, Theme};
+use iced_aw::Wrap;
 use std::collections::HashMap;
 use std::process::Command;
 use ytrs::{InnerTube, SearchResult};
@@ -191,10 +192,12 @@ impl App {
                 })
                 .collect();
 
-            iced::widget::Row::with_children(cards)
-                .spacing(15)
-                .padding(20)
-                .into()
+            scrollable(
+                container(Wrap::with_elements(cards).spacing(15.0).line_spacing(15.0))
+                    .padding(20)
+                    .width(Length::Fill),
+            )
+            .into()
         };
 
         column![search, body].into()

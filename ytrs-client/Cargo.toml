@@ -9,7 +9,7 @@ license = "MIT"
 [dependencies]
 ytrs = { path = ".." }
 iced = { version = "0.13", features = ["tokio", "image"] }
-
+iced_aw = { version = "0.12", default-features = false, features = ["wrap"] }
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
 image = "0.25"
