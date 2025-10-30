@@ -8,6 +8,11 @@ use ytrs::{InnerTube, SearchResult};
 fn main() -> iced::Result {
     iced::application("ytrs", App::update, App::view)
         .theme(|_| Theme::custom("Cosmic".to_string(), cosmic_palette()))
+        .font(include_bytes!("../fonts/NotoSansCJK-VF.otf.ttc"))
+        .default_font(iced::Font {
+            family: iced::font::Family::Name("Noto Sans CJK JP"),
+            ..iced::Font::DEFAULT
+        })
         .run_with(App::new)
 }
 
@@ -187,8 +192,13 @@ impl App {
                     let card = column![
                         thumb,
                         container(
-                            column![text(&r.title).size(14), text(meta.join(" • ")).size(12),]
-                                .spacing(4)
+                            column![
+                                text(&r.title).size(14).shaping(text::Shaping::Advanced),
+                                text(meta.join(" • "))
+                                    .size(12)
+                                    .shaping(text::Shaping::Advanced),
+                            ]
+                            .spacing(4)
                         )
                         .padding(8)
                         .width(240)

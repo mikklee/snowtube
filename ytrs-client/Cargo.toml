@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 authors = ["ytrs contributors"]
 description = "GUI client for ytrs - YouTube search and playback"
-license = "MIT"
+license = "GPL-3.0"
 
 [dependencies]
 ytrs = { path = ".." }
