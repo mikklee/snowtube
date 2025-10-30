@@ -8,9 +8,14 @@ license = "GPL-3.0"
 
 [dependencies]
 ytrs = { path = ".." }
-iced = { version = "0.13", features = ["tokio", "image"] }
-iced_aw = { version = "0.12", default-features = false, features = ["wrap"] }
+iced = { git = "https://github.com/iced-rs/iced", branch = "master", features = ["tokio", "image"] }
+iced_aw = { git = "https://github.com/iced-rs/iced_aw", branch = "main", default-features = false, features = ["wrap"] }
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
 image = "0.25"
 bytes = "1.10"
+
+[patch.crates-io]
+iced_core = { git = "https://github.com/iced-rs/iced", branch = "master" }
+iced_widget = { git = "https://github.com/iced-rs/iced", branch = "master" }
+iced_renderer = { git = "https://github.com/iced-rs/iced", branch = "master" }

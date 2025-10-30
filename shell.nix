@@ -8,20 +8,19 @@
   in {
     devShell = with pkgs; mkShell {
       buildInputs = [
-        cargo
-        rustc
-        rust-analyzer
+        rustup
         gcc
-        rustfmt
-        clippy
         nil
         nixd
       ];
 
       RUST_LOG = "debug";
-      RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
       LD_LIBRARY_PATH = libPath;
       OPENSSL_DIR= "${pkgs.openssl.dev}";
       OPENSSL_LIB_DIR= "${openssl.out}/lib";
+      
+      shellHook = ''
+        export PATH="$HOME/.cargo/bin:$PATH"
+      '';
     };
   }

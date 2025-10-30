@@ -6,14 +6,23 @@ use std::process::Command;
 use ytrs::{InnerTube, SearchResult};
 
 fn main() -> iced::Result {
-    iced::application("ytrs", App::update, App::view)
-        .theme(|_| Theme::custom("Cosmic".to_string(), cosmic_palette()))
+    iced::application(App::new, App::update, App::view)
+        .title(cosmic_title)
+        .theme(cosmic_theme)
         .font(include_bytes!("../fonts/NotoSansCJK-VF.otf.ttc"))
         .default_font(iced::Font {
             family: iced::font::Family::Name("Noto Sans CJK JP"),
             ..iced::Font::DEFAULT
         })
-        .run_with(App::new)
+        .run()
+}
+
+fn cosmic_title(_: &App) -> String {
+    "ytrs".to_string()
+}
+
+fn cosmic_theme(_: &App) -> Theme {
+    Theme::custom("Cosmic".to_string(), cosmic_palette())
 }
 
 fn cosmic_palette() -> iced::theme::Palette {
@@ -23,6 +32,7 @@ fn cosmic_palette() -> iced::theme::Palette {
         primary: iced::Color::from_rgb(0.5, 0.4, 0.9),
         success: iced::Color::from_rgb(0.3, 0.8, 0.6),
         danger: iced::Color::from_rgb(0.9, 0.3, 0.4),
+        warning: iced::Color::from_rgb(0.9, 0.7, 0.3),
     }
 }
 
@@ -128,7 +138,7 @@ impl App {
         }
     }
 
-    fn view(&self) -> Element<Message> {
+    fn view(&self) -> Element<'_, Message> {
         let search = row![
             text_input("Search YouTube...", &self.query)
                 .on_input(Message::InputChanged)
