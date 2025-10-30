@@ -151,6 +151,15 @@ impl App {
                 .center_x(Length::FillPortion(1))
                 .into()
             }
+        } else if self.thumbs.len() < self.results.len() {
+            // Wait for all thumbnails to load
+            container(text(format!(
+                "Loading thumbnails... {}/{}",
+                self.thumbs.len(),
+                self.results.len()
+            )))
+            .padding(40)
+            .into()
         } else {
             let cards: Vec<Element<Message>> = self
                 .results
@@ -183,6 +192,7 @@ impl App {
                         )
                         .padding(8)
                         .width(240)
+                        .height(Length::Fixed(80.0))
                     ]
                     .spacing(0)
                     .width(240);
