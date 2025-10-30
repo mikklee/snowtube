@@ -40,27 +40,13 @@ pub fn extract_video_id(input: &str) -> Result<String> {
     Err(Error::InvalidVideoId(input.to_string()))
 }
 
-/// Generate a random visitor data string
-pub fn generate_visitor_data() -> String {
-    use rand::Rng;
-    use base64::Engine;
-    use base64::engine::general_purpose;
-
-    let mut rng = rand::thread_rng();
-    let random_bytes: Vec<u8> = (0..16).map(|_| rng.r#gen()).collect();
-    general_purpose::STANDARD.encode(&random_bytes)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_extract_video_id() {
-        assert_eq!(
-            extract_video_id("dQw4w9WgXcQ").unwrap(),
-            "dQw4w9WgXcQ"
-        );
+        assert_eq!(extract_video_id("dQw4w9WgXcQ").unwrap(), "dQw4w9WgXcQ");
         assert_eq!(
             extract_video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
             "dQw4w9WgXcQ"

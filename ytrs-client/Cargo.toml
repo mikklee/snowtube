@@ -1,0 +1,16 @@
+[package]
+name = "ytrs-client"
+version = "0.1.0"
+edition = "2024"
+authors = ["ytrs contributors"]
+description = "GUI client for ytrs - YouTube search and playback"
+license = "MIT"
+
+[dependencies]
+ytrs = { path = ".." }
+iced = { version = "0.13", features = ["tokio", "image"] }
+
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
+image = "0.25"
+bytes = "1.10"
