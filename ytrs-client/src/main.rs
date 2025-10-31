@@ -88,14 +88,33 @@ impl App {
             Message::SearchDone(res) => {
                 self.searching = false;
                 match res {
-                    Ok(r) => {
+                    Ok(mut r) => {
+                        // Create a channel result from the first video's channel info
+                        if let Some(first_video) = r.first() {
+                            if let Some(channel) = &first_video.channel {
+                                // Create a channel "result" to display first
+                                let channel_result = SearchResult {
+                                    video_id: None,
+                                    title: channel.name.clone(),
+                                    description: None,
+                                    channel: Some(channel.clone()),
+                                    view_count: None,
+                                    duration: None,
+                                    published_text: None,
+                                    thumbnails: channel.thumbnail.clone().unwrap_or_default(),
+                                };
+                                // Insert channel at the beginning
+                                r.insert(0, channel_result);
+                            }
+                        }
                         self.results = r;
                         self.thumbs.clear();
                         let tasks: Vec<_> = self
                             .results
                             .iter()
                             .filter_map(|r| {
-                                r.video_id.as_ref().and_then(|vid| {
+                                // Load video thumbnails
+                                if let Some(vid) = r.video_id.as_ref() {
                                     r.thumbnails.first().map(|t| {
                                         let id = vid.clone();
                                         let url = t.url.clone();
@@ -106,7 +125,26 @@ impl App {
                                             move |r| Message::ThumbLoaded(id.clone(), r),
                                         )
                                     })
-                                })
+                                }
+                                // Load channel thumbnails
+                                else if let Some(channel) = r.channel.as_ref() {
+                                    if let Some(cid) = channel.id.as_ref() {
+                                        r.thumbnails.first().map(|t| {
+                                            let id = cid.clone();
+                                            let url = t.url.clone();
+                                            Task::perform(
+                                                async move {
+                                                    load_thumb(&url).await.map_err(|e| e.to_string())
+                                                },
+                                                move |r| Message::ThumbLoaded(id.clone(), r),
+                                            )
+                                        })
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
                             })
                             .collect();
                         Task::batch(tasks)
@@ -166,23 +204,55 @@ impl App {
                 .center_x(Length::FillPortion(1))
                 .into()
             }
-        } else if self.thumbs.len() < self.results.len() {
-            // Wait for all thumbnails to load
-            container(text(format!(
-                "Loading thumbnails... {}/{}",
-                self.thumbs.len(),
-                self.results.len()
-            )))
-            .padding(40)
-            .into()
         } else {
             let cards: Vec<Element<Message>> = self
                 .results
                 .iter()
                 .filter_map(|r| {
+                    // Handle channel results (no video_id)
+                    if r.video_id.is_none() {
+                        // This is a channel result - check if we have the thumbnail loaded
+                        let channel_id = r.channel.as_ref().and_then(|c| c.id.as_ref());
+
+                        let thumb_widget: Element<Message> = if let Some(cid) = channel_id {
+                            if let Some(h) = self.thumbs.get(cid) {
+                                Image::new(h.clone()).width(240).height(135).into()
+                            } else {
+                                // Thumbnail not loaded yet, show placeholder
+                                container(text(&r.title).size(16))
+                                    .padding(20)
+                                    .width(240)
+                                    .height(135)
+                                    .into()
+                            }
+                        } else {
+                            // No channel id, show text
+                            container(text(&r.title).size(16))
+                                .padding(20)
+                                .width(240)
+                                .height(135)
+                                .into()
+                        };
+
+                        let card = column![
+                            thumb_widget,
+                            container(
+                                text("Channel")
+                                    .size(12)
+                            )
+                            .padding(8)
+                            .width(240)
+                            .height(Length::Fixed(80.0))
+                        ]
+                        .spacing(0)
+                        .width(240);
+
+                        return Some(container(card).padding(0).into());
+                    }
+
                     let vid = r.video_id.as_ref()?;
 
-                    // Only render if thumbnail is loaded
+                    // Only render videos if thumbnail is loaded
                     let h = self.thumbs.get(vid)?;
 
                     let thumb: Element<Message> =

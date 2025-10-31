@@ -46,11 +46,28 @@ fn parse_video_renderer(video: &Value) -> Result<SearchResult> {
     let channel_name = extract_text(video.pointer("/ownerText"))
         .unwrap_or_else(|| "Unknown".to_string());
 
+    let channel_id = video
+        .pointer("/ownerText/runs/0/navigationEndpoint/browseEndpoint/browseId")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    // Get the canonical channel URL (e.g. "/@channelhandle")
+    let channel_url = video
+        .pointer("/ownerText/runs/0/navigationEndpoint/browseEndpoint/canonicalBaseUrl")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let channel_thumbnail = parse_thumbnails(video.pointer("/channelThumbnailSupportedRenderers/channelThumbnailWithLinkRenderer/thumbnail"));
+
     let channel = Some(Channel {
-        id: None,
+        id: channel_id,
         name: channel_name,
-        url: None,
-        thumbnail: None,
+        url: channel_url,
+        thumbnail: if !channel_thumbnail.is_empty() {
+            Some(channel_thumbnail)
+        } else {
+            None
+        },
     });
 
     let view_count = extract_text(video.pointer("/viewCountText"))
