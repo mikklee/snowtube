@@ -213,29 +213,15 @@ impl App {
                 self.current_tab = ChannelTab::Videos;
 
                 let id = channel_id.clone();
-                let id2 = channel_id.clone();
 
-                Task::batch(vec![
-                    // Load channel info
-                    Task::perform(
-                        async move {
-                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                            client.get_channel(&id).await.map_err(|e| e.to_string())
-                        },
-                        Message::ChannelLoaded,
-                    ),
-                    // Load channel videos
-                    Task::perform(
-                        async move {
-                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                            client
-                                .get_channel_videos(&id2, ChannelTab::Videos)
-                                .await
-                                .map_err(|e| e.to_string())
-                        },
-                        Message::ChannelVideosLoaded,
-                    ),
-                ])
+                // First load channel info, then use channel name for locale detection when loading videos
+                Task::perform(
+                    async move {
+                        let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                        client.get_channel(&id).await.map_err(|e| e.to_string())
+                    },
+                    Message::ChannelLoaded,
+                )
             }
             Message::ChannelLoaded(res) => {
                 self.loading_channel = false;
@@ -268,8 +254,26 @@ impl App {
                             Task::none()
                         };
 
+                        // Load channel videos with locale detection based on channel name
+                        let channel_id = channel.id.clone();
+                        let channel_name = channel.name.clone();
+                        let videos_task = Task::perform(
+                            async move {
+                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                                client
+                                    .get_channel_videos_with_locale(
+                                        &channel_id,
+                                        ChannelTab::Videos,
+                                        Some(&channel_name),
+                                    )
+                                    .await
+                                    .map_err(|e| e.to_string())
+                            },
+                            Message::ChannelVideosLoaded,
+                        );
+
                         self.current_channel = Some(channel);
-                        Task::batch(vec![banner_task, avatar_task])
+                        Task::batch(vec![banner_task, avatar_task, videos_task])
                     }
                     Err(e) => {
                         eprintln!("Error loading channel: {}", e);
@@ -317,11 +321,16 @@ impl App {
                     self.channel_videos.clear();
 
                     let channel_id = channel.id.clone();
+                    let channel_name = channel.name.clone();
                     Task::perform(
                         async move {
                             let client = InnerTube::new().await.map_err(|e| e.to_string())?;
                             client
-                                .get_channel_videos(&channel_id, tab)
+                                .get_channel_videos_with_locale(
+                                    &channel_id,
+                                    tab,
+                                    Some(&channel_name),
+                                )
                                 .await
                                 .map_err(|e| e.to_string())
                         },

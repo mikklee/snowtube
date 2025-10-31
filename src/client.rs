@@ -19,8 +19,10 @@ pub struct InnerTube {
 impl InnerTube {
     /// Create a new InnerTube client
     pub async fn new() -> Result<Self> {
+        let user_agent = random_user_agent();
+
         let client = Client::builder()
-            .user_agent(USER_AGENT)
+            .user_agent(&user_agent)
             .gzip(true)
             .build()?;
 
@@ -29,8 +31,8 @@ impl InnerTube {
                 client_name: INNERTUBE_CLIENT_NAME.to_string(),
                 client_version: INNERTUBE_CLIENT_VERSION.to_string(),
                 hl: "en".to_string(),
-                gl: "US".to_string(),
-                user_agent: USER_AGENT.to_string(),
+                gl: "GB".to_string(),
+                user_agent: user_agent,
             },
         };
 
@@ -68,8 +70,14 @@ impl InnerTube {
 
     /// Search for videos on YouTube
     pub async fn search(&self, query: &str) -> Result<Vec<SearchResult>> {
+        // Detect language and update context
+        let (hl, gl) = utils::detect_locale(query);
+        let mut context = self.context.clone();
+        context.client.hl = hl;
+        context.client.gl = gl;
+
         let body = json!({
-            "context": self.context,
+            "context": context,
             "query": query,
         });
 
@@ -179,10 +187,35 @@ impl InnerTube {
         channel_id: &str,
         tab: ChannelTab,
     ) -> Result<ChannelVideos> {
+        self.get_channel_videos_with_locale(channel_id, tab, None)
+            .await
+    }
+
+    /// Get videos from a channel with optional locale detection
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_id` - The channel ID (e.g., "UCxxxxxx")
+    /// * `tab` - The channel tab to browse (Videos, Shorts, Streams, etc.)
+    /// * `locale_hint` - Optional text (e.g., channel name) to detect locale from
+    pub async fn get_channel_videos_with_locale(
+        &self,
+        channel_id: &str,
+        tab: ChannelTab,
+        locale_hint: Option<&str>,
+    ) -> Result<ChannelVideos> {
         let params = tab.params();
 
+        // Detect locale if hint is provided
+        let mut context = self.context.clone();
+        if let Some(hint) = locale_hint {
+            let (hl, gl) = utils::detect_locale(hint);
+            context.client.hl = hl;
+            context.client.gl = gl;
+        }
+
         let mut body = json!({
-            "context": self.context,
+            "context": context,
             "browseId": channel_id,
         });
 
@@ -212,6 +245,8 @@ impl InnerTube {
 
 impl Default for InnerTube {
     fn default() -> Self {
+        let user_agent = random_user_agent();
+
         Self {
             client: Client::new(),
             context: InnerTubeContext {
@@ -219,8 +254,8 @@ impl Default for InnerTube {
                     client_name: INNERTUBE_CLIENT_NAME.to_string(),
                     client_version: INNERTUBE_CLIENT_VERSION.to_string(),
                     hl: "en".to_string(),
-                    gl: "US".to_string(),
-                    user_agent: USER_AGENT.to_string(),
+                    gl: "GB".to_string(),
+                    user_agent: user_agent,
                 },
             },
             api_key: INNERTUBE_API_KEY.to_string(),
