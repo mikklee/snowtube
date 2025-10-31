@@ -44,20 +44,33 @@ pub fn extract_video_id(input: &str) -> Result<String> {
 
 /// Detect language from text and return appropriate (language_code, region_code) tuple
 pub fn detect_locale(text: &str) -> (String, String) {
-    if let Some(info) = detect(text) {
-        // Check if whatlang detection is reliable
-        if !info.is_reliable() {
-            println!("whatlang detection not reliable, falling back to lingua");
-            return detect_locale_with_lingua(text);
-        }
+    let has_asian_chars = contains_asian_characters(text);
 
+    if let Some(info) = detect(text) {
+        let confidence = info.confidence();
         let lang = info.lang();
 
         println!(
-            "Detected language with whatlang: {:?} from text: {:?}",
+            "whatlang detected: {:?} (confidence: {:.2}, reliable: {}) from text: {:?}",
             lang,
+            confidence,
+            info.is_reliable(),
             text.chars().take(50).collect::<String>()
         );
+
+        // Check if whatlang detection is reliable
+        if !info.is_reliable() {
+            println!("whatlang confidence too low, falling back to lingua");
+            return detect_locale_with_lingua(text);
+        }
+
+        // If text has asian characters, but language is not a CJK language, use lingua
+        if has_asian_chars && !is_cjk_language(lang) {
+            println!(
+                "Detected CJK (Kanji, etc) characters but whatlang returned non-CJK language, falling back to lingua"
+            );
+            return detect_locale_with_lingua(text);
+        }
 
         // Map language to (hl, gl) pairs - language code and most common region
         let locale = match lang {
@@ -180,6 +193,29 @@ fn detect_locale_with_lingua(text: &str) -> (String, String) {
         println!("All language detection failed, applying default locale: hl=en, gl=US");
         ("en".to_string(), "US".to_string())
     }
+}
+
+/// Check if text contains Asian characters (CJK, Hangul, Thai, etc.)
+fn contains_asian_characters(text: &str) -> bool {
+    text.chars().any(|c| {
+        // Japanese: Hiragana, Katakana, Kanji
+        ('\u{3040}'..='\u{309F}').contains(&c) ||  // Hiragana
+        ('\u{30A0}'..='\u{30FF}').contains(&c) ||  // Katakana
+        ('\u{4E00}'..='\u{9FFF}').contains(&c) ||  // CJK Unified Ideographs (Kanji/Hanzi)
+        // Korean: Hangul
+        ('\u{AC00}'..='\u{D7AF}').contains(&c) ||  // Hangul Syllables
+        ('\u{1100}'..='\u{11FF}').contains(&c) ||  // Hangul Jamo
+        // Thai
+        ('\u{0E00}'..='\u{0E7F}').contains(&c) ||  // Thai
+        // Additional CJK ranges
+        ('\u{3400}'..='\u{4DBF}').contains(&c) ||  // CJK Extension A
+        ('\u{F900}'..='\u{FAFF}').contains(&c) // CJK Compatibility Ideographs
+    })
+}
+
+/// Check if a whatlang language is either Chinese, Japanese, or Korean (CJK)
+fn is_cjk_language(lang: Lang) -> bool {
+    matches!(lang, Lang::Jpn | Lang::Kor | Lang::Cmn)
 }
 
 #[cfg(test)]
