@@ -1,6 +1,7 @@
 //! Utility functions
 
 use crate::error::{Error, Result};
+use lingua::{Language, LanguageDetectorBuilder};
 use whatlang::{Lang, detect};
 
 /// Extract video ID from various YouTube URL formats
@@ -44,10 +45,16 @@ pub fn extract_video_id(input: &str) -> Result<String> {
 /// Detect language from text and return appropriate (language_code, region_code) tuple
 pub fn detect_locale(text: &str) -> (String, String) {
     if let Some(info) = detect(text) {
+        // Check if whatlang detection is reliable
+        if !info.is_reliable() {
+            println!("whatlang detection not reliable, falling back to lingua");
+            return detect_locale_with_lingua(text);
+        }
+
         let lang = info.lang();
 
         println!(
-            "Detected language: {:?} from text: {:?}",
+            "Detected language with whatlang: {:?} from text: {:?}",
             lang,
             text.chars().take(50).collect::<String>()
         );
@@ -102,8 +109,75 @@ pub fn detect_locale(text: &str) -> (String, String) {
         println!("Applying locale: hl={}, gl={}", locale.0, locale.1);
         locale
     } else {
-        // If detection fails, default to English/US
-        println!("Language detection failed, applying default locale: hl=en, gl=US");
+        // If whatlang detection fails completely, try lingua
+        println!("whatlang detection failed, falling back to lingua");
+        detect_locale_with_lingua(text)
+    }
+}
+
+/// Detect language using lingua (fallback when whatlang is unreliable)
+fn detect_locale_with_lingua(text: &str) -> (String, String) {
+    let detector = LanguageDetectorBuilder::from_all_languages().build();
+
+    if let Some(lang) = detector.detect_language_of(text) {
+        println!(
+            "Detected language with lingua: {:?} from text: {:?}",
+            lang,
+            text.chars().take(50).collect::<String>()
+        );
+
+        // Map language to (hl, gl) pairs - language code and most common region
+        let locale = match lang {
+            // East Asian languages
+            Language::Japanese => ("ja".to_string(), "JP".to_string()),
+            Language::Korean => ("ko".to_string(), "KR".to_string()),
+            Language::Chinese => ("zh-CN".to_string(), "CN".to_string()),
+
+            // European languages
+            Language::Spanish => ("es".to_string(), "ES".to_string()),
+            Language::French => ("fr".to_string(), "FR".to_string()),
+            Language::German => ("de".to_string(), "DE".to_string()),
+            Language::Italian => ("it".to_string(), "IT".to_string()),
+            Language::Portuguese => ("pt".to_string(), "BR".to_string()),
+            Language::Russian => ("ru".to_string(), "RU".to_string()),
+            Language::Polish => ("pl".to_string(), "PL".to_string()),
+            Language::Ukrainian => ("uk".to_string(), "UA".to_string()),
+            Language::Dutch => ("nl".to_string(), "NL".to_string()),
+            Language::Swedish => ("sv".to_string(), "SE".to_string()),
+            Language::Danish => ("da".to_string(), "DK".to_string()),
+            Language::Finnish => ("fi".to_string(), "FI".to_string()),
+
+            // Middle Eastern languages
+            Language::Arabic => ("ar".to_string(), "SA".to_string()),
+            Language::Hebrew => ("he".to_string(), "IL".to_string()),
+            Language::Turkish => ("tr".to_string(), "TR".to_string()),
+
+            // South Asian languages
+            Language::Hindi => ("hi".to_string(), "IN".to_string()),
+            Language::Bengali => ("bn".to_string(), "BD".to_string()),
+            Language::Tamil => ("ta".to_string(), "IN".to_string()),
+            Language::Telugu => ("te".to_string(), "IN".to_string()),
+
+            // Southeast Asian languages
+            Language::Thai => ("th".to_string(), "TH".to_string()),
+            Language::Vietnamese => ("vi".to_string(), "VN".to_string()),
+            Language::Indonesian => ("id".to_string(), "ID".to_string()),
+
+            // Other languages
+            Language::Czech => ("cs".to_string(), "CZ".to_string()),
+            Language::Romanian => ("ro".to_string(), "RO".to_string()),
+            Language::Hungarian => ("hu".to_string(), "HU".to_string()),
+            Language::Greek => ("el".to_string(), "GR".to_string()),
+
+            // Default to English for unhandled or English
+            _ => ("en".to_string(), "US".to_string()),
+        };
+
+        println!("Applying locale: hl={}, gl={}", locale.0, locale.1);
+        locale
+    } else {
+        // If both detections fail, default to English/US
+        println!("All language detection failed, applying default locale: hl=en, gl=US");
         ("en".to_string(), "US".to_string())
     }
 }

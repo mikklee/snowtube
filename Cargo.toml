@@ -21,6 +21,7 @@ base64 = "0.22"
 sha1 = "0.10"
 rand = "0.8"
 whatlang = "0.16"
+lingua = { version = "1.6", default-features = false, features = ["japanese", "korean", "chinese", "spanish", "french", "german", "italian", "portuguese", "russian", "polish", "ukrainian", "dutch", "swedish", "danish", "finnish", "arabic", "hebrew", "turkish", "hindi", "bengali", "tamil", "telugu", "thai", "vietnamese", "indonesian", "czech", "romanian", "hungarian", "greek", "english"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

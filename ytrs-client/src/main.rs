@@ -254,9 +254,10 @@ impl App {
                             Task::none()
                         };
 
-                        // Load channel videos with locale detection based on channel name
+                        // Load channel videos with locale detection based on channel description (fallback to name)
                         let channel_id = channel.id.clone();
-                        let channel_name = channel.name.clone();
+                        let locale_hint =
+                            channel.description.clone().or(Some(channel.name.clone()));
                         let videos_task = Task::perform(
                             async move {
                                 let client = InnerTube::new().await.map_err(|e| e.to_string())?;
@@ -264,7 +265,7 @@ impl App {
                                     .get_channel_videos_with_locale(
                                         &channel_id,
                                         ChannelTab::Videos,
-                                        Some(&channel_name),
+                                        locale_hint.as_deref(),
                                     )
                                     .await
                                     .map_err(|e| e.to_string())
@@ -321,7 +322,7 @@ impl App {
                     self.channel_videos.clear();
 
                     let channel_id = channel.id.clone();
-                    let channel_name = channel.name.clone();
+                    let locale_hint = channel.description.clone().or(Some(channel.name.clone()));
                     Task::perform(
                         async move {
                             let client = InnerTube::new().await.map_err(|e| e.to_string())?;
@@ -329,7 +330,7 @@ impl App {
                                 .get_channel_videos_with_locale(
                                     &channel_id,
                                     tab,
-                                    Some(&channel_name),
+                                    locale_hint.as_deref(),
                                 )
                                 .await
                                 .map_err(|e| e.to_string())
