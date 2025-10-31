@@ -34,7 +34,7 @@ pub struct SearchResult {
     pub thumbnails: Vec<Thumbnail>,
 }
 
-/// Channel information
+/// Channel information (basic)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Channel {
@@ -42,6 +42,58 @@ pub struct Channel {
     pub name: String,
     pub url: Option<String>,
     pub thumbnail: Option<Vec<Thumbnail>>,
+}
+
+/// Detailed channel information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelInfo {
+    pub id: String,
+    pub name: String,
+    pub handle: Option<String>,
+    pub url: Option<String>,
+    pub description: Option<String>,
+    pub subscriber_count: Option<String>,
+    pub video_count: Option<u64>,
+    pub verified: Option<bool>,
+    pub thumbnails: Vec<Thumbnail>,
+    pub banner: Option<Vec<Thumbnail>>,
+}
+
+/// Channel videos response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelVideos {
+    pub videos: Vec<SearchResult>,
+    pub continuation: Option<String>,
+}
+
+/// Channel tab types for browsing different content
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChannelTab {
+    /// Videos tab
+    Videos,
+    /// Shorts tab
+    Shorts,
+    /// Live streams tab
+    Streams,
+}
+
+impl ChannelTab {
+    /// Get the params string for the InnerTube API
+    pub fn params(&self) -> &'static str {
+        match self {
+            ChannelTab::Videos => "EgZ2aWRlb3PyBgQKAjoA",
+            ChannelTab::Shorts => "EgZzaG9ydHPyBgUKA5oBAA%3D%3D",
+            ChannelTab::Streams => "EgdzdHJlYW1z8gYECgJ6AA%3D%3D",
+        }
+    }
+}
+
+impl Default for ChannelTab {
+    fn default() -> Self {
+        ChannelTab::Videos
+    }
 }
 
 /// Thumbnail information

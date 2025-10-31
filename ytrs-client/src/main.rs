@@ -3,7 +3,7 @@ use iced::{Alignment, Element, Length, Task, Theme};
 use iced_aw::Wrap;
 use std::collections::HashMap;
 use std::process::Command;
-use ytrs::{InnerTube, SearchResult};
+use ytrs::{ChannelInfo, ChannelTab, ChannelVideos, InnerTube, SearchResult};
 
 fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
@@ -37,12 +37,24 @@ fn cosmic_palette() -> iced::theme::Palette {
 }
 
 #[derive(Debug, Clone)]
+enum View {
+    Search,
+    Channel,
+}
+
+#[derive(Debug, Clone)]
 enum Message {
     InputChanged(String),
     Search,
     SearchDone(Result<Vec<SearchResult>, String>),
     ThumbLoaded(String, Result<Vec<u8>, String>),
+    BannerLoaded(Result<Vec<u8>, String>),
     Play(String),
+    ViewChannel(String), // channel_id
+    ChannelLoaded(Result<ChannelInfo, String>),
+    ChannelVideosLoaded(Result<ChannelVideos, String>),
+    ChangeChannelTab(ChannelTab),
+    BackToSearch,
 }
 
 struct App {
@@ -50,6 +62,12 @@ struct App {
     results: Vec<SearchResult>,
     thumbs: HashMap<String, iced::widget::image::Handle>,
     searching: bool,
+    current_view: View,
+    current_channel: Option<ChannelInfo>,
+    channel_videos: Vec<SearchResult>,
+    current_tab: ChannelTab,
+    banner: Option<iced::widget::image::Handle>,
+    loading_channel: bool,
 }
 
 impl App {
@@ -60,6 +78,12 @@ impl App {
                 results: Vec::new(),
                 thumbs: HashMap::new(),
                 searching: false,
+                current_view: View::Search,
+                current_channel: None,
+                channel_videos: Vec::new(),
+                current_tab: ChannelTab::Videos,
+                banner: None,
+                loading_channel: false,
             },
             Task::none(),
         )
@@ -134,7 +158,9 @@ impl App {
                                             let url = t.url.clone();
                                             Task::perform(
                                                 async move {
-                                                    load_thumb(&url).await.map_err(|e| e.to_string())
+                                                    load_thumb(&url)
+                                                        .await
+                                                        .map_err(|e| e.to_string())
                                                 },
                                                 move |r| Message::ThumbLoaded(id.clone(), r),
                                             )
@@ -162,6 +188,12 @@ impl App {
                 }
                 Task::none()
             }
+            Message::BannerLoaded(res) => {
+                if let Ok(bytes) = res {
+                    self.banner = Some(iced::widget::image::Handle::from_bytes(bytes));
+                }
+                Task::none()
+            }
             Message::Play(id) => {
                 let url = format!("https://www.youtube.com/watch?v={}", id);
                 std::thread::spawn(move || {
@@ -173,10 +205,150 @@ impl App {
                 });
                 Task::none()
             }
+            Message::ViewChannel(channel_id) => {
+                self.loading_channel = true;
+                self.current_view = View::Channel;
+                self.banner = None;
+                self.channel_videos.clear();
+                self.current_tab = ChannelTab::Videos;
+
+                let id = channel_id.clone();
+                let id2 = channel_id.clone();
+
+                Task::batch(vec![
+                    // Load channel info
+                    Task::perform(
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client.get_channel(&id).await.map_err(|e| e.to_string())
+                        },
+                        Message::ChannelLoaded,
+                    ),
+                    // Load channel videos
+                    Task::perform(
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client
+                                .get_channel_videos(&id2, ChannelTab::Videos)
+                                .await
+                                .map_err(|e| e.to_string())
+                        },
+                        Message::ChannelVideosLoaded,
+                    ),
+                ])
+            }
+            Message::ChannelLoaded(res) => {
+                self.loading_channel = false;
+                match res {
+                    Ok(channel) => {
+                        // Load banner image if available
+                        let banner_task = if let Some(banner_images) = &channel.banner {
+                            if let Some(banner) = banner_images.last() {
+                                let url = banner.url.clone();
+                                Task::perform(
+                                    async move { load_thumb(&url).await.map_err(|e| e.to_string()) },
+                                    Message::BannerLoaded,
+                                )
+                            } else {
+                                Task::none()
+                            }
+                        } else {
+                            Task::none()
+                        };
+
+                        // Load channel avatar
+                        let avatar_task = if let Some(thumb) = channel.thumbnails.first() {
+                            let url = thumb.url.clone();
+                            let id = channel.id.clone();
+                            Task::perform(
+                                async move { load_thumb(&url).await.map_err(|e| e.to_string()) },
+                                move |r| Message::ThumbLoaded(id.clone(), r),
+                            )
+                        } else {
+                            Task::none()
+                        };
+
+                        self.current_channel = Some(channel);
+                        Task::batch(vec![banner_task, avatar_task])
+                    }
+                    Err(e) => {
+                        eprintln!("Error loading channel: {}", e);
+                        Task::none()
+                    }
+                }
+            }
+            Message::ChannelVideosLoaded(res) => {
+                match res {
+                    Ok(videos) => {
+                        self.channel_videos = videos.videos;
+
+                        // Load thumbnails for videos
+                        let tasks: Vec<_> = self
+                            .channel_videos
+                            .iter()
+                            .filter_map(|r| {
+                                if let Some(vid) = r.video_id.as_ref() {
+                                    r.thumbnails.first().map(|t| {
+                                        let id = vid.clone();
+                                        let url = t.url.clone();
+                                        Task::perform(
+                                            async move {
+                                                load_thumb(&url).await.map_err(|e| e.to_string())
+                                            },
+                                            move |r| Message::ThumbLoaded(id.clone(), r),
+                                        )
+                                    })
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        Task::batch(tasks)
+                    }
+                    Err(e) => {
+                        eprintln!("Error loading channel videos: {}", e);
+                        Task::none()
+                    }
+                }
+            }
+            Message::ChangeChannelTab(tab) => {
+                if let Some(ref channel) = self.current_channel {
+                    self.current_tab = tab;
+                    self.channel_videos.clear();
+
+                    let channel_id = channel.id.clone();
+                    Task::perform(
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client
+                                .get_channel_videos(&channel_id, tab)
+                                .await
+                                .map_err(|e| e.to_string())
+                        },
+                        Message::ChannelVideosLoaded,
+                    )
+                } else {
+                    Task::none()
+                }
+            }
+            Message::BackToSearch => {
+                self.current_view = View::Search;
+                self.current_channel = None;
+                self.channel_videos.clear();
+                self.banner = None;
+                Task::none()
+            }
         }
     }
 
     fn view(&self) -> Element<'_, Message> {
+        match self.current_view {
+            View::Search => self.view_search(),
+            View::Channel => self.view_channel(),
+        }
+    }
+
+    fn view_search(&self) -> Element<'_, Message> {
         let search = row![
             text_input("Search YouTube...", &self.query)
                 .on_input(Message::InputChanged)
@@ -237,8 +409,11 @@ impl App {
                         let card = column![
                             thumb_widget,
                             container(
-                                text("Channel")
-                                    .size(12)
+                                column![
+                                    text(&r.title).size(14).shaping(text::Shaping::Advanced),
+                                    text("Channel").size(12),
+                                ]
+                                .spacing(4)
                             )
                             .padding(8)
                             .width(240)
@@ -247,7 +422,18 @@ impl App {
                         .spacing(0)
                         .width(240);
 
-                        return Some(container(card).padding(0).into());
+                        // Make channel card clickable
+                        if let Some(cid) = channel_id {
+                            let id = cid.clone();
+                            return Some(
+                                button(card)
+                                    .on_press(Message::ViewChannel(id))
+                                    .padding(0)
+                                    .into(),
+                            );
+                        } else {
+                            return Some(container(card).padding(0).into());
+                        }
                     }
 
                     let vid = r.video_id.as_ref()?;
@@ -301,6 +487,150 @@ impl App {
         };
 
         column![search, body].into()
+    }
+
+    fn view_channel(&self) -> Element<'_, Message> {
+        if let Some(ref channel) = self.current_channel {
+            let mut content = column![].spacing(0);
+
+            // Banner
+            if let Some(ref banner_handle) = self.banner {
+                content = content.push(
+                    container(
+                        Image::new(banner_handle.clone())
+                            .width(Length::Fill)
+                            .height(200),
+                    )
+                    .width(Length::Fill),
+                );
+            } else {
+                // Placeholder banner
+                content = content.push(container(text("")).width(Length::Fill).height(200).style(
+                    |theme: &Theme| container::Style {
+                        background: Some(iced::Background::Color(theme.palette().primary)),
+                        ..Default::default()
+                    },
+                ));
+            }
+
+            // Channel header with avatar, name, and subscriber count
+            let avatar: Element<Message> = if let Some(h) = self.thumbs.get(&channel.id) {
+                Image::new(h.clone()).width(100).height(100).into()
+            } else {
+                container(text("")).width(100).height(100).into()
+            };
+
+            let mut info_column = column![
+                text(&channel.name)
+                    .size(24)
+                    .shaping(text::Shaping::Advanced),
+            ]
+            .spacing(5);
+
+            if let Some(ref subs) = channel.subscriber_count {
+                info_column = info_column.push(text(subs).size(14));
+            }
+
+            let header = row![
+                button(text("← Back"))
+                    .on_press(Message::BackToSearch)
+                    .padding(10),
+                container(avatar).padding(10),
+                info_column.padding(10),
+            ]
+            .spacing(10)
+            .padding(20)
+            .align_y(Alignment::Center);
+
+            content = content.push(header);
+
+            // Tabs
+            let tabs = row![
+                button(text("VIDEOS"))
+                    .on_press(Message::ChangeChannelTab(ChannelTab::Videos))
+                    .padding(10),
+                button(text("SHORTS"))
+                    .on_press(Message::ChangeChannelTab(ChannelTab::Shorts))
+                    .padding(10),
+                button(text("LIVE"))
+                    .on_press(Message::ChangeChannelTab(ChannelTab::Streams))
+                    .padding(10),
+            ]
+            .spacing(5)
+            .padding(10);
+
+            content = content.push(tabs);
+
+            // Videos grid
+            let video_cards: Vec<Element<Message>> = self
+                .channel_videos
+                .iter()
+                .filter_map(|r| {
+                    let vid = r.video_id.as_ref()?;
+                    let h = self.thumbs.get(vid)?;
+
+                    let thumb: Element<Message> =
+                        Image::new(h.clone()).width(240).height(135).into();
+
+                    let mut meta = vec![];
+                    if let Some(v) = r.view_count {
+                        meta.push(format!("{} views", fmt_num(v)));
+                    }
+                    if let Some(ref d) = r.duration {
+                        meta.push(d.clone());
+                    }
+                    if let Some(ref p) = r.published_text {
+                        meta.push(p.clone());
+                    }
+
+                    let card = column![
+                        thumb,
+                        container(
+                            column![
+                                text(&r.title).size(14).shaping(text::Shaping::Advanced),
+                                text(meta.join(" • "))
+                                    .size(12)
+                                    .shaping(text::Shaping::Advanced),
+                            ]
+                            .spacing(4)
+                        )
+                        .padding(8)
+                        .width(240)
+                        .height(Length::Fixed(80.0))
+                    ]
+                    .spacing(0)
+                    .width(240);
+
+                    let v = vid.clone();
+                    Some(button(card).on_press(Message::Play(v)).padding(0).into())
+                })
+                .collect();
+
+            let videos_section: Element<Message> = if video_cards.is_empty() {
+                if self.loading_channel {
+                    container(text("Loading...")).padding(40).into()
+                } else {
+                    container(text("No videos found")).padding(40).into()
+                }
+            } else {
+                scrollable(
+                    container(
+                        Wrap::with_elements(video_cards)
+                            .spacing(15.0)
+                            .line_spacing(15.0),
+                    )
+                    .padding(20)
+                    .width(Length::Fill),
+                )
+                .into()
+            };
+
+            content = content.push(videos_section);
+
+            content.into()
+        } else {
+            container(text("Loading channel...")).padding(40).into()
+        }
     }
 }
 

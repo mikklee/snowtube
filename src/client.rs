@@ -6,7 +6,7 @@ use crate::models::*;
 use crate::parsers;
 use crate::utils;
 use reqwest::Client;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Main InnerTube client for interacting with YouTube's API
 #[derive(Debug, Clone)]
@@ -53,12 +53,7 @@ impl InnerTube {
     async fn post(&self, endpoint: &str, body: Value) -> Result<Value> {
         let url = format!("{}{}?key={}", INNERTUBE_API_BASE, endpoint, self.api_key);
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await?;
+        let response = self.client.post(&url).json(&body).send().await?;
 
         if !response.status().is_success() {
             return Err(Error::ApiError(format!(
@@ -122,7 +117,9 @@ impl InnerTube {
 
         // Parse related videos from secondary results
         let mut results = Vec::new();
-        if let Some(contents) = response.pointer("/contents/twoColumnWatchNextResults/secondaryResults/secondaryResults/results") {
+        if let Some(contents) = response.pointer(
+            "/contents/twoColumnWatchNextResults/secondaryResults/secondaryResults/results",
+        ) {
             if let Some(items) = contents.as_array() {
                 for item in items {
                     if let Some(video) = item.get("compactVideoRenderer") {
@@ -158,6 +155,58 @@ impl InnerTube {
 
         // Would need proper parsing of browse endpoint response
         Ok(vec![])
+    }
+
+    /// Get channel information by channel ID
+    pub async fn get_channel(&self, channel_id: &str) -> Result<ChannelInfo> {
+        let body = json!({
+            "context": self.context,
+            "browseId": channel_id,
+        });
+
+        let response = self.post("/browse", body).await?;
+        parsers::parse_channel_info(&response)
+    }
+
+    /// Get videos from a channel
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_id` - The channel ID (e.g., "UCxxxxxx")
+    /// * `tab` - The channel tab to browse (Videos, Shorts, Streams, etc.)
+    pub async fn get_channel_videos(
+        &self,
+        channel_id: &str,
+        tab: ChannelTab,
+    ) -> Result<ChannelVideos> {
+        let params = tab.params();
+
+        let mut body = json!({
+            "context": self.context,
+            "browseId": channel_id,
+        });
+
+        // Only add params if not empty (Home tab has no params)
+        if !params.is_empty() {
+            body["params"] = json!(params);
+        }
+
+        let response = self.post("/browse", body).await?;
+        parsers::parse_channel_videos(&response)
+    }
+
+    /// Get more channel videos using a continuation token
+    pub async fn get_channel_videos_continuation(
+        &self,
+        continuation_token: &str,
+    ) -> Result<ChannelVideos> {
+        let body = json!({
+            "context": self.context,
+            "continuation": continuation_token,
+        });
+
+        let response = self.post("/browse", body).await?;
+        parsers::parse_channel_videos(&response)
     }
 }
 
