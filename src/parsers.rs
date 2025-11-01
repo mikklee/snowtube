@@ -5,15 +5,34 @@ use crate::models::*;
 use serde_json::Value;
 
 /// Parse search results from InnerTube API response
-pub fn parse_search_results(data: &Value) -> Result<Vec<SearchResult>> {
+pub fn parse_search_results(data: &Value) -> Result<SearchResults> {
     let mut results = Vec::new();
+    let mut continuation = None;
 
-    let contents = data
-        .pointer(
-            "/contents/twoColumnSearchResultsRenderer/primaryContents/sectionListRenderer/contents",
-        )
+    // Try initial search response format first
+    let contents = if let Some(c) = data.pointer(
+        "/contents/twoColumnSearchResultsRenderer/primaryContents/sectionListRenderer/contents",
+    ) {
+        c.as_array()
+    }
+    // Try continuation response format (onResponseReceivedCommands)
+    else if let Some(commands) = data
+        .pointer("/onResponseReceivedCommands")
         .and_then(|v| v.as_array())
-        .ok_or_else(|| Error::DataNotFound("search contents".to_string()))?;
+    {
+        // Find the appendContinuationItemsAction
+        for command in commands {
+            if let Some(items) = command.pointer("/appendContinuationItemsAction/continuationItems")
+            {
+                return parse_continuation_items(items);
+            }
+        }
+        None
+    } else {
+        None
+    };
+
+    let contents = contents.ok_or_else(|| Error::DataNotFound("search contents".to_string()))?;
 
     for section in contents {
         if let Some(items) = section
@@ -28,9 +47,58 @@ pub fn parse_search_results(data: &Value) -> Result<Vec<SearchResult>> {
                 }
             }
         }
+
+        // Extract continuation token
+        if let Some(token) = section
+            .pointer("/continuationItemRenderer/continuationEndpoint/continuationCommand/token")
+            .and_then(|v| v.as_str())
+        {
+            continuation = Some(token.to_string());
+        }
     }
 
-    Ok(results)
+    Ok(SearchResults {
+        results,
+        continuation,
+        detected_locale: None, // Will be set by caller
+    })
+}
+
+/// Parse continuation items from search continuation response
+fn parse_continuation_items(items: &Value) -> Result<SearchResults> {
+    let mut results = Vec::new();
+    let mut continuation = None;
+
+    if let Some(items_array) = items.as_array() {
+        for item in items_array {
+            // Parse video items
+            if let Some(section) = item.get("itemSectionRenderer") {
+                if let Some(contents) = section.pointer("/contents").and_then(|v| v.as_array()) {
+                    for content in contents {
+                        if let Some(video) = content.get("videoRenderer") {
+                            if let Ok(result) = parse_video_renderer(video) {
+                                results.push(result);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Extract continuation token
+            if let Some(token) = item
+                .pointer("/continuationItemRenderer/continuationEndpoint/continuationCommand/token")
+                .and_then(|v| v.as_str())
+            {
+                continuation = Some(token.to_string());
+            }
+        }
+    }
+
+    Ok(SearchResults {
+        results,
+        continuation,
+        detected_locale: None,
+    })
 }
 
 /// Parse a video renderer object

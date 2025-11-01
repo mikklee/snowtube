@@ -5,7 +5,9 @@ use iced::{Alignment, Element, Length, Task, Theme};
 use iced_aw::Wrap;
 use std::collections::HashMap;
 use std::process::Command;
-use ytrs::{ChannelInfo, ChannelTab, ChannelVideos, InnerTube, SearchResult, SortFilter};
+use ytrs::{
+    ChannelInfo, ChannelTab, ChannelVideos, InnerTube, SearchResult, SearchResults, SortFilter,
+};
 
 fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
@@ -48,7 +50,7 @@ enum View {
 enum Message {
     InputChanged(String),
     Search,
-    SearchDone(Result<Vec<SearchResult>, String>),
+    SearchDone(Result<SearchResults, String>),
     ThumbLoaded(String, Result<Vec<u8>, String>),
     BannerLoaded(Result<Vec<u8>, String>),
     Play(String),
@@ -58,27 +60,27 @@ enum Message {
     ChangeChannelTab(ChannelTab),
     ChangeSortFilter(String), // sort filter label
     LoadMoreVideos,
+    LoadMoreSearchResults,
     BackToSearch,
 }
 
 struct App {
     query: String,
-    results: Vec<SearchResult>,
+    results: Vec<SearchResult>, // Shared: search results or channel videos
     thumbs: HashMap<String, iced::widget::image::Handle>,
     searching: bool,
+    continuation: Option<String>,     // Shared: continuation token
+    current_locale: (String, String), // Shared: detected locale
+    loading_more: bool,               // Shared: loading more results
+    preload_count: usize,             // Shared: track preloading (3 pages)
+    preloading: bool,                 // Shared: whether preloading
     current_view: View,
     current_channel: Option<ChannelInfo>,
-    channel_videos: Vec<SearchResult>,
     current_tab: ChannelTab,
     banner: Option<iced::widget::image::Handle>,
     loading_channel: bool,
     available_sort_filters: Vec<SortFilter>,
     selected_sort_label: Option<String>,
-    channel_continuation: Option<String>,
-    loading_more: bool,
-    preload_count: usize,             // Track auto-preloading (target: 3 pages)
-    preloading: bool,                 // Whether we're in auto-preload phase
-    current_locale: (String, String), // Detected locale (hl, gl) for current channel
 }
 
 impl App {
@@ -89,19 +91,18 @@ impl App {
                 results: Vec::new(),
                 thumbs: HashMap::new(),
                 searching: false,
+                continuation: None,
+                current_locale: ("en".to_string(), "GB".to_string()),
+                loading_more: false,
+                preload_count: 0,
+                preloading: false,
                 current_view: View::Search,
                 current_channel: None,
-                channel_videos: Vec::new(),
                 current_tab: ChannelTab::Videos,
                 banner: None,
                 loading_channel: false,
                 available_sort_filters: Vec::new(),
                 selected_sort_label: None,
-                channel_continuation: None,
-                loading_more: false,
-                preload_count: 0,
-                preloading: false,
-                current_locale: ("en".to_string(), "GB".to_string()), // Default locale
             },
             Task::none(),
         )
@@ -118,6 +119,8 @@ impl App {
                     return Task::none();
                 }
                 self.searching = true;
+                self.preload_count = 0;
+                self.preloading = true;
                 let q = self.query.clone();
                 Task::perform(
                     async move {
@@ -128,73 +131,80 @@ impl App {
                 )
             }
             Message::SearchDone(res) => {
-                self.searching = false;
                 match res {
-                    Ok(mut r) => {
-                        // Create a channel result from the first video's channel info
-                        if let Some(first_video) = r.first() {
-                            if let Some(channel) = &first_video.channel {
-                                // Create a channel "result" to display first
-                                let channel_result = SearchResult {
-                                    video_id: None,
-                                    title: channel.name.clone(),
-                                    description: None,
-                                    channel: Some(channel.clone()),
-                                    view_count: None,
-                                    duration: None,
-                                    published_text: None,
-                                    thumbnails: channel.thumbnail.clone().unwrap_or_default(),
-                                };
-                                // Insert channel at the beginning
-                                r.insert(0, channel_result);
+                    Ok(search_results) => {
+                        // Check if this is a "load more" operation (appending results)
+                        let is_load_more = self.loading_more;
+                        self.loading_more = false;
+
+                        // Store the new results to load thumbnails for
+                        let new_results = search_results.results;
+
+                        // Store continuation token for pagination
+                        self.continuation = search_results.continuation;
+
+                        // Store detected locale for subsequent requests
+                        if let Some(locale) = search_results.detected_locale {
+                            self.current_locale = locale;
+                        }
+
+                        // Update results (replace on first search, append on continuation/preload)
+                        if !is_load_more && self.results.is_empty() {
+                            self.results = new_results.clone();
+                            self.thumbs.clear();
+                        } else {
+                            // Appending results (load more or preloading)
+                            self.results.extend(new_results.clone());
+                        }
+
+                        // Auto-preload: fetch 3 pages (90 results) before showing content
+                        const TARGET_PRELOAD_PAGES: usize = 3;
+
+                        if self.preloading {
+                            self.preload_count += 1;
+
+                            // If we haven't reached target and have continuation, auto-load more
+                            if self.preload_count < TARGET_PRELOAD_PAGES
+                                && self.continuation.is_some()
+                            {
+                                let token = self.continuation.as_ref().unwrap().clone();
+                                let (hl, gl) = self.current_locale.clone();
+
+                                // Start loading thumbnails for current batch while fetching next page
+                                let thumb_tasks = create_thumbnail_tasks(&new_results);
+
+                                // Fetch next page with stored locale
+                                let next_page_task = Task::perform(
+                                    async move {
+                                        let client =
+                                            InnerTube::new().await.map_err(|e| e.to_string())?;
+                                        client
+                                            .search_continuation(&token, &hl, &gl)
+                                            .await
+                                            .map_err(|e| e.to_string())
+                                    },
+                                    Message::SearchDone,
+                                );
+
+                                return Task::batch(
+                                    [Task::batch(thumb_tasks), next_page_task].into_iter(),
+                                );
+                            } else {
+                                // Preloading complete
+                                self.preloading = false;
+                                self.searching = false;
+                                self.loading_more = false;
                             }
                         }
-                        self.results = r;
-                        self.thumbs.clear();
-                        let tasks: Vec<_> = self
-                            .results
-                            .iter()
-                            .filter_map(|r| {
-                                // Load video thumbnails
-                                if let Some(vid) = r.video_id.as_ref() {
-                                    r.thumbnails.first().map(|t| {
-                                        let id = vid.clone();
-                                        let url = t.url.clone();
-                                        Task::perform(
-                                            async move {
-                                                load_thumb(&url).await.map_err(|e| e.to_string())
-                                            },
-                                            move |r| Message::ThumbLoaded(id.clone(), r),
-                                        )
-                                    })
-                                }
-                                // Load channel thumbnails
-                                else if let Some(channel) = r.channel.as_ref() {
-                                    if let Some(cid) = channel.id.as_ref() {
-                                        r.thumbnails.first().map(|t| {
-                                            let id = cid.clone();
-                                            let url = t.url.clone();
-                                            Task::perform(
-                                                async move {
-                                                    load_thumb(&url)
-                                                        .await
-                                                        .map_err(|e| e.to_string())
-                                                },
-                                                move |r| Message::ThumbLoaded(id.clone(), r),
-                                            )
-                                        })
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-                        Task::batch(tasks)
+
+                        // Load thumbnails ONLY for the new results (not all results)
+                        Task::batch(create_thumbnail_tasks(&new_results))
                     }
                     Err(e) => {
                         eprintln!("Error: {}", e);
+                        self.preloading = false;
+                        self.searching = false;
+                        self.loading_more = false;
                         Task::none()
                     }
                 }
@@ -227,11 +237,11 @@ impl App {
                 self.loading_channel = true;
                 self.current_view = View::Channel;
                 self.banner = None;
-                self.channel_videos.clear();
+                self.results.clear();
                 self.current_tab = ChannelTab::Videos;
                 self.available_sort_filters.clear();
                 self.selected_sort_label = None;
-                self.channel_continuation = None;
+                self.continuation = None;
                 self.preload_count = 0;
                 self.preloading = true;
 
@@ -318,13 +328,13 @@ impl App {
 
                         // Update videos (append if load more, replace otherwise)
                         if is_load_more || self.preloading {
-                            self.channel_videos.extend(new_videos.clone());
+                            self.results.extend(new_videos.clone());
                         } else {
-                            self.channel_videos = new_videos.clone();
+                            self.results = new_videos.clone();
                         }
 
                         // Store continuation token for pagination
-                        self.channel_continuation = videos.continuation;
+                        self.continuation = videos.continuation;
 
                         // Store detected locale for subsequent requests
                         if let Some(locale) = videos.detected_locale {
@@ -348,33 +358,13 @@ impl App {
 
                             // If we haven't reached target and have continuation, auto-load more
                             if self.preload_count < TARGET_PRELOAD_PAGES
-                                && self.channel_continuation.is_some()
+                                && self.continuation.is_some()
                             {
-                                let token = self.channel_continuation.as_ref().unwrap().clone();
+                                let token = self.continuation.as_ref().unwrap().clone();
                                 let (hl, gl) = self.current_locale.clone();
 
                                 // Start loading thumbnails for current batch while fetching next page
-                                let thumb_tasks: Vec<_> = new_videos
-                                    .iter()
-                                    .filter_map(|r| {
-                                        if let Some(vid) = r.video_id.as_ref() {
-                                            r.thumbnails.first().map(|t| {
-                                                let id = vid.clone();
-                                                let url = t.url.clone();
-                                                Task::perform(
-                                                    async move {
-                                                        load_thumb(&url)
-                                                            .await
-                                                            .map_err(|e| e.to_string())
-                                                    },
-                                                    move |r| Message::ThumbLoaded(id.clone(), r),
-                                                )
-                                            })
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .collect();
+                                let thumb_tasks = create_thumbnail_tasks(&new_videos);
 
                                 // Fetch next page with stored locale
                                 let next_page_task = Task::perform(
@@ -403,30 +393,7 @@ impl App {
                         }
 
                         // Load thumbnails ONLY for the new videos (not all videos)
-                        {
-                            let tasks: Vec<_> = new_videos
-                                .iter()
-                                .filter_map(|r| {
-                                    if let Some(vid) = r.video_id.as_ref() {
-                                        r.thumbnails.first().map(|t| {
-                                            let id = vid.clone();
-                                            let url = t.url.clone();
-                                            Task::perform(
-                                                async move {
-                                                    load_thumb(&url)
-                                                        .await
-                                                        .map_err(|e| e.to_string())
-                                                },
-                                                move |r| Message::ThumbLoaded(id.clone(), r),
-                                            )
-                                        })
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect();
-                            Task::batch(tasks)
-                        }
+                        Task::batch(create_thumbnail_tasks(&new_videos))
                     }
                     Err(e) => {
                         eprintln!("Error loading channel videos: {}", e);
@@ -440,10 +407,10 @@ impl App {
             Message::ChangeChannelTab(tab) => {
                 if let Some(ref channel) = self.current_channel {
                     self.current_tab = tab;
-                    self.channel_videos.clear();
+                    self.results.clear();
                     self.available_sort_filters.clear();
                     self.selected_sort_label = None;
-                    self.channel_continuation = None;
+                    self.continuation = None;
                     self.preload_count = 0;
                     self.preloading = true;
                     self.loading_channel = true;
@@ -474,8 +441,8 @@ impl App {
                 {
                     if let Some(ref token) = filter.continuation_token {
                         self.selected_sort_label = Some(label);
-                        self.channel_videos.clear();
-                        self.channel_continuation = None; // Will be updated with new continuation
+                        self.results.clear();
+                        self.continuation = None; // Will be updated with new continuation
                         self.preload_count = 0;
                         self.preloading = true;
                         self.loading_channel = true;
@@ -497,7 +464,7 @@ impl App {
             }
 
             Message::LoadMoreVideos => {
-                if let Some(ref token) = self.channel_continuation {
+                if let Some(ref token) = self.continuation {
                     if !self.loading_more {
                         self.loading_more = true;
                         // Enable preloading to fetch 3 more pages
@@ -521,14 +488,39 @@ impl App {
                 }
                 Task::none()
             }
+            Message::LoadMoreSearchResults => {
+                if let Some(ref token) = self.continuation {
+                    if !self.loading_more {
+                        self.loading_more = true;
+                        // Enable preloading to fetch 3 more pages
+                        self.preload_count = 0;
+                        self.preloading = true;
+
+                        let token = token.clone();
+                        // Use stored locale for consistent results
+                        let (hl, gl) = self.current_locale.clone();
+                        return Task::perform(
+                            async move {
+                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                                client
+                                    .search_continuation(&token, &hl, &gl)
+                                    .await
+                                    .map_err(|e| e.to_string())
+                            },
+                            Message::SearchDone,
+                        );
+                    }
+                }
+                Task::none()
+            }
             Message::BackToSearch => {
                 self.current_view = View::Search;
                 self.current_channel = None;
-                self.channel_videos.clear();
+                self.results.clear();
                 self.banner = None;
                 self.available_sort_filters.clear();
                 self.selected_sort_label = None;
-                self.channel_continuation = None;
+                self.continuation = None;
                 Task::none()
             }
         }
@@ -574,61 +566,6 @@ impl App {
                 .results
                 .iter()
                 .filter_map(|r| {
-                    // Handle channel results (no video_id)
-                    if r.video_id.is_none() {
-                        // This is a channel result - check if we have the thumbnail loaded
-                        let channel_id = r.channel.as_ref().and_then(|c| c.id.as_ref());
-
-                        let thumb_widget: Element<Message> = if let Some(cid) = channel_id {
-                            if let Some(h) = self.thumbs.get(cid) {
-                                Image::new(h.clone()).width(240).height(135).into()
-                            } else {
-                                // Thumbnail not loaded yet, show placeholder
-                                container(text(&r.title).size(16))
-                                    .padding(20)
-                                    .width(240)
-                                    .height(135)
-                                    .into()
-                            }
-                        } else {
-                            // No channel id, show text
-                            container(text(&r.title).size(16))
-                                .padding(20)
-                                .width(240)
-                                .height(135)
-                                .into()
-                        };
-
-                        let card = column![
-                            thumb_widget,
-                            container(
-                                column![
-                                    text(&r.title).size(14).shaping(text::Shaping::Advanced),
-                                    text("Channel").size(12),
-                                ]
-                                .spacing(4)
-                            )
-                            .padding(8)
-                            .width(240)
-                            .height(Length::Fixed(80.0))
-                        ]
-                        .spacing(0)
-                        .width(240);
-
-                        // Make channel card clickable
-                        if let Some(cid) = channel_id {
-                            let id = cid.clone();
-                            return Some(
-                                button(card)
-                                    .on_press(Message::ViewChannel(id))
-                                    .padding(0)
-                                    .into(),
-                            );
-                        } else {
-                            return Some(container(card).padding(0).into());
-                        }
-                    }
-
                     let vid = r.video_id.as_ref()?;
 
                     // Only render videos if thumbnail is loaded
@@ -637,31 +574,100 @@ impl App {
                     let thumb: Element<Message> =
                         Image::new(h.clone()).width(240).height(135).into();
 
-                    let mut meta = vec![];
-                    if let Some(ref ch) = r.channel {
-                        meta.push(ch.name.clone());
-                    }
+                    // Build metadata line
+                    let mut meta_parts = vec![];
                     if let Some(v) = r.view_count {
-                        meta.push(format!("{} views", fmt_num(v)));
+                        meta_parts.push(format!("{} views", fmt_num(v)));
                     }
                     if let Some(ref d) = r.duration {
-                        meta.push(d.clone());
+                        meta_parts.push(d.clone());
+                    }
+
+                    // Create info section with title and metadata
+                    let full_title = r.title.clone();
+                    let display_title = truncate_title(&r.title, 25);
+
+                    let title_widget = iced::widget::tooltip(
+                        container(text(display_title).size(14).width(224))
+                            .width(224)
+                            .height(36)
+                            .clip(true),
+                        container(text(full_title).size(12))
+                            .padding(8)
+                            .style(|theme: &Theme| container::Style {
+                                background: Some(iced::Background::Color(iced::Color::from_rgb(
+                                    0.1, 0.1, 0.15,
+                                ))),
+                                border: iced::Border {
+                                    color: theme.palette().primary,
+                                    width: 1.0,
+                                    radius: 4.0.into(),
+                                },
+                                text_color: Some(theme.palette().text),
+                                ..Default::default()
+                            }),
+                        iced::widget::tooltip::Position::FollowCursor,
+                    );
+
+                    let mut info_col = column![title_widget];
+
+                    // Add clickable channel name if available
+                    if let Some(ref ch) = r.channel {
+                        if let Some(ref cid) = ch.id {
+                            let channel_id = cid.clone();
+                            let channel_name = ch.name.clone();
+                            info_col = info_col.push(
+                                button(
+                                    column![
+                                        text(channel_name).size(13).font(iced::Font {
+                                            weight: iced::font::Weight::Semibold,
+                                            ..iced::Font::DEFAULT
+                                        }),
+                                        container(text("").size(1))
+                                            .width(Length::Shrink)
+                                            .height(1)
+                                            .style(|theme: &Theme| container::Style {
+                                                background: Some(iced::Background::Color(
+                                                    theme.palette().text
+                                                )),
+                                                ..Default::default()
+                                            })
+                                    ]
+                                    .spacing(0),
+                                )
+                                .on_press(Message::ViewChannel(channel_id))
+                                .padding(0)
+                                .style(|theme: &Theme, status| button::Style {
+                                    background: None,
+                                    text_color: if matches!(status, button::Status::Hovered) {
+                                        theme.palette().primary
+                                    } else {
+                                        theme.palette().text
+                                    },
+                                    border: iced::Border::default(),
+                                    shadow: iced::Shadow::default(),
+                                    snap: false,
+                                }),
+                            );
+                        } else {
+                            info_col = info_col.push(text(&ch.name).size(13).font(iced::Font {
+                                weight: iced::font::Weight::Semibold,
+                                ..iced::Font::DEFAULT
+                            }));
+                        }
+                    }
+
+                    // Add metadata line if we have any
+                    if !meta_parts.is_empty() {
+                        info_col = info_col.push(text(meta_parts.join(" • ")).size(12));
                     }
 
                     let card = column![
                         thumb,
-                        container(
-                            column![
-                                text(&r.title).size(14).shaping(text::Shaping::Advanced),
-                                text(meta.join(" • "))
-                                    .size(12)
-                                    .shaping(text::Shaping::Advanced),
-                            ]
-                            .spacing(4)
-                        )
-                        .padding(8)
-                        .width(240)
-                        .height(Length::Fixed(80.0))
+                        container(info_col.spacing(4))
+                            .padding(8)
+                            .width(240)
+                            .height(Length::Fixed(100.0))
                     ]
                     .spacing(0)
                     .width(240);
@@ -671,12 +677,28 @@ impl App {
                 })
                 .collect();
 
-            scrollable(
-                container(Wrap::with_elements(cards).spacing(15.0).line_spacing(15.0))
+            let mut search_content =
+                column![Wrap::with_elements(cards).spacing(15.0).line_spacing(15.0),];
+
+            // Show "Load More" button or loading indicator
+            if self.loading_more {
+                let loading_indicator = container(text("Loading more...").size(14))
                     .padding(20)
-                    .width(Length::Fill),
-            )
-            .into()
+                    .center_x(Length::Fill);
+                search_content = search_content.push(loading_indicator);
+            } else if self.continuation.is_some() {
+                // Show "Load More" button if we have more results to load
+                let load_more_btn = container(
+                    button(text("Load More Results"))
+                        .on_press(Message::LoadMoreSearchResults)
+                        .padding(10),
+                )
+                .padding(20)
+                .center_x(Length::Fill);
+                search_content = search_content.push(load_more_btn);
+            }
+
+            scrollable(container(search_content).padding(20).width(Length::Fill)).into()
         };
 
         column![search, body].into()
@@ -713,12 +735,7 @@ impl App {
                 container(text("")).width(100).height(100).into()
             };
 
-            let mut info_column = column![
-                text(&channel.name)
-                    .size(24)
-                    .shaping(text::Shaping::Advanced),
-            ]
-            .spacing(5);
+            let mut info_column = column![text(&channel.name).size(24),].spacing(5);
 
             if let Some(ref subs) = channel.subscriber_count {
                 info_column = info_column.push(text(subs).size(14));
@@ -780,7 +797,7 @@ impl App {
 
             // Videos grid
             let video_cards: Vec<Element<Message>> = self
-                .channel_videos
+                .results
                 .iter()
                 .filter_map(|r| {
                     let vid = r.video_id.as_ref()?;
@@ -800,20 +817,39 @@ impl App {
                         meta.push(p.clone());
                     }
 
+                    let full_title = r.title.clone();
+                    let display_title = truncate_title(&r.title, 25);
+
+                    let title_widget = iced::widget::tooltip(
+                        container(text(display_title).size(14).width(224))
+                            .width(224)
+                            .height(36)
+                            .clip(true),
+                        container(text(full_title).size(12))
+                            .padding(8)
+                            .style(|theme: &Theme| container::Style {
+                                background: Some(iced::Background::Color(iced::Color::from_rgb(
+                                    0.1, 0.1, 0.15,
+                                ))),
+                                border: iced::Border {
+                                    color: theme.palette().primary,
+                                    width: 1.0,
+                                    radius: 4.0.into(),
+                                },
+                                text_color: Some(theme.palette().text),
+                                ..Default::default()
+                            }),
+                        iced::widget::tooltip::Position::FollowCursor,
+                    );
+
                     let card = column![
                         thumb,
                         container(
-                            column![
-                                text(&r.title).size(14).shaping(text::Shaping::Advanced),
-                                text(meta.join(" • "))
-                                    .size(12)
-                                    .shaping(text::Shaping::Advanced),
-                            ]
-                            .spacing(4)
+                            column![title_widget, text(meta.join(" • ")).size(12),].spacing(4)
                         )
                         .padding(8)
                         .width(240)
-                        .height(Length::Fixed(80.0))
+                        .height(Length::Fixed(100.0))
                     ]
                     .spacing(0)
                     .width(240);
@@ -842,7 +878,7 @@ impl App {
                         .padding(20)
                         .center_x(Length::Fill);
                     video_content = video_content.push(loading_indicator);
-                } else if self.channel_continuation.is_some() {
+                } else if self.continuation.is_some() {
                     // Show "Load More" button if we have more videos to load
                     let load_more_btn = container(
                         button(text("Load More Videos"))
@@ -870,6 +906,55 @@ async fn load_thumb(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let r = reqwest::get(url).await?;
     let b = r.bytes().await?;
     Ok(b.to_vec())
+}
+
+/// Helper function to truncate title text with ellipsis
+fn truncate_title(title: &str, max_chars: usize) -> String {
+    if title.chars().count() > max_chars {
+        format!(
+            "{}...",
+            title.chars().take(max_chars - 3).collect::<String>()
+        )
+    } else {
+        title.to_string()
+    }
+}
+
+/// Helper function to create thumbnail loading tasks for search results
+fn create_thumbnail_tasks(results: &[SearchResult]) -> Vec<Task<Message>> {
+    results
+        .iter()
+        .filter_map(|r| {
+            // Load video thumbnails
+            if let Some(vid) = r.video_id.as_ref() {
+                r.thumbnails.first().map(|t| {
+                    let id = vid.clone();
+                    let url = t.url.clone();
+                    Task::perform(
+                        async move { load_thumb(&url).await.map_err(|e| e.to_string()) },
+                        move |res| Message::ThumbLoaded(id.clone(), res),
+                    )
+                })
+            }
+            // Load channel thumbnails
+            else if let Some(channel) = r.channel.as_ref() {
+                if let Some(cid) = channel.id.as_ref() {
+                    r.thumbnails.first().map(|t| {
+                        let id = cid.clone();
+                        let url = t.url.clone();
+                        Task::perform(
+                            async move { load_thumb(&url).await.map_err(|e| e.to_string()) },
+                            move |res| Message::ThumbLoaded(id.clone(), res),
+                        )
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn fmt_num(n: u64) -> String {

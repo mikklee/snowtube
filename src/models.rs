@@ -20,6 +20,15 @@ pub struct InnerTubeClient {
     pub user_agent: String,
 }
 
+/// Search results with continuation support
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResults {
+    pub results: Vec<SearchResult>,
+    pub continuation: Option<String>,
+    pub detected_locale: Option<(String, String)>, // (hl, gl) detected locale
+}
+
 /// Search result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

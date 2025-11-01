@@ -69,12 +69,12 @@ impl InnerTube {
     }
 
     /// Search for videos on YouTube
-    pub async fn search(&self, query: &str) -> Result<Vec<SearchResult>> {
+    pub async fn search(&self, query: &str) -> Result<SearchResults> {
         // Detect language and update context
         let (hl, gl) = utils::detect_locale(query);
         let mut context = self.context.clone();
-        context.client.hl = hl;
-        context.client.gl = gl;
+        context.client.hl = hl.clone();
+        context.client.gl = gl.clone();
 
         let body = json!({
             "context": context,
@@ -82,7 +82,31 @@ impl InnerTube {
         });
 
         let response = self.post("/search", body).await?;
-        parsers::parse_search_results(&response)
+        let mut search_results = parsers::parse_search_results(&response)?;
+        search_results.detected_locale = Some((hl, gl));
+        Ok(search_results)
+    }
+
+    /// Get more search results using a continuation token with locale
+    pub async fn search_continuation(
+        &self,
+        continuation_token: &str,
+        hl: &str,
+        gl: &str,
+    ) -> Result<SearchResults> {
+        let mut context = self.context.clone();
+        context.client.hl = hl.to_string();
+        context.client.gl = gl.to_string();
+
+        let body = json!({
+            "context": context,
+            "continuation": continuation_token,
+        });
+
+        let response = self.post("/search", body).await?;
+        let mut search_results = parsers::parse_search_results(&response)?;
+        search_results.detected_locale = Some((hl.to_string(), gl.to_string()));
+        Ok(search_results)
     }
 
     /// Get video information by video ID or URL
@@ -101,17 +125,6 @@ impl InnerTube {
     /// Get basic video info (lightweight alternative to get_video)
     pub async fn get_basic_info(&self, video_id_or_url: &str) -> Result<VideoInfo> {
         self.get_video(video_id_or_url).await
-    }
-
-    /// Get the next page of results (for pagination)
-    pub async fn get_continuation(&self, continuation_token: &str) -> Result<Vec<SearchResult>> {
-        let body = json!({
-            "context": self.context,
-            "continuation": continuation_token,
-        });
-
-        let response = self.post("/search", body).await?;
-        parsers::parse_search_results(&response)
     }
 
     /// Get related videos for a given video ID
