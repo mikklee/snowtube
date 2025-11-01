@@ -57,6 +57,7 @@ enum Message {
     ChannelVideosLoaded(Result<ChannelVideos, String>),
     ChangeChannelTab(ChannelTab),
     ChangeSortFilter(String), // sort filter label
+    LoadMoreVideos,
     BackToSearch,
 }
 
@@ -73,6 +74,8 @@ struct App {
     loading_channel: bool,
     available_sort_filters: Vec<SortFilter>,
     selected_sort_label: Option<String>,
+    channel_continuation: Option<String>,
+    loading_more: bool,
 }
 
 impl App {
@@ -91,6 +94,8 @@ impl App {
                 loading_channel: false,
                 available_sort_filters: Vec::new(),
                 selected_sort_label: None,
+                channel_continuation: None,
+                loading_more: false,
             },
             Task::none(),
         )
@@ -220,6 +225,7 @@ impl App {
                 self.current_tab = ChannelTab::Videos;
                 self.available_sort_filters.clear();
                 self.selected_sort_label = None;
+                self.channel_continuation = None;
 
                 let id = channel_id.clone();
 
@@ -294,8 +300,19 @@ impl App {
             Message::ChannelVideosLoaded(res) => {
                 match res {
                     Ok(videos) => {
-                        // Update videos
-                        self.channel_videos = videos.videos;
+                        // Check if this is a "load more" operation (appending videos)
+                        let is_load_more = self.loading_more;
+                        self.loading_more = false;
+
+                        // Update videos (append if load more, replace otherwise)
+                        if is_load_more {
+                            self.channel_videos.extend(videos.videos);
+                        } else {
+                            self.channel_videos = videos.videos;
+                        }
+
+                        // Store continuation token for pagination
+                        self.channel_continuation = videos.continuation;
 
                         // Update sort filters if available
                         if let Some(filters) = videos.sort_filters {
@@ -345,6 +362,7 @@ impl App {
                     self.channel_videos.clear();
                     self.available_sort_filters.clear();
                     self.selected_sort_label = None;
+                    self.channel_continuation = None;
 
                     let channel_id = channel.id.clone();
                     let locale_hint = channel.description.clone().or(Some(channel.name.clone()));
@@ -376,7 +394,27 @@ impl App {
                     if let Some(ref token) = filter.continuation_token {
                         self.selected_sort_label = Some(label);
                         self.channel_videos.clear();
+                        self.channel_continuation = None; // Will be updated with new continuation
 
+                        let token = token.clone();
+                        return Task::perform(
+                            async move {
+                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                                client
+                                    .get_channel_videos_continuation(&token)
+                                    .await
+                                    .map_err(|e| e.to_string())
+                            },
+                            Message::ChannelVideosLoaded,
+                        );
+                    }
+                }
+                Task::none()
+            }
+            Message::LoadMoreVideos => {
+                if let Some(ref token) = self.channel_continuation {
+                    if !self.loading_more {
+                        self.loading_more = true;
                         let token = token.clone();
                         return Task::perform(
                             async move {
@@ -399,6 +437,7 @@ impl App {
                 self.banner = None;
                 self.available_sort_filters.clear();
                 self.selected_sort_label = None;
+                self.channel_continuation = None;
                 Task::none()
             }
         }
@@ -700,16 +739,31 @@ impl App {
                     container(text("No videos found")).padding(40).into()
                 }
             } else {
-                scrollable(
-                    container(
-                        Wrap::with_elements(video_cards)
-                            .spacing(15.0)
-                            .line_spacing(15.0),
-                    )
-                    .padding(20)
-                    .width(Length::Fill),
-                )
-                .into()
+                let mut video_content = column![
+                    Wrap::with_elements(video_cards)
+                        .spacing(15.0)
+                        .line_spacing(15.0),
+                ];
+
+                // Add "Load More" button if there's a continuation token
+                if self.channel_continuation.is_some() {
+                    let load_more_btn = if self.loading_more {
+                        container(text("Loading more...").size(14))
+                            .padding(20)
+                            .center_x(Length::Fill)
+                    } else {
+                        container(
+                            button(text("Load More").size(14))
+                                .on_press(Message::LoadMoreVideos)
+                                .padding(10),
+                        )
+                        .padding(20)
+                        .center_x(Length::Fill)
+                    };
+                    video_content = video_content.push(load_more_btn);
+                }
+
+                scrollable(container(video_content).padding(20).width(Length::Fill)).into()
             };
 
             content = content.push(videos_section);
