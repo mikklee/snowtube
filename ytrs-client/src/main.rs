@@ -187,7 +187,7 @@ impl App {
                                 );
 
                                 return Task::batch(
-                                    [Task::batch(thumb_tasks), next_page_task].into_iter(),
+                                    [Task::batch(thumb_tasks), next_page_task],
                                 );
                             } else {
                                 // Preloading complete
@@ -382,7 +382,7 @@ impl App {
                                 );
 
                                 return Task::batch(
-                                    [Task::batch(thumb_tasks), next_page_task].into_iter(),
+                                    [Task::batch(thumb_tasks), next_page_task],
                                 );
                             } else {
                                 // Preloading complete
@@ -438,8 +438,7 @@ impl App {
                     .available_sort_filters
                     .iter()
                     .find(|f| f.label == label)
-                {
-                    if let Some(ref token) = filter.continuation_token {
+                    && let Some(ref token) = filter.continuation_token {
                         self.selected_sort_label = Some(label);
                         self.results.clear();
                         self.continuation = None; // Will be updated with new continuation
@@ -459,13 +458,12 @@ impl App {
                             Message::ChannelVideosLoaded,
                         );
                     }
-                }
                 Task::none()
             }
 
             Message::LoadMoreVideos => {
-                if let Some(ref token) = self.continuation {
-                    if !self.loading_more {
+                if let Some(ref token) = self.continuation
+                    && !self.loading_more {
                         self.loading_more = true;
                         // Enable preloading to fetch 3 more pages
                         self.preload_count = 0;
@@ -485,12 +483,11 @@ impl App {
                             Message::ChannelVideosLoaded,
                         );
                     }
-                }
                 Task::none()
             }
             Message::LoadMoreSearchResults => {
-                if let Some(ref token) = self.continuation {
-                    if !self.loading_more {
+                if let Some(ref token) = self.continuation
+                    && !self.loading_more {
                         self.loading_more = true;
                         // Enable preloading to fetch 3 more pages
                         self.preload_count = 0;
@@ -510,7 +507,6 @@ impl App {
                             Message::SearchDone,
                         );
                     }
-                }
                 Task::none()
             }
             Message::BackToSearch => {

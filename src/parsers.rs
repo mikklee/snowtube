@@ -40,11 +40,10 @@ pub fn parse_search_results(data: &Value) -> Result<SearchResults> {
             .and_then(|v| v.as_array())
         {
             for item in items {
-                if let Some(video) = item.get("videoRenderer") {
-                    if let Ok(result) = parse_video_renderer(video) {
+                if let Some(video) = item.get("videoRenderer")
+                    && let Ok(result) = parse_video_renderer(video) {
                         results.push(result);
                     }
-                }
             }
         }
 
@@ -72,17 +71,15 @@ fn parse_continuation_items(items: &Value) -> Result<SearchResults> {
     if let Some(items_array) = items.as_array() {
         for item in items_array {
             // Parse video items
-            if let Some(section) = item.get("itemSectionRenderer") {
-                if let Some(contents) = section.pointer("/contents").and_then(|v| v.as_array()) {
+            if let Some(section) = item.get("itemSectionRenderer")
+                && let Some(contents) = section.pointer("/contents").and_then(|v| v.as_array()) {
                     for content in contents {
-                        if let Some(video) = content.get("videoRenderer") {
-                            if let Ok(result) = parse_video_renderer(video) {
+                        if let Some(video) = content.get("videoRenderer")
+                            && let Ok(result) = parse_video_renderer(video) {
                                 results.push(result);
                             }
-                        }
                     }
                 }
-            }
 
             // Extract continuation token
             if let Some(token) = item
@@ -563,19 +560,17 @@ fn parse_chip_bar(chip_bar: &Value) -> Option<Vec<SortFilter>> {
 /// Parse sort filters from YouTube's feedFilterChipBarRenderer
 fn parse_sort_filters(data: &Value) -> Option<Vec<SortFilter>> {
     // First check initial response: tabs -> tabRenderer -> content -> richGridRenderer -> header
-    if let Some(tabs) = data.pointer("/contents/twoColumnBrowseResultsRenderer/tabs") {
-        if let Some(tabs_array) = tabs.as_array() {
+    if let Some(tabs) = data.pointer("/contents/twoColumnBrowseResultsRenderer/tabs")
+        && let Some(tabs_array) = tabs.as_array() {
             for tab in tabs_array {
                 if let Some(chip_bar) = tab.pointer(
                     "/tabRenderer/content/richGridRenderer/header/feedFilterChipBarRenderer",
-                ) {
-                    if let Some(filters) = parse_chip_bar(chip_bar) {
+                )
+                    && let Some(filters) = parse_chip_bar(chip_bar) {
                         return Some(filters);
                     }
-                }
             }
         }
-    }
 
     // Also check continuation responses (reloadContinuationItemsCommand)
     let actions = data.pointer("/onResponseReceivedActions")?.as_array()?;
@@ -586,17 +581,15 @@ fn parse_sort_filters(data: &Value) -> Option<Vec<SortFilter>> {
             .pointer("/reloadContinuationItemsCommand/continuationItems")
             .or_else(|| action.pointer("/appendContinuationItemsAction/continuationItems"));
 
-        if let Some(items) = items {
-            if let Some(items_array) = items.as_array() {
+        if let Some(items) = items
+            && let Some(items_array) = items.as_array() {
                 for item in items_array {
-                    if let Some(chip_bar) = item.get("feedFilterChipBarRenderer") {
-                        if let Some(filters) = parse_chip_bar(chip_bar) {
+                    if let Some(chip_bar) = item.get("feedFilterChipBarRenderer")
+                        && let Some(filters) = parse_chip_bar(chip_bar) {
                             return Some(filters);
                         }
-                    }
                 }
             }
-        }
     }
 
     None
@@ -648,8 +641,7 @@ pub fn parse_channel_videos(data: &Value) -> Result<ChannelVideos> {
         let mut found_contents = None;
         for action in actions {
             if let Some(items) = action.pointer("/reloadContinuationItemsCommand/continuationItems")
-            {
-                if let Some(items_array) = items.as_array() {
+                && let Some(items_array) = items.as_array() {
                     // Check if this array contains video items (not just filter chips)
                     let has_videos = items_array.iter().any(|item| {
                         item.get("richItemRenderer").is_some()
@@ -662,7 +654,6 @@ pub fn parse_channel_videos(data: &Value) -> Result<ChannelVideos> {
                         break;
                     }
                 }
-            }
         }
 
         found_contents

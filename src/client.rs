@@ -32,7 +32,7 @@ impl InnerTube {
                 client_version: INNERTUBE_CLIENT_VERSION.to_string(),
                 hl: "en".to_string(),
                 gl: "GB".to_string(),
-                user_agent: user_agent,
+                user_agent,
             },
         };
 
@@ -140,8 +140,8 @@ impl InnerTube {
         let mut results = Vec::new();
         if let Some(contents) = response.pointer(
             "/contents/twoColumnWatchNextResults/secondaryResults/secondaryResults/results",
-        ) {
-            if let Some(items) = contents.as_array() {
+        )
+            && let Some(items) = contents.as_array() {
                 for item in items {
                     if let Some(video) = item.get("compactVideoRenderer") {
                         // Parse compact video renderer (similar to video renderer but slightly different structure)
@@ -160,7 +160,6 @@ impl InnerTube {
                     }
                 }
             }
-        }
 
         Ok(results)
     }
@@ -333,7 +332,7 @@ impl Default for InnerTube {
                     client_version: INNERTUBE_CLIENT_VERSION.to_string(),
                     hl: "en".to_string(),
                     gl: "GB".to_string(),
-                    user_agent: user_agent,
+                    user_agent,
                 },
             },
             api_key: INNERTUBE_API_KEY.to_string(),

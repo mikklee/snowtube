@@ -23,20 +23,17 @@ pub fn extract_video_id(input: &str) -> Result<String> {
         }
 
         // Check for youtu.be/VIDEO_ID
-        if url.host_str() == Some("youtu.be") {
-            if let Some(mut segments) = url.path_segments() {
-                if let Some(id) = segments.next() {
+        if url.host_str() == Some("youtu.be")
+            && let Some(mut segments) = url.path_segments()
+                && let Some(id) = segments.next() {
                     return Ok(id.to_string());
                 }
-            }
-        }
 
         // Check for youtube.com/embed/VIDEO_ID
-        if url.path().starts_with("/embed/") {
-            if let Some(id) = url.path().strip_prefix("/embed/") {
+        if url.path().starts_with("/embed/")
+            && let Some(id) = url.path().strip_prefix("/embed/") {
                 return Ok(id.split('/').next().unwrap_or(id).to_string());
             }
-        }
     }
 
     Err(Error::InvalidVideoId(input.to_string()))

@@ -90,8 +90,10 @@ pub struct SortFilter {
 
 /// Channel tab types for browsing different content
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum ChannelTab {
     /// Videos tab
+    #[default]
     Videos,
     /// Shorts tab
     Shorts,
@@ -110,11 +112,6 @@ impl ChannelTab {
     }
 }
 
-impl Default for ChannelTab {
-    fn default() -> Self {
-        ChannelTab::Videos
-    }
-}
 
 /// Thumbnail information
 #[derive(Debug, Clone, Serialize, Deserialize)]
