@@ -456,9 +456,90 @@ pub fn parse_channel_info(data: &Value) -> Result<ChannelInfo> {
 }
 
 /// Parse channel videos from InnerTube browse response
+/// Parse a feedFilterChipBarRenderer into SortFilters
+fn parse_chip_bar(chip_bar: &Value) -> Option<Vec<SortFilter>> {
+    let mut filters = Vec::new();
+
+    if let Some(contents) = chip_bar.pointer("/contents").and_then(|v| v.as_array()) {
+        for chip in contents {
+            if let Some(renderer) = chip.get("chipCloudChipRenderer") {
+                let label = extract_text(renderer.pointer("/text"))
+                    .unwrap_or_else(|| "Unknown".to_string());
+
+                let is_selected = renderer
+                    .pointer("/isSelected")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                let continuation_token = renderer
+                    .pointer("/navigationEndpoint/continuationCommand/token")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                filters.push(SortFilter {
+                    label,
+                    is_selected,
+                    continuation_token,
+                });
+            }
+        }
+    }
+
+    if !filters.is_empty() {
+        Some(filters)
+    } else {
+        None
+    }
+}
+
+/// Parse sort filters from YouTube's feedFilterChipBarRenderer
+fn parse_sort_filters(data: &Value) -> Option<Vec<SortFilter>> {
+    // First check initial response: tabs -> tabRenderer -> content -> richGridRenderer -> header
+    if let Some(tabs) = data.pointer("/contents/twoColumnBrowseResultsRenderer/tabs") {
+        if let Some(tabs_array) = tabs.as_array() {
+            for tab in tabs_array {
+                if let Some(chip_bar) = tab.pointer(
+                    "/tabRenderer/content/richGridRenderer/header/feedFilterChipBarRenderer",
+                ) {
+                    if let Some(filters) = parse_chip_bar(chip_bar) {
+                        return Some(filters);
+                    }
+                }
+            }
+        }
+    }
+
+    // Also check continuation responses (reloadContinuationItemsCommand)
+    let actions = data.pointer("/onResponseReceivedActions")?.as_array()?;
+
+    for action in actions {
+        // Try both reloadContinuationItemsCommand and appendContinuationItemsAction
+        let items = action
+            .pointer("/reloadContinuationItemsCommand/continuationItems")
+            .or_else(|| action.pointer("/appendContinuationItemsAction/continuationItems"));
+
+        if let Some(items) = items {
+            if let Some(items_array) = items.as_array() {
+                for item in items_array {
+                    if let Some(chip_bar) = item.get("feedFilterChipBarRenderer") {
+                        if let Some(filters) = parse_chip_bar(chip_bar) {
+                            return Some(filters);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 pub fn parse_channel_videos(data: &Value) -> Result<ChannelVideos> {
     let mut videos = Vec::new();
     let mut continuation = None;
+
+    // Check for sort filters (in both initial and continuation responses)
+    let sort_filters = parse_sort_filters(data);
 
     // Try to find the tab contents - could be in different locations depending on whether
     // this is the initial request or a continuation
@@ -488,8 +569,36 @@ pub fn parse_channel_videos(data: &Value) -> Result<ChannelVideos> {
     } else if let Some(c) =
         data.pointer("/onResponseReceivedActions/0/appendContinuationItemsAction/continuationItems")
     {
-        // Continuation request
+        // Continuation request (old format)
         c
+    } else if let Some(actions) = data
+        .pointer("/onResponseReceivedActions")
+        .and_then(|v| v.as_array())
+    {
+        // Continuation request (new format with reloadContinuationItemsCommand)
+        // Find the action that contains video items (not the filter chips)
+        let mut found_contents = None;
+        for action in actions {
+            if let Some(items) = action.pointer("/reloadContinuationItemsCommand/continuationItems")
+            {
+                if let Some(items_array) = items.as_array() {
+                    // Check if this array contains video items (not just filter chips)
+                    let has_videos = items_array.iter().any(|item| {
+                        item.get("richItemRenderer").is_some()
+                            || item.get("videoRenderer").is_some()
+                            || item.get("gridVideoRenderer").is_some()
+                    });
+
+                    if has_videos {
+                        found_contents = Some(items);
+                        break;
+                    }
+                }
+            }
+        }
+
+        found_contents
+            .ok_or_else(|| Error::DataNotFound("reload continuation items".to_string()))?
     } else {
         return Err(Error::DataNotFound("channel videos contents".to_string()));
     };
@@ -535,6 +644,7 @@ pub fn parse_channel_videos(data: &Value) -> Result<ChannelVideos> {
     Ok(ChannelVideos {
         videos,
         continuation,
+        sort_filters,
     })
 }
 

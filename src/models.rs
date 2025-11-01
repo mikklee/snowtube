@@ -66,6 +66,16 @@ pub struct ChannelInfo {
 pub struct ChannelVideos {
     pub videos: Vec<SearchResult>,
     pub continuation: Option<String>,
+    pub sort_filters: Option<Vec<SortFilter>>,
+}
+
+/// Sort filter information for channel videos
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SortFilter {
+    pub label: String,
+    pub is_selected: bool,
+    pub continuation_token: Option<String>,
 }
 
 /// Channel tab types for browsing different content

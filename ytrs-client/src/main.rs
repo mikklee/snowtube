@@ -1,9 +1,11 @@
-use iced::widget::{Image, button, column, container, row, scrollable, text, text_input};
+use iced::widget::{
+    Image, button, column, container, pick_list, row, scrollable, text, text_input,
+};
 use iced::{Alignment, Element, Length, Task, Theme};
 use iced_aw::Wrap;
 use std::collections::HashMap;
 use std::process::Command;
-use ytrs::{ChannelInfo, ChannelTab, ChannelVideos, InnerTube, SearchResult};
+use ytrs::{ChannelInfo, ChannelTab, ChannelVideos, InnerTube, SearchResult, SortFilter};
 
 fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
@@ -54,6 +56,7 @@ enum Message {
     ChannelLoaded(Result<ChannelInfo, String>),
     ChannelVideosLoaded(Result<ChannelVideos, String>),
     ChangeChannelTab(ChannelTab),
+    ChangeSortFilter(String), // sort filter label
     BackToSearch,
 }
 
@@ -68,6 +71,8 @@ struct App {
     current_tab: ChannelTab,
     banner: Option<iced::widget::image::Handle>,
     loading_channel: bool,
+    available_sort_filters: Vec<SortFilter>,
+    selected_sort_label: Option<String>,
 }
 
 impl App {
@@ -84,6 +89,8 @@ impl App {
                 current_tab: ChannelTab::Videos,
                 banner: None,
                 loading_channel: false,
+                available_sort_filters: Vec::new(),
+                selected_sort_label: None,
             },
             Task::none(),
         )
@@ -211,6 +218,8 @@ impl App {
                 self.banner = None;
                 self.channel_videos.clear();
                 self.current_tab = ChannelTab::Videos;
+                self.available_sort_filters.clear();
+                self.selected_sort_label = None;
 
                 let id = channel_id.clone();
 
@@ -285,30 +294,44 @@ impl App {
             Message::ChannelVideosLoaded(res) => {
                 match res {
                     Ok(videos) => {
+                        // Update videos
                         self.channel_videos = videos.videos;
 
+                        // Update sort filters if available
+                        if let Some(filters) = videos.sort_filters {
+                            self.selected_sort_label = filters
+                                .iter()
+                                .find(|f| f.is_selected)
+                                .map(|f| f.label.clone());
+                            self.available_sort_filters = filters;
+                        }
+
                         // Load thumbnails for videos
-                        let tasks: Vec<_> = self
-                            .channel_videos
-                            .iter()
-                            .filter_map(|r| {
-                                if let Some(vid) = r.video_id.as_ref() {
-                                    r.thumbnails.first().map(|t| {
-                                        let id = vid.clone();
-                                        let url = t.url.clone();
-                                        Task::perform(
-                                            async move {
-                                                load_thumb(&url).await.map_err(|e| e.to_string())
-                                            },
-                                            move |r| Message::ThumbLoaded(id.clone(), r),
-                                        )
-                                    })
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-                        Task::batch(tasks)
+                        {
+                            let tasks: Vec<_> = self
+                                .channel_videos
+                                .iter()
+                                .filter_map(|r| {
+                                    if let Some(vid) = r.video_id.as_ref() {
+                                        r.thumbnails.first().map(|t| {
+                                            let id = vid.clone();
+                                            let url = t.url.clone();
+                                            Task::perform(
+                                                async move {
+                                                    load_thumb(&url)
+                                                        .await
+                                                        .map_err(|e| e.to_string())
+                                                },
+                                                move |r| Message::ThumbLoaded(id.clone(), r),
+                                            )
+                                        })
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+                            Task::batch(tasks)
+                        }
                     }
                     Err(e) => {
                         eprintln!("Error loading channel videos: {}", e);
@@ -320,6 +343,8 @@ impl App {
                 if let Some(ref channel) = self.current_channel {
                     self.current_tab = tab;
                     self.channel_videos.clear();
+                    self.available_sort_filters.clear();
+                    self.selected_sort_label = None;
 
                     let channel_id = channel.id.clone();
                     let locale_hint = channel.description.clone().or(Some(channel.name.clone()));
@@ -341,11 +366,39 @@ impl App {
                     Task::none()
                 }
             }
+            Message::ChangeSortFilter(label) => {
+                // Find the filter with the matching label and use its continuation token
+                if let Some(filter) = self
+                    .available_sort_filters
+                    .iter()
+                    .find(|f| f.label == label)
+                {
+                    if let Some(ref token) = filter.continuation_token {
+                        self.selected_sort_label = Some(label);
+                        self.channel_videos.clear();
+
+                        let token = token.clone();
+                        return Task::perform(
+                            async move {
+                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                                client
+                                    .get_channel_videos_continuation(&token)
+                                    .await
+                                    .map_err(|e| e.to_string())
+                            },
+                            Message::ChannelVideosLoaded,
+                        );
+                    }
+                }
+                Task::none()
+            }
             Message::BackToSearch => {
                 self.current_view = View::Search;
                 self.current_channel = None;
                 self.channel_videos.clear();
                 self.banner = None;
+                self.available_sort_filters.clear();
+                self.selected_sort_label = None;
                 Task::none()
             }
         }
@@ -570,6 +623,30 @@ impl App {
             .padding(10);
 
             content = content.push(tabs);
+
+            // Sort dropdown (only show if we have sort filters available)
+            if !self.available_sort_filters.is_empty() {
+                let filter_labels: Vec<String> = self
+                    .available_sort_filters
+                    .iter()
+                    .map(|f| f.label.clone())
+                    .collect();
+
+                let sort_row = row![
+                    text("Sort by:").size(14),
+                    pick_list(
+                        filter_labels,
+                        self.selected_sort_label.clone(),
+                        Message::ChangeSortFilter,
+                    )
+                    .padding(5)
+                ]
+                .spacing(10)
+                .padding(10)
+                .align_y(Alignment::Center);
+
+                content = content.push(sort_row);
+            }
 
             // Videos grid
             let video_cards: Vec<Element<Message>> = self
