@@ -1,4 +1,3 @@
-use iced::widget::scrollable::Viewport;
 use iced::widget::{
     Image, button, column, container, pick_list, row, scrollable, text, text_input,
 };
@@ -59,7 +58,6 @@ enum Message {
     ChangeChannelTab(ChannelTab),
     ChangeSortFilter(String), // sort filter label
     LoadMoreVideos,
-    ChannelScrolled(Viewport),
     BackToSearch,
 }
 
@@ -78,6 +76,8 @@ struct App {
     selected_sort_label: Option<String>,
     channel_continuation: Option<String>,
     loading_more: bool,
+    preload_count: usize, // Track auto-preloading (target: 3 pages)
+    preloading: bool,     // Whether we're in auto-preload phase
 }
 
 impl App {
@@ -98,6 +98,8 @@ impl App {
                 selected_sort_label: None,
                 channel_continuation: None,
                 loading_more: false,
+                preload_count: 0,
+                preloading: false,
             },
             Task::none(),
         )
@@ -228,6 +230,8 @@ impl App {
                 self.available_sort_filters.clear();
                 self.selected_sort_label = None;
                 self.channel_continuation = None;
+                self.preload_count = 0;
+                self.preloading = true;
 
                 let id = channel_id.clone();
 
@@ -310,7 +314,7 @@ impl App {
                         let new_videos = videos.videos;
 
                         // Update videos (append if load more, replace otherwise)
-                        if is_load_more {
+                        if is_load_more || self.preloading {
                             self.channel_videos.extend(new_videos.clone());
                         } else {
                             self.channel_videos = new_videos.clone();
@@ -326,6 +330,65 @@ impl App {
                                 .find(|f| f.is_selected)
                                 .map(|f| f.label.clone());
                             self.available_sort_filters = filters;
+                        }
+
+                        // Auto-preload: fetch 3 pages (90 videos) before showing content
+                        const TARGET_PRELOAD_PAGES: usize = 3;
+
+                        if self.preloading {
+                            self.preload_count += 1;
+
+                            // If we haven't reached target and have continuation, auto-load more
+                            if self.preload_count < TARGET_PRELOAD_PAGES
+                                && self.channel_continuation.is_some()
+                            {
+                                let token = self.channel_continuation.as_ref().unwrap().clone();
+
+                                // Start loading thumbnails for current batch while fetching next page
+                                let thumb_tasks: Vec<_> = new_videos
+                                    .iter()
+                                    .filter_map(|r| {
+                                        if let Some(vid) = r.video_id.as_ref() {
+                                            r.thumbnails.first().map(|t| {
+                                                let id = vid.clone();
+                                                let url = t.url.clone();
+                                                Task::perform(
+                                                    async move {
+                                                        load_thumb(&url)
+                                                            .await
+                                                            .map_err(|e| e.to_string())
+                                                    },
+                                                    move |r| Message::ThumbLoaded(id.clone(), r),
+                                                )
+                                            })
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect();
+
+                                // Fetch next page
+                                let next_page_task = Task::perform(
+                                    async move {
+                                        let client =
+                                            InnerTube::new().await.map_err(|e| e.to_string())?;
+                                        client
+                                            .get_channel_videos_continuation(&token)
+                                            .await
+                                            .map_err(|e| e.to_string())
+                                    },
+                                    Message::ChannelVideosLoaded,
+                                );
+
+                                return Task::batch(
+                                    [Task::batch(thumb_tasks), next_page_task].into_iter(),
+                                );
+                            } else {
+                                // Preloading complete
+                                self.preloading = false;
+                                self.loading_channel = false;
+                                self.loading_more = false;
+                            }
                         }
 
                         // Load thumbnails ONLY for the new videos (not all videos)
@@ -356,6 +419,9 @@ impl App {
                     }
                     Err(e) => {
                         eprintln!("Error loading channel videos: {}", e);
+                        self.preloading = false;
+                        self.loading_channel = false;
+                        self.loading_more = false;
                         Task::none()
                     }
                 }
@@ -367,6 +433,9 @@ impl App {
                     self.available_sort_filters.clear();
                     self.selected_sort_label = None;
                     self.channel_continuation = None;
+                    self.preload_count = 0;
+                    self.preloading = true;
+                    self.loading_channel = true;
 
                     let channel_id = channel.id.clone();
                     let locale_hint = channel.description.clone().or(Some(channel.name.clone()));
@@ -399,6 +468,9 @@ impl App {
                         self.selected_sort_label = Some(label);
                         self.channel_videos.clear();
                         self.channel_continuation = None; // Will be updated with new continuation
+                        self.preload_count = 0;
+                        self.preloading = true;
+                        self.loading_channel = true;
 
                         let token = token.clone();
                         return Task::perform(
@@ -415,22 +487,15 @@ impl App {
                 }
                 Task::none()
             }
-            Message::ChannelScrolled(viewport) => {
-                // Check if we're near the bottom (80% scrolled)
-                let relative_offset = viewport.relative_offset();
-                if relative_offset.y >= 0.8
-                    && self.channel_continuation.is_some()
-                    && !self.loading_more
-                {
-                    // Trigger load more automatically
-                    return self.update(Message::LoadMoreVideos);
-                }
-                Task::none()
-            }
+
             Message::LoadMoreVideos => {
                 if let Some(ref token) = self.channel_continuation {
                     if !self.loading_more {
                         self.loading_more = true;
+                        // Enable preloading to fetch 3 more pages
+                        self.preload_count = 0;
+                        self.preloading = true;
+
                         let token = token.clone();
                         return Task::perform(
                             async move {
@@ -761,17 +826,25 @@ impl App {
                         .line_spacing(15.0),
                 ];
 
-                // Show loading indicator if loading more
+                // Show "Load More" button or loading indicator
                 if self.loading_more {
                     let loading_indicator = container(text("Loading more...").size(14))
                         .padding(20)
                         .center_x(Length::Fill);
                     video_content = video_content.push(loading_indicator);
+                } else if self.channel_continuation.is_some() {
+                    // Show "Load More" button if we have more videos to load
+                    let load_more_btn = container(
+                        button(text("Load More Videos"))
+                            .on_press(Message::LoadMoreVideos)
+                            .padding(10),
+                    )
+                    .padding(20)
+                    .center_x(Length::Fill);
+                    video_content = video_content.push(load_more_btn);
                 }
 
-                scrollable(container(video_content).padding(20).width(Length::Fill))
-                    .on_scroll(Message::ChannelScrolled)
-                    .into()
+                scrollable(container(video_content).padding(20).width(Length::Fill)).into()
             };
 
             content = content.push(videos_section);
