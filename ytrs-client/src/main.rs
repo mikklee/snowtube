@@ -186,9 +186,7 @@ impl App {
                                     Message::SearchDone,
                                 );
 
-                                return Task::batch(
-                                    [Task::batch(thumb_tasks), next_page_task],
-                                );
+                                return Task::batch([Task::batch(thumb_tasks), next_page_task]);
                             } else {
                                 // Preloading complete
                                 self.preloading = false;
@@ -381,9 +379,7 @@ impl App {
                                     Message::ChannelVideosLoaded,
                                 );
 
-                                return Task::batch(
-                                    [Task::batch(thumb_tasks), next_page_task],
-                                );
+                                return Task::batch([Task::batch(thumb_tasks), next_page_task]);
                             } else {
                                 // Preloading complete
                                 self.preloading = false;
@@ -438,75 +434,78 @@ impl App {
                     .available_sort_filters
                     .iter()
                     .find(|f| f.label == label)
-                    && let Some(ref token) = filter.continuation_token {
-                        self.selected_sort_label = Some(label);
-                        self.results.clear();
-                        self.continuation = None; // Will be updated with new continuation
-                        self.preload_count = 0;
-                        self.preloading = true;
-                        self.loading_channel = true;
+                    && let Some(ref token) = filter.continuation_token
+                {
+                    self.selected_sort_label = Some(label);
+                    self.results.clear();
+                    self.continuation = None; // Will be updated with new continuation
+                    self.preload_count = 0;
+                    self.preloading = true;
+                    self.loading_channel = true;
 
-                        let token = token.clone();
-                        return Task::perform(
-                            async move {
-                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                                client
-                                    .get_channel_videos_continuation(&token)
-                                    .await
-                                    .map_err(|e| e.to_string())
-                            },
-                            Message::ChannelVideosLoaded,
-                        );
-                    }
+                    let token = token.clone();
+                    return Task::perform(
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client
+                                .get_channel_videos_continuation(&token)
+                                .await
+                                .map_err(|e| e.to_string())
+                        },
+                        Message::ChannelVideosLoaded,
+                    );
+                }
                 Task::none()
             }
 
             Message::LoadMoreVideos => {
                 if let Some(ref token) = self.continuation
-                    && !self.loading_more {
-                        self.loading_more = true;
-                        // Enable preloading to fetch 3 more pages
-                        self.preload_count = 0;
-                        self.preloading = true;
+                    && !self.loading_more
+                {
+                    self.loading_more = true;
+                    // Enable preloading to fetch 3 more pages
+                    self.preload_count = 0;
+                    self.preloading = true;
 
-                        let token = token.clone();
-                        // Use stored locale for consistent results
-                        let (hl, gl) = self.current_locale.clone();
-                        return Task::perform(
-                            async move {
-                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                                client
-                                    .get_channel_videos_continuation_with_locale(&token, &hl, &gl)
-                                    .await
-                                    .map_err(|e| e.to_string())
-                            },
-                            Message::ChannelVideosLoaded,
-                        );
-                    }
+                    let token = token.clone();
+                    // Use stored locale for consistent results
+                    let (hl, gl) = self.current_locale.clone();
+                    return Task::perform(
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client
+                                .get_channel_videos_continuation_with_locale(&token, &hl, &gl)
+                                .await
+                                .map_err(|e| e.to_string())
+                        },
+                        Message::ChannelVideosLoaded,
+                    );
+                }
                 Task::none()
             }
             Message::LoadMoreSearchResults => {
                 if let Some(ref token) = self.continuation
-                    && !self.loading_more {
-                        self.loading_more = true;
-                        // Enable preloading to fetch 3 more pages
-                        self.preload_count = 0;
-                        self.preloading = true;
+                    && !self.loading_more
+                {
+                    self.loading_more = true;
+                    // Enable preloading to fetch 3 more pages
+                    self.preload_count = 0;
+                    self.preloading = true;
 
-                        let token = token.clone();
-                        // Use stored locale for consistent results
-                        let (hl, gl) = self.current_locale.clone();
-                        return Task::perform(
-                            async move {
-                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                                client
-                                    .search_continuation(&token, &hl, &gl)
-                                    .await
-                                    .map_err(|e| e.to_string())
-                            },
-                            Message::SearchDone,
-                        );
-                    }
+                    let token = token.clone();
+                    // Use stored locale for consistent results
+                    let (hl, gl) = self.current_locale.clone();
+                    return Task::perform(
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client
+                                .search_continuation(&token, &hl, &gl)
+                                .await
+                                .map_err(|e| e.to_string())
+                        },
+                        Message::SearchDone,
+                    );
+                }
                 Task::none()
             }
             Message::BackToSearch => {
@@ -584,24 +583,8 @@ impl App {
                     let display_title = truncate_title(&r.title, 25);
 
                     let title_widget = iced::widget::tooltip(
-                        container(text(display_title).size(14).width(224))
-                            .width(224)
-                            .height(36)
-                            .clip(true),
-                        container(text(full_title).size(12))
-                            .padding(8)
-                            .style(|theme: &Theme| container::Style {
-                                background: Some(iced::Background::Color(iced::Color::from_rgb(
-                                    0.1, 0.1, 0.15,
-                                ))),
-                                border: iced::Border {
-                                    color: theme.palette().primary,
-                                    width: 1.0,
-                                    radius: 4.0.into(),
-                                },
-                                text_color: Some(theme.palette().text),
-                                ..Default::default()
-                            }),
+                        text(display_title).size(14),
+                        text(full_title),
                         iced::widget::tooltip::Position::FollowCursor,
                     );
 
@@ -610,46 +593,12 @@ impl App {
                     // Add clickable channel name if available
                     if let Some(ref ch) = r.channel {
                         if let Some(ref cid) = ch.id {
-                            let channel_id = cid.clone();
-                            let channel_name = ch.name.clone();
                             info_col = info_col.push(
-                                button(
-                                    column![
-                                        text(channel_name).size(13).font(iced::Font {
-                                            weight: iced::font::Weight::Semibold,
-                                            ..iced::Font::DEFAULT
-                                        }),
-                                        container(text("").size(1))
-                                            .width(Length::Shrink)
-                                            .height(1)
-                                            .style(|theme: &Theme| container::Style {
-                                                background: Some(iced::Background::Color(
-                                                    theme.palette().text
-                                                )),
-                                                ..Default::default()
-                                            })
-                                    ]
-                                    .spacing(0),
-                                )
-                                .on_press(Message::ViewChannel(channel_id))
-                                .padding(0)
-                                .style(|theme: &Theme, status| button::Style {
-                                    background: None,
-                                    text_color: if matches!(status, button::Status::Hovered) {
-                                        theme.palette().primary
-                                    } else {
-                                        theme.palette().text
-                                    },
-                                    border: iced::Border::default(),
-                                    shadow: iced::Shadow::default(),
-                                    snap: false,
-                                }),
+                                button(ch.name.as_str())
+                                    .on_press(Message::ViewChannel(cid.clone())),
                             );
                         } else {
-                            info_col = info_col.push(text(&ch.name).size(13).font(iced::Font {
-                                weight: iced::font::Weight::Semibold,
-                                ..iced::Font::DEFAULT
-                            }));
+                            info_col = info_col.push(text(&ch.name));
                         }
                     }
 
@@ -817,24 +766,8 @@ impl App {
                     let display_title = truncate_title(&r.title, 25);
 
                     let title_widget = iced::widget::tooltip(
-                        container(text(display_title).size(14).width(224))
-                            .width(224)
-                            .height(36)
-                            .clip(true),
-                        container(text(full_title).size(12))
-                            .padding(8)
-                            .style(|theme: &Theme| container::Style {
-                                background: Some(iced::Background::Color(iced::Color::from_rgb(
-                                    0.1, 0.1, 0.15,
-                                ))),
-                                border: iced::Border {
-                                    color: theme.palette().primary,
-                                    width: 1.0,
-                                    radius: 4.0.into(),
-                                },
-                                text_color: Some(theme.palette().text),
-                                ..Default::default()
-                            }),
+                        text(display_title).size(14),
+                        text(full_title),
                         iced::widget::tooltip::Position::FollowCursor,
                     );
 
