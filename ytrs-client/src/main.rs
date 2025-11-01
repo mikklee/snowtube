@@ -552,7 +552,7 @@ impl App {
                 container(
                     column![
                         text("ytrs").size(40),
-                        text("YouTube search without API keys").size(14)
+                        text("YouTube for polyglots").size(14)
                     ]
                     .spacing(10)
                     .align_x(Alignment::Center),
