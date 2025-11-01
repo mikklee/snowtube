@@ -1,3 +1,4 @@
+use iced::widget::scrollable::Viewport;
 use iced::widget::{
     Image, button, column, container, pick_list, row, scrollable, text, text_input,
 };
@@ -58,6 +59,7 @@ enum Message {
     ChangeChannelTab(ChannelTab),
     ChangeSortFilter(String), // sort filter label
     LoadMoreVideos,
+    ChannelScrolled(Viewport),
     BackToSearch,
 }
 
@@ -413,6 +415,18 @@ impl App {
                 }
                 Task::none()
             }
+            Message::ChannelScrolled(viewport) => {
+                // Check if we're near the bottom (80% scrolled)
+                let relative_offset = viewport.relative_offset();
+                if relative_offset.y >= 0.8
+                    && self.channel_continuation.is_some()
+                    && !self.loading_more
+                {
+                    // Trigger load more automatically
+                    return self.update(Message::LoadMoreVideos);
+                }
+                Task::none()
+            }
             Message::LoadMoreVideos => {
                 if let Some(ref token) = self.channel_continuation {
                     if !self.loading_more {
@@ -747,25 +761,17 @@ impl App {
                         .line_spacing(15.0),
                 ];
 
-                // Add "Load More" button if there's a continuation token
-                if self.channel_continuation.is_some() {
-                    let load_more_btn = if self.loading_more {
-                        container(text("Loading more...").size(14))
-                            .padding(20)
-                            .center_x(Length::Fill)
-                    } else {
-                        container(
-                            button(text("Load More").size(14))
-                                .on_press(Message::LoadMoreVideos)
-                                .padding(10),
-                        )
+                // Show loading indicator if loading more
+                if self.loading_more {
+                    let loading_indicator = container(text("Loading more...").size(14))
                         .padding(20)
-                        .center_x(Length::Fill)
-                    };
-                    video_content = video_content.push(load_more_btn);
+                        .center_x(Length::Fill);
+                    video_content = video_content.push(loading_indicator);
                 }
 
-                scrollable(container(video_content).padding(20).width(Length::Fill)).into()
+                scrollable(container(video_content).padding(20).width(Length::Fill))
+                    .on_scroll(Message::ChannelScrolled)
+                    .into()
             };
 
             content = content.push(videos_section);
