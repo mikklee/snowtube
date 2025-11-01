@@ -304,11 +304,14 @@ impl App {
                         let is_load_more = self.loading_more;
                         self.loading_more = false;
 
+                        // Store the new videos to load thumbnails for
+                        let new_videos = videos.videos;
+
                         // Update videos (append if load more, replace otherwise)
                         if is_load_more {
-                            self.channel_videos.extend(videos.videos);
+                            self.channel_videos.extend(new_videos.clone());
                         } else {
-                            self.channel_videos = videos.videos;
+                            self.channel_videos = new_videos.clone();
                         }
 
                         // Store continuation token for pagination
@@ -323,10 +326,9 @@ impl App {
                             self.available_sort_filters = filters;
                         }
 
-                        // Load thumbnails for videos
+                        // Load thumbnails ONLY for the new videos (not all videos)
                         {
-                            let tasks: Vec<_> = self
-                                .channel_videos
+                            let tasks: Vec<_> = new_videos
                                 .iter()
                                 .filter_map(|r| {
                                     if let Some(vid) = r.video_id.as_ref() {
