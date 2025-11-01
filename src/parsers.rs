@@ -645,6 +645,7 @@ pub fn parse_channel_videos(data: &Value) -> Result<ChannelVideos> {
         videos,
         continuation,
         sort_filters,
+        detected_locale: None,
     })
 }
 

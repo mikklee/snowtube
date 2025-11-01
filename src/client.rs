@@ -208,11 +208,14 @@ impl InnerTube {
 
         // Detect locale if hint is provided
         let mut context = self.context.clone();
-        if let Some(hint) = locale_hint {
+        let detected_locale = if let Some(hint) = locale_hint {
             let (hl, gl) = utils::detect_locale(hint);
-            context.client.hl = hl;
-            context.client.gl = gl;
-        }
+            context.client.hl = hl.clone();
+            context.client.gl = gl.clone();
+            Some((hl, gl))
+        } else {
+            None
+        };
 
         let mut body = json!({
             "context": context,
@@ -225,7 +228,47 @@ impl InnerTube {
         }
 
         let response = self.post("/browse", body).await?;
-        parsers::parse_channel_videos(&response)
+        let mut channel_videos = parsers::parse_channel_videos(&response)?;
+        channel_videos.detected_locale = detected_locale;
+        Ok(channel_videos)
+    }
+
+    /// Get videos from a channel with explicit locale (hl, gl)
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_id` - The channel ID (e.g., "UCxxxxxx")
+    /// * `tab` - The channel tab to browse (Videos, Shorts, Streams, etc.)
+    /// * `hl` - Language code (e.g., "ja", "en", "ko")
+    /// * `gl` - Region code (e.g., "JP", "US", "KR")
+    pub async fn get_channel_videos_with_explicit_locale(
+        &self,
+        channel_id: &str,
+        tab: ChannelTab,
+        hl: &str,
+        gl: &str,
+    ) -> Result<ChannelVideos> {
+        let params = tab.params();
+
+        // Use explicit locale
+        let mut context = self.context.clone();
+        context.client.hl = hl.to_string();
+        context.client.gl = gl.to_string();
+
+        let mut body = json!({
+            "context": context,
+            "browseId": channel_id,
+        });
+
+        // Only add params if not empty (Home tab has no params)
+        if !params.is_empty() {
+            body["params"] = json!(params);
+        }
+
+        let response = self.post("/browse", body).await?;
+        let mut channel_videos = parsers::parse_channel_videos(&response)?;
+        channel_videos.detected_locale = Some((hl.to_string(), gl.to_string()));
+        Ok(channel_videos)
     }
 
     /// Get more channel videos using a continuation token
@@ -240,6 +283,28 @@ impl InnerTube {
 
         let response = self.post("/browse", body).await?;
         parsers::parse_channel_videos(&response)
+    }
+
+    /// Get more channel videos using a continuation token with explicit locale
+    pub async fn get_channel_videos_continuation_with_locale(
+        &self,
+        continuation_token: &str,
+        hl: &str,
+        gl: &str,
+    ) -> Result<ChannelVideos> {
+        let mut context = self.context.clone();
+        context.client.hl = hl.to_string();
+        context.client.gl = gl.to_string();
+
+        let body = json!({
+            "context": context,
+            "continuation": continuation_token,
+        });
+
+        let response = self.post("/browse", body).await?;
+        let mut channel_videos = parsers::parse_channel_videos(&response)?;
+        channel_videos.detected_locale = Some((hl.to_string(), gl.to_string()));
+        Ok(channel_videos)
     }
 }
 

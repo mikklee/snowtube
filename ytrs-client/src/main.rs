@@ -76,8 +76,9 @@ struct App {
     selected_sort_label: Option<String>,
     channel_continuation: Option<String>,
     loading_more: bool,
-    preload_count: usize, // Track auto-preloading (target: 3 pages)
-    preloading: bool,     // Whether we're in auto-preload phase
+    preload_count: usize,             // Track auto-preloading (target: 3 pages)
+    preloading: bool,                 // Whether we're in auto-preload phase
+    current_locale: (String, String), // Detected locale (hl, gl) for current channel
 }
 
 impl App {
@@ -100,6 +101,7 @@ impl App {
                 loading_more: false,
                 preload_count: 0,
                 preloading: false,
+                current_locale: ("en".to_string(), "GB".to_string()), // Default locale
             },
             Task::none(),
         )
@@ -279,6 +281,7 @@ impl App {
                         let channel_id = channel.id.clone();
                         let locale_hint =
                             channel.description.clone().or(Some(channel.name.clone()));
+
                         let videos_task = Task::perform(
                             async move {
                                 let client = InnerTube::new().await.map_err(|e| e.to_string())?;
@@ -323,6 +326,11 @@ impl App {
                         // Store continuation token for pagination
                         self.channel_continuation = videos.continuation;
 
+                        // Store detected locale for subsequent requests
+                        if let Some(locale) = videos.detected_locale {
+                            self.current_locale = locale;
+                        }
+
                         // Update sort filters if available
                         if let Some(filters) = videos.sort_filters {
                             self.selected_sort_label = filters
@@ -343,6 +351,7 @@ impl App {
                                 && self.channel_continuation.is_some()
                             {
                                 let token = self.channel_continuation.as_ref().unwrap().clone();
+                                let (hl, gl) = self.current_locale.clone();
 
                                 // Start loading thumbnails for current batch while fetching next page
                                 let thumb_tasks: Vec<_> = new_videos
@@ -367,13 +376,15 @@ impl App {
                                     })
                                     .collect();
 
-                                // Fetch next page
+                                // Fetch next page with stored locale
                                 let next_page_task = Task::perform(
                                     async move {
                                         let client =
                                             InnerTube::new().await.map_err(|e| e.to_string())?;
                                         client
-                                            .get_channel_videos_continuation(&token)
+                                            .get_channel_videos_continuation_with_locale(
+                                                &token, &hl, &gl,
+                                            )
                                             .await
                                             .map_err(|e| e.to_string())
                                     },
@@ -438,16 +449,13 @@ impl App {
                     self.loading_channel = true;
 
                     let channel_id = channel.id.clone();
-                    let locale_hint = channel.description.clone().or(Some(channel.name.clone()));
+                    // Use stored locale for consistent results across tabs
+                    let (hl, gl) = self.current_locale.clone();
                     Task::perform(
                         async move {
                             let client = InnerTube::new().await.map_err(|e| e.to_string())?;
                             client
-                                .get_channel_videos_with_locale(
-                                    &channel_id,
-                                    tab,
-                                    locale_hint.as_deref(),
-                                )
+                                .get_channel_videos_with_explicit_locale(&channel_id, tab, &hl, &gl)
                                 .await
                                 .map_err(|e| e.to_string())
                         },
@@ -497,11 +505,13 @@ impl App {
                         self.preloading = true;
 
                         let token = token.clone();
+                        // Use stored locale for consistent results
+                        let (hl, gl) = self.current_locale.clone();
                         return Task::perform(
                             async move {
                                 let client = InnerTube::new().await.map_err(|e| e.to_string())?;
                                 client
-                                    .get_channel_videos_continuation(&token)
+                                    .get_channel_videos_continuation_with_locale(&token, &hl, &gl)
                                     .await
                                     .map_err(|e| e.to_string())
                             },

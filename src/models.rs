@@ -67,6 +67,7 @@ pub struct ChannelVideos {
     pub videos: Vec<SearchResult>,
     pub continuation: Option<String>,
     pub sort_filters: Option<Vec<SortFilter>>,
+    pub detected_locale: Option<(String, String)>, // (hl, gl) detected locale
 }
 
 /// Sort filter information for channel videos
