@@ -608,6 +608,11 @@ impl App {
                             if let Some(ref ch) = channel {
                                 if let Some(ref cid) = ch.id {
                                     info_col = info_col.push(
+                                        // users.rust-lang.org/t/how-to-make-a-static-str-from-a-variable/53718/15
+                                        // Leaking memory here is done to make the channel name have a 'static lifetime
+                                        // This allows us to 'cache' the video tiles, improving performance drastically.
+                                        // However, the downside being that memory is not regained before exiting the application.
+                                        // This is probably acceptable for normal use, but there may be a better way of doing this.
                                         button(&*Box::leak(ch.name.clone().into_boxed_str()))
                                             .style(|theme: &Theme, status| match status {
                                                 button::Status::Active => Style {
