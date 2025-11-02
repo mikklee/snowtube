@@ -120,6 +120,8 @@ impl App {
                     return Task::none();
                 }
                 self.searching = true;
+                self.results.clear();
+                self.continuation = None;
                 self.preload_count = 0;
                 self.preloading = true;
                 let q = self.query.clone();
