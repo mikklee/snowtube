@@ -1,7 +1,8 @@
+use iced::widget::button::Style;
 use iced::widget::{
     Image, button, column, container, lazy, pick_list, row, scrollable, text, text_input,
 };
-use iced::{Alignment, Element, Length, Task, Theme};
+use iced::{Alignment, Color, Element, Length, Task, Theme};
 use iced_aw::Wrap;
 use std::collections::HashMap;
 use std::process::Command;
@@ -603,6 +604,25 @@ impl App {
                                 if let Some(ref cid) = ch.id {
                                     info_col = info_col.push(
                                         button(&*Box::leak(ch.name.clone().into_boxed_str()))
+                                            .style(|theme: &Theme, status| match status {
+                                                button::Status::Active => Style {
+                                                    text_color: theme.palette().text,
+                                                    ..Default::default()
+                                                },
+                                                button::Status::Hovered => Style {
+                                                    text_color: theme.palette().success,
+                                                    ..Default::default()
+                                                },
+                                                button::Status::Pressed => Style {
+                                                    text_color: theme.palette().text,
+                                                    ..Default::default()
+                                                },
+                                                button::Status::Disabled => Style {
+                                                    text_color: theme.palette().background,
+                                                    ..Default::default()
+                                                },
+                                            })
+                                            .padding(0)
                                             .on_press(Message::ViewChannel(cid.clone())),
                                     );
                                 } else {
