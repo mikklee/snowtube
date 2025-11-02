@@ -1,5 +1,6 @@
+use iced::widget::button::Style;
 use iced::widget::{
-    Image, button, column, container, pick_list, row, scrollable, text, text_input,
+    Image, button, column, container, lazy, pick_list, row, scrollable, text, text_input,
 };
 use iced::{Alignment, Element, Length, Task, Theme};
 use iced_aw::Wrap;
@@ -119,6 +120,8 @@ impl App {
                     return Task::none();
                 }
                 self.searching = true;
+                self.results.clear();
+                self.continuation = None;
                 self.preload_count = 0;
                 self.preloading = true;
                 let q = self.query.clone();
@@ -444,11 +447,12 @@ impl App {
                     self.loading_channel = true;
 
                     let token = token.clone();
+                    let (hl, gl) = self.current_locale.clone();
                     return Task::perform(
                         async move {
                             let client = InnerTube::new().await.map_err(|e| e.to_string())?;
                             client
-                                .get_channel_videos_continuation(&token)
+                                .get_channel_videos_continuation_with_locale(&token, &hl, &gl)
                                 .await
                                 .map_err(|e| e.to_string())
                         },
@@ -561,64 +565,96 @@ impl App {
                 .results
                 .iter()
                 .filter_map(|r| {
-                    let vid = r.video_id.as_ref()?;
+                    let vid = r.video_id.clone()?;
 
                     // Only render videos if thumbnail is loaded
-                    let h = self.thumbs.get(vid)?;
+                    let h = self.thumbs.get(&vid)?.clone();
 
-                    let thumb: Element<Message> =
-                        Image::new(h.clone()).width(240).height(135).into();
+                    // Clone all data for lazy closure (must be owned)
+                    let view_count = r.view_count;
+                    let duration = r.duration.clone();
+                    let title = r.title.clone();
+                    let channel = r.channel.clone();
 
-                    // Build metadata line
-                    let mut meta_parts = vec![];
-                    if let Some(v) = r.view_count {
-                        meta_parts.push(format!("{} views", fmt_num(v)));
-                    }
-                    if let Some(ref d) = r.duration {
-                        meta_parts.push(d.clone());
-                    }
+                    // Lazy widget caches rendering - only rebuilds when vid changes
+                    Some(
+                        lazy(vid.clone(), move |_| {
+                            let thumb = Image::new(h.clone()).width(240).height(135);
 
-                    // Create info section with title and metadata
-                    let full_title = r.title.clone();
-                    let display_title = truncate_title(&r.title, 25);
+                            // Build metadata line
+                            let mut meta_parts = vec![];
+                            if let Some(v) = view_count {
+                                meta_parts.push(format!("{} views", fmt_num(v)));
+                            }
+                            if let Some(ref d) = duration {
+                                meta_parts.push(d.clone());
+                            }
 
-                    let title_widget = iced::widget::tooltip(
-                        text(display_title).size(14),
-                        text(full_title),
-                        iced::widget::tooltip::Position::FollowCursor,
-                    );
+                            // Create info section with title and metadata
+                            let full_title = title.clone();
+                            let display_title = truncate_title(&title, 25);
 
-                    let mut info_col = column![title_widget];
-
-                    // Add clickable channel name if available
-                    if let Some(ref ch) = r.channel {
-                        if let Some(ref cid) = ch.id {
-                            info_col = info_col.push(
-                                button(ch.name.as_str())
-                                    .on_press(Message::ViewChannel(cid.clone())),
+                            let title_widget = iced::widget::tooltip(
+                                text(display_title).size(14),
+                                container(text(full_title))
+                                    .style(container::dark)
+                                    .padding(10),
+                                iced::widget::tooltip::Position::FollowCursor,
                             );
-                        } else {
-                            info_col = info_col.push(text(&ch.name));
-                        }
-                    }
 
-                    // Add metadata line if we have any
-                    if !meta_parts.is_empty() {
-                        info_col = info_col.push(text(meta_parts.join(" • ")).size(12));
-                    }
+                            let mut info_col = column![title_widget];
 
-                    let card = column![
-                        thumb,
-                        container(info_col.spacing(4))
-                            .padding(8)
-                            .width(240)
-                            .height(Length::Fixed(100.0))
-                    ]
-                    .spacing(0)
-                    .width(240);
+                            // Add clickable channel name if available
+                            if let Some(ref ch) = channel {
+                                if let Some(ref cid) = ch.id {
+                                    info_col = info_col.push(
+                                        button(&*Box::leak(ch.name.clone().into_boxed_str()))
+                                            .style(|theme: &Theme, status| match status {
+                                                button::Status::Active => Style {
+                                                    text_color: theme.palette().text,
+                                                    ..Default::default()
+                                                },
+                                                button::Status::Hovered => Style {
+                                                    text_color: theme.palette().success,
+                                                    ..Default::default()
+                                                },
+                                                button::Status::Pressed => Style {
+                                                    text_color: theme.palette().text,
+                                                    ..Default::default()
+                                                },
+                                                button::Status::Disabled => Style {
+                                                    text_color: theme.palette().background,
+                                                    ..Default::default()
+                                                },
+                                            })
+                                            .padding(0)
+                                            .on_press(Message::ViewChannel(cid.clone())),
+                                    );
+                                } else {
+                                    info_col = info_col
+                                        .push(text(&*Box::leak(ch.name.clone().into_boxed_str())));
+                                }
+                            }
 
-                    let v = vid.clone();
-                    Some(button(card).on_press(Message::Play(v)).padding(0).into())
+                            // Add metadata line if we have any
+                            if !meta_parts.is_empty() {
+                                info_col = info_col.push(text(meta_parts.join(" • ")).size(12));
+                            }
+
+                            let card = column![
+                                thumb,
+                                container(info_col.spacing(4))
+                                    .padding(8)
+                                    .width(240)
+                                    .height(Length::Fixed(100.0))
+                            ]
+                            .spacing(0)
+                            .width(240);
+
+                            button(card).on_press(Message::Play(vid.clone())).padding(0)
+                        })
+                        .into(),
+                    )
                 })
                 .collect();
 
@@ -767,7 +803,9 @@ impl App {
 
                     let title_widget = iced::widget::tooltip(
                         text(display_title).size(14),
-                        text(full_title),
+                        container(text(full_title))
+                            .style(container::dark)
+                            .padding(10),
                         iced::widget::tooltip::Position::FollowCursor,
                     );
 
