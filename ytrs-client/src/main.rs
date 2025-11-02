@@ -447,11 +447,12 @@ impl App {
                     self.loading_channel = true;
 
                     let token = token.clone();
+                    let (hl, gl) = self.current_locale.clone();
                     return Task::perform(
                         async move {
                             let client = InnerTube::new().await.map_err(|e| e.to_string())?;
                             client
-                                .get_channel_videos_continuation(&token)
+                                .get_channel_videos_continuation_with_locale(&token, &hl, &gl)
                                 .await
                                 .map_err(|e| e.to_string())
                         },
