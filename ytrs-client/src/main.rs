@@ -2,7 +2,7 @@ use iced::widget::button::Style;
 use iced::widget::{
     Image, button, column, container, lazy, pick_list, row, scrollable, text, text_input,
 };
-use iced::{Alignment, Color, Element, Length, Task, Theme};
+use iced::{Alignment, Element, Length, Task, Theme};
 use iced_aw::Wrap;
 use std::collections::HashMap;
 use std::process::Command;
@@ -593,7 +593,9 @@ impl App {
 
                             let title_widget = iced::widget::tooltip(
                                 text(display_title).size(14),
-                                text(full_title),
+                                container(text(full_title))
+                                    .style(container::dark)
+                                    .padding(10),
                                 iced::widget::tooltip::Position::FollowCursor,
                             );
 
@@ -798,7 +800,9 @@ impl App {
 
                     let title_widget = iced::widget::tooltip(
                         text(display_title).size(14),
-                        text(full_title),
+                        container(text(full_title))
+                            .style(container::dark)
+                            .padding(10),
                         iced::widget::tooltip::Position::FollowCursor,
                     );
 
