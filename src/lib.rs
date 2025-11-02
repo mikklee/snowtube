@@ -27,10 +27,12 @@
 mod client;
 mod constants;
 mod error;
+pub mod locale_map;
 mod models;
 mod parsers;
 mod utils;
 
 pub use client::InnerTube;
 pub use error::{Error, Result};
+pub use locale_map::{LanguageOption, get_all_languages};
 pub use models::*;

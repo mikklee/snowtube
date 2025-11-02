@@ -1,14 +1,30 @@
 use iced::widget::button::Style;
 use iced::widget::{
-    Image, button, column, container, lazy, pick_list, row, scrollable, text, text_input,
+    Image, button, column, combo_box, container, lazy, pick_list, row, scrollable, text, text_input,
 };
 use iced::{Alignment, Element, Length, Task, Theme};
 use iced_aw::Wrap;
 use std::collections::HashMap;
 use std::process::Command;
+use std::sync::OnceLock;
 use ytrs::{
-    ChannelInfo, ChannelTab, ChannelVideos, InnerTube, SearchResult, SearchResults, SortFilter,
+    ChannelInfo, ChannelTab, ChannelVideos, InnerTube, LanguageOption, SearchResult, SearchResults,
+    SortFilter, get_all_languages,
 };
+
+/// Cached HashMap for O(1) language lookups by (hl, gl) tuple
+static LOCALE_TO_LANGUAGE: OnceLock<HashMap<(String, String), &'static LanguageOption>> =
+    OnceLock::new();
+
+fn get_language_by_locale(hl: &str, gl: &str) -> Option<&'static LanguageOption> {
+    let map = LOCALE_TO_LANGUAGE.get_or_init(|| {
+        get_all_languages()
+            .iter()
+            .map(|lang| ((lang.hl.to_string(), lang.gl.to_string()), lang))
+            .collect()
+    });
+    map.get(&(hl.to_string(), gl.to_string())).copied()
+}
 
 fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
@@ -63,6 +79,7 @@ enum Message {
     LoadMoreVideos,
     LoadMoreSearchResults,
     BackToSearch,
+    LanguageSelected(LanguageOption),
 }
 
 struct App {
@@ -82,6 +99,8 @@ struct App {
     loading_channel: bool,
     available_sort_filters: Vec<SortFilter>,
     selected_sort_label: Option<String>,
+    language_combo_state: combo_box::State<LanguageOption>,
+    selected_language: Option<LanguageOption>,
 }
 
 impl App {
@@ -104,6 +123,8 @@ impl App {
                 loading_channel: false,
                 available_sort_filters: Vec::new(),
                 selected_sort_label: None,
+                language_combo_state: combo_box::State::new(get_all_languages().to_vec()),
+                selected_language: None,
             },
             Task::none(),
         )
@@ -245,6 +266,7 @@ impl App {
                 self.continuation = None;
                 self.preload_count = 0;
                 self.preloading = true;
+                self.selected_language = None; // Reset language selection for new channel
 
                 let id = channel_id.clone();
 
@@ -288,25 +310,50 @@ impl App {
                             Task::none()
                         };
 
-                        // Load channel videos with locale detection based on channel description (fallback to name)
+                        // Load channel videos - use manual language if selected, otherwise auto-detect
                         let channel_id = channel.id.clone();
-                        let locale_hint =
-                            channel.description.clone().or(Some(channel.name.clone()));
+                        let tab = self.current_tab;
 
-                        let videos_task = Task::perform(
-                            async move {
-                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                                client
-                                    .get_channel_videos_with_locale(
-                                        &channel_id,
-                                        ChannelTab::Videos,
-                                        locale_hint.as_deref(),
-                                    )
-                                    .await
-                                    .map_err(|e| e.to_string())
-                            },
-                            Message::ChannelVideosLoaded,
-                        );
+                        let videos_task = if let Some(ref lang) = self.selected_language {
+                            // Use manually selected language
+                            let hl = lang.hl.to_string();
+                            let gl = lang.gl.to_string();
+                            Task::perform(
+                                async move {
+                                    let client =
+                                        InnerTube::new().await.map_err(|e| e.to_string())?;
+                                    client
+                                        .get_channel_videos_with_explicit_locale(
+                                            &channel_id,
+                                            tab,
+                                            &hl,
+                                            &gl,
+                                        )
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                },
+                                Message::ChannelVideosLoaded,
+                            )
+                        } else {
+                            // Auto-detect locale from channel description/name
+                            let locale_hint =
+                                channel.description.clone().or(Some(channel.name.clone()));
+                            Task::perform(
+                                async move {
+                                    let client =
+                                        InnerTube::new().await.map_err(|e| e.to_string())?;
+                                    client
+                                        .get_channel_videos_with_locale(
+                                            &channel_id,
+                                            tab,
+                                            locale_hint.as_deref(),
+                                        )
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                },
+                                Message::ChannelVideosLoaded,
+                            )
+                        };
 
                         self.current_channel = Some(channel);
                         Task::batch(vec![banner_task, avatar_task, videos_task])
@@ -521,6 +568,40 @@ impl App {
                 self.selected_sort_label = None;
                 self.continuation = None;
                 Task::none()
+            }
+            Message::LanguageSelected(language) => {
+                // User manually selected a language - re-fetch channel with this locale
+                if let Some(ref channel) = self.current_channel {
+                    self.selected_language = Some(language.clone());
+                    self.results.clear();
+                    self.continuation = None;
+                    self.preload_count = 0;
+                    self.preloading = true;
+                    self.loading_channel = true;
+
+                    let channel_id = channel.id.clone();
+                    let hl = language.hl.to_string();
+                    let gl = language.gl.to_string();
+
+                    // Update current_locale to the manually selected language
+                    self.current_locale = (hl.clone(), gl.clone());
+
+                    // Fetch channel info first
+                    let info_task = Task::perform(
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client
+                                .get_channel(&channel_id)
+                                .await
+                                .map_err(|e| e.to_string())
+                        },
+                        Message::ChannelLoaded,
+                    );
+
+                    info_task
+                } else {
+                    Task::none()
+                }
             }
         }
     }
@@ -756,6 +837,31 @@ impl App {
             .padding(10);
 
             content = content.push(tabs);
+
+            // Language selector (searchable combo box)
+            // Find the auto-detected language name to display in placeholder (O(1) HashMap lookup)
+            let auto_detected_name =
+                get_language_by_locale(&self.current_locale.0, &self.current_locale.1)
+                    .map(|lang| lang.name)
+                    .unwrap_or("Unknown");
+
+            let placeholder = format!("Auto-detected: {}", auto_detected_name);
+
+            let language_selector = row![
+                text("Language:").size(14),
+                combo_box(
+                    &self.language_combo_state,
+                    &placeholder,
+                    self.selected_language.as_ref(),
+                    Message::LanguageSelected,
+                )
+                .width(250)
+            ]
+            .spacing(10)
+            .padding(10)
+            .align_y(Alignment::Center);
+
+            content = content.push(language_selector);
 
             // Sort dropdown (only show if we have sort filters available)
             if !self.available_sort_filters.is_empty() {
