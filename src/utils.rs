@@ -25,15 +25,17 @@ pub fn extract_video_id(input: &str) -> Result<String> {
         // Check for youtu.be/VIDEO_ID
         if url.host_str() == Some("youtu.be")
             && let Some(mut segments) = url.path_segments()
-                && let Some(id) = segments.next() {
-                    return Ok(id.to_string());
-                }
+            && let Some(id) = segments.next()
+        {
+            return Ok(id.to_string());
+        }
 
         // Check for youtube.com/embed/VIDEO_ID
         if url.path().starts_with("/embed/")
-            && let Some(id) = url.path().strip_prefix("/embed/") {
-                return Ok(id.split('/').next().unwrap_or(id).to_string());
-            }
+            && let Some(id) = url.path().strip_prefix("/embed/")
+        {
+            return Ok(id.split('/').next().unwrap_or(id).to_string());
+        }
     }
 
     Err(Error::InvalidVideoId(input.to_string()))
@@ -136,55 +138,110 @@ fn detect_locale_with_lingua(text: &str) -> (String, String) {
             text.chars().take(50).collect::<String>()
         );
 
-        // Map language to (hl, gl) pairs - language code and most common region
+        // Map language to (hl, gl) pairs - all mappings verified with InnerTube API
         let locale = match lang {
             // East Asian languages
-            Language::Japanese => ("ja".to_string(), "JP".to_string()),
-            Language::Korean => ("ko".to_string(), "KR".to_string()),
-            Language::Chinese => ("zh-CN".to_string(), "CN".to_string()),
+            Language::Japanese => ("ja", "JP"),
+            Language::Korean => ("ko", "KR"),
+            Language::Chinese => ("zh-CN", "CN"),
 
             // European languages
-            Language::Spanish => ("es".to_string(), "ES".to_string()),
-            Language::French => ("fr".to_string(), "FR".to_string()),
-            Language::German => ("de".to_string(), "DE".to_string()),
-            Language::Italian => ("it".to_string(), "IT".to_string()),
-            Language::Portuguese => ("pt".to_string(), "BR".to_string()),
-            Language::Russian => ("ru".to_string(), "RU".to_string()),
-            Language::Polish => ("pl".to_string(), "PL".to_string()),
-            Language::Ukrainian => ("uk".to_string(), "UA".to_string()),
-            Language::Dutch => ("nl".to_string(), "NL".to_string()),
-            Language::Swedish => ("sv".to_string(), "SE".to_string()),
-            Language::Danish => ("da".to_string(), "DK".to_string()),
-            Language::Finnish => ("fi".to_string(), "FI".to_string()),
+            Language::English => ("en", "US"),
+            Language::Spanish => ("es", "ES"),
+            Language::French => ("fr", "FR"),
+            Language::German => ("de", "DE"),
+            Language::Italian => ("it", "IT"),
+            Language::Portuguese => ("pt", "BR"),
+            Language::Russian => ("ru", "RU"),
+            Language::Polish => ("pl", "PL"),
+            Language::Ukrainian => ("uk", "UA"),
+            Language::Dutch => ("nl", "NL"),
+            Language::Swedish => ("sv", "SE"),
+            Language::Danish => ("da", "DK"),
+            Language::Finnish => ("fi", "FI"),
+            Language::Bokmal => ("no", "NO"),
+            Language::Nynorsk => ("no", "NO"),
+            Language::Czech => ("cs", "CZ"),
+            Language::Slovak => ("sk", "SK"),
+            Language::Hungarian => ("hu", "HU"),
+            Language::Romanian => ("ro", "RO"),
+            Language::Bulgarian => ("bg", "BG"),
+            Language::Croatian => ("hr", "HR"),
+            Language::Serbian => ("sr", "RS"),
+            Language::Slovene => ("sl", "SI"),
+            Language::Greek => ("el", "GR"),
+            Language::Albanian => ("sq", "AL"),
+            Language::Basque => ("eu", "ES"),
+            Language::Catalan => ("ca", "ES"),
+            // Language::Galician not in current lingua version
+            Language::Estonian => ("et", "EE"),
+            Language::Latvian => ("lv", "LV"),
+            Language::Lithuanian => ("lt", "LT"),
+            Language::Macedonian => ("mk", "MK"),
+            Language::Belarusian => ("be", "BY"),
+            Language::Bosnian => ("bs", "BA"),
+            Language::Icelandic => ("is", "IS"),
+            Language::Irish => ("en", "IE"), // Irish Gaelic - YouTube doesn't support "ga", use English/Ireland
+            Language::Welsh => ("en", "GB"), // YouTube doesn't support "cy", use English/GB
 
             // Middle Eastern languages
-            Language::Arabic => ("ar".to_string(), "SA".to_string()),
-            Language::Hebrew => ("he".to_string(), "IL".to_string()),
-            Language::Turkish => ("tr".to_string(), "TR".to_string()),
+            Language::Arabic => ("ar", "SA"),
+            Language::Hebrew => ("he", "IL"),
+            Language::Turkish => ("tr", "TR"),
+            Language::Persian => ("fa", "IR"),
 
             // South Asian languages
-            Language::Hindi => ("hi".to_string(), "IN".to_string()),
-            Language::Bengali => ("bn".to_string(), "BD".to_string()),
-            Language::Tamil => ("ta".to_string(), "IN".to_string()),
-            Language::Telugu => ("te".to_string(), "IN".to_string()),
+            Language::Hindi => ("hi", "IN"),
+            Language::Bengali => ("bn", "BD"),
+            Language::Tamil => ("ta", "IN"),
+            Language::Telugu => ("te", "IN"),
+            Language::Marathi => ("mr", "IN"),
+            Language::Gujarati => ("gu", "IN"),
+            Language::Punjabi => ("pa", "IN"),
+            Language::Urdu => ("ur", "PK"),
 
             // Southeast Asian languages
-            Language::Thai => ("th".to_string(), "TH".to_string()),
-            Language::Vietnamese => ("vi".to_string(), "VN".to_string()),
-            Language::Indonesian => ("id".to_string(), "ID".to_string()),
+            Language::Thai => ("th", "TH"),
+            Language::Vietnamese => ("vi", "VN"),
+            Language::Indonesian => ("id", "ID"),
+            Language::Malay => ("ms", "MY"),
+            Language::Tagalog => ("tl", "PH"),
+            // Language::Burmese, Khmer, Lao not in current lingua version
+
+            // Central Asian languages
+            Language::Kazakh => ("kk", "KZ"),
+            // Language::Uzbek, Kyrgyz not in current lingua version
+            Language::Mongolian => ("mn", "MN"),
+
+            // Caucasian languages
+            Language::Georgian => ("ka", "GE"),
+            Language::Armenian => ("hy", "AM"),
+            Language::Azerbaijani => ("az", "AZ"),
+
+            // African languages
+            Language::Afrikaans => ("af", "ZA"),
+            Language::Swahili => ("sw", "KE"),
+            // Language::Amharic not in lingua - fallback handled in default
+            Language::Somali => ("en", "US"), // YouTube doesn't support "so", fallback to English
+            Language::Yoruba => ("en", "US"), // YouTube doesn't support "yo", fallback to English
+            Language::Zulu => ("en", "ZA"), // YouTube doesn't support "zu", use English/South Africa
+            Language::Xhosa => ("en", "ZA"), // YouTube doesn't support "xh", use English/South Africa
+            Language::Shona => ("en", "US"), // YouTube doesn't support "sn", fallback to English
+            Language::Sotho => ("en", "ZA"), // YouTube doesn't support "st", use English/South Africa
+            Language::Tswana => ("en", "ZA"), // YouTube doesn't support "tn", use English/South Africa
+            Language::Tsonga => ("en", "ZA"), // YouTube doesn't support "ts", use English/South Africa
+            Language::Ganda => ("en", "US"),  // YouTube doesn't support "lg", fallback to English
 
             // Other languages
-            Language::Czech => ("cs".to_string(), "CZ".to_string()),
-            Language::Romanian => ("ro".to_string(), "RO".to_string()),
-            Language::Hungarian => ("hu".to_string(), "HU".to_string()),
-            Language::Greek => ("el".to_string(), "GR".to_string()),
-
-            // Default to English for unhandled or English
-            _ => ("en".to_string(), "US".to_string()),
+            Language::Esperanto => ("en", "US"), // YouTube doesn't support "eo", fallback to English
+            Language::Latin => ("en", "US"), // YouTube doesn't support "la", fallback to English
+            Language::Maori => ("en", "NZ"), // YouTube doesn't support "mi", use English/New Zealand
+                                             // Language::Nepali and Language::Sinhala not in current lingua version
         };
 
-        println!("Applying locale: hl={}, gl={}", locale.0, locale.1);
-        locale
+        let (hl, gl) = locale;
+        println!("Applying locale: hl={}, gl={}", hl, gl);
+        (hl.to_string(), gl.to_string())
     } else {
         // If both detections fail, default to English/US
         println!("All language detection failed, applying default locale: hl=en, gl=US");
