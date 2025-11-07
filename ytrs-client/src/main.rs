@@ -1,6 +1,8 @@
+use iced::Alignment::Center;
 use iced::widget::button::Style;
 use iced::widget::{
-    Image, button, column, combo_box, container, lazy, pick_list, row, scrollable, text, text_input,
+    Image, button, column, combo_box, container, lazy, pick_list, row, scrollable, space, text,
+    text_input,
 };
 use iced::{Alignment, Element, Length, Task, Theme};
 use iced_aw::Wrap;
@@ -775,31 +777,31 @@ impl App {
         if let Some(ref channel) = self.current_channel {
             let mut content = column![].spacing(0);
 
-            // Banner
-            if let Some(ref banner_handle) = self.banner {
-                content = content.push(
-                    container(
-                        Image::new(banner_handle.clone())
-                            .width(Length::Fill)
-                            .height(200),
-                    )
-                    .width(Length::Fill),
-                );
+            // Banner with header overlay
+            let banner_image: Element<Message> = if let Some(ref banner_handle) = self.banner {
+                Image::new(banner_handle.clone())
+                    .width(Length::Fill)
+                    .height(200)
+                    .into()
             } else {
                 // Placeholder banner
-                content = content.push(container(text("")).width(Length::Fill).height(200).style(
-                    |theme: &Theme| container::Style {
+                container(iced::widget::space::horizontal())
+                    .width(Length::Fill)
+                    .height(200)
+                    .style(|theme: &Theme| container::Style {
                         background: Some(iced::Background::Color(theme.palette().primary)),
                         ..Default::default()
-                    },
-                ));
-            }
+                    })
+                    .into()
+            };
 
-            // Channel header with avatar, name, and subscriber count
+            content = content.push(banner_image);
+
+            // Back button, avatar, and channel info on same row
             let avatar: Element<Message> = if let Some(h) = self.thumbs.get(&channel.id) {
-                Image::new(h.clone()).width(100).height(100).into()
+                Image::new(h.clone()).width(80).height(80).into()
             } else {
-                container(text("")).width(100).height(100).into()
+                container(space()).width(80).height(80).into()
             };
 
             let mut info_column = column![text(&channel.name).size(24),].spacing(5);
@@ -812,14 +814,11 @@ impl App {
                 button(text("← Back"))
                     .on_press(Message::BackToSearch)
                     .padding(10),
-                container(avatar).padding(10),
+                avatar,
                 info_column.padding(10),
             ]
             .spacing(10)
-            .padding(20)
             .align_y(Alignment::Center);
-
-            content = content.push(header);
 
             // Tabs
             let tabs = row![
@@ -833,12 +832,9 @@ impl App {
                     .on_press(Message::ChangeChannelTab(ChannelTab::Streams))
                     .padding(10),
             ]
-            .spacing(5)
-            .padding(10);
+            .spacing(10);
 
-            content = content.push(tabs);
-
-            // Language selector (searchable combo box)
+            // Language and Sort controls on the same row
             // Find the auto-detected language name to display in placeholder (O(1) HashMap lookup)
             let auto_detected_name =
                 get_language_by_locale(&self.current_locale.0, &self.current_locale.1)
@@ -847,7 +843,7 @@ impl App {
 
             let placeholder = format!("Auto-detected: {}", auto_detected_name);
 
-            let language_selector = row![
+            let mut controls_row = row![
                 text("Language:").size(14),
                 combo_box(
                     &self.language_combo_state,
@@ -857,13 +853,10 @@ impl App {
                 )
                 .width(250)
             ]
-            .spacing(10)
-            .padding(10)
-            .align_y(Alignment::Center);
+            .align_y(Center)
+            .spacing(10);
 
-            content = content.push(language_selector);
-
-            // Sort dropdown (only show if we have sort filters available)
+            // Add sort dropdown if we have sort filters available
             if !self.available_sort_filters.is_empty() {
                 let filter_labels: Vec<String> = self
                     .available_sort_filters
@@ -871,21 +864,47 @@ impl App {
                     .map(|f| f.label.clone())
                     .collect();
 
-                let sort_row = row![
-                    text("Sort by:").size(14),
-                    pick_list(
-                        filter_labels,
-                        self.selected_sort_label.clone(),
-                        Message::ChangeSortFilter,
-                    )
-                    .padding(5)
-                ]
-                .spacing(10)
-                .padding(10)
-                .align_y(Alignment::Center);
-
-                content = content.push(sort_row);
+                controls_row = controls_row.push(
+                    row![
+                        text("Sort by:").size(14),
+                        pick_list(
+                            filter_labels,
+                            self.selected_sort_label.clone(),
+                            Message::ChangeSortFilter,
+                        )
+                        .padding(5)
+                    ]
+                    .spacing(10)
+                    .padding(10)
+                    .align_y(Alignment::Center),
+                );
             }
+
+            // Add controls section with background and 2px bottom border
+            let controls_with_border = column![
+                container(row![
+                    column![header, tabs].spacing(10).width(Length::Fill),
+                    column![iced::widget::space::vertical(), controls_row]
+                ])
+                .padding(10)
+                .height(150)
+                .width(Length::Fill)
+                .style(|theme: &Theme| container::Style {
+                    background: Some(iced::Background::Color(theme.palette().background)),
+                    ..Default::default()
+                }),
+                // 2px bottom border line
+                container(space())
+                    .width(Length::Fill)
+                    .height(2)
+                    .style(|theme: &Theme| container::Style {
+                        background: Some(iced::Background::Color(theme.palette().primary)),
+                        ..Default::default()
+                    })
+            ]
+            .spacing(0);
+
+            content = content.push(controls_with_border);
 
             // Videos grid
             let video_cards: Vec<Element<Message>> = self
@@ -939,15 +958,25 @@ impl App {
 
             let videos_section: Element<Message> = if video_cards.is_empty() {
                 if self.loading_channel {
-                    container(text("Loading...")).padding(40).into()
+                    container(text("Loading..."))
+                        .padding(40)
+                        .center_x(Length::Fill)
+                        .into()
                 } else {
-                    container(text("No videos found")).padding(40).into()
+                    container(text("No videos found"))
+                        .padding(40)
+                        .center_x(Length::Fill)
+                        .into()
                 }
             } else {
                 let mut video_content = column![
-                    Wrap::with_elements(video_cards)
-                        .spacing(15.0)
-                        .line_spacing(15.0),
+                    container(
+                        Wrap::with_elements(video_cards)
+                            .spacing(15.0)
+                            .line_spacing(15.0),
+                    )
+                    .center_x(Length::Fill)
+                    .align_x(Alignment::Center)
                 ];
 
                 // Show "Load More" button or loading indicator
@@ -968,7 +997,7 @@ impl App {
                     video_content = video_content.push(load_more_btn);
                 }
 
-                scrollable(container(video_content).padding(20).width(Length::Fill)).into()
+                scrollable(container(video_content).padding(20)).into()
             };
 
             content = content.push(videos_section);
