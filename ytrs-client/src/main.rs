@@ -786,9 +786,9 @@ impl App {
                     let is_playing = self.playing_video.as_ref() == Some(&vid);
                     let countdown = self.countdown_value;
 
-                    // Lazy widget caches rendering - only rebuilds when vid changes
+                    // Lazy widget caches rendering - only rebuilds when (vid, is_playing, countdown) changes
                     Some(
-                        lazy(vid.clone(), move |_| {
+                        lazy((vid.clone(), is_playing, countdown), move |_| {
                             let thumb = Image::new(h.clone()).width(240).height(135);
 
                             // Create thumbnail with optional countdown overlay
