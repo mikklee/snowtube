@@ -287,9 +287,16 @@ impl App {
                 self.continuation = None;
                 self.preload_count = 0;
                 self.preloading = true;
-                self.selected_language = None; // Reset language selection for new channel
+                // Keep selected_language if it exists (persist from search view)
 
                 let id = channel_id.clone();
+
+                // Use manual locale if selected, otherwise let channel load detect it
+                if let Some(ref language) = self.selected_language {
+                    let hl = language.hl.to_string();
+                    let gl = language.gl.to_string();
+                    self.current_locale = (hl, gl);
+                }
 
                 // First load channel info, then use channel name for locale detection when loading videos
                 Task::perform(
@@ -405,9 +412,11 @@ impl App {
                         // Store continuation token for pagination
                         self.continuation = videos.continuation;
 
-                        // Store detected locale for subsequent requests
-                        if let Some(locale) = videos.detected_locale {
-                            self.current_locale = locale;
+                        // Store detected locale only if no manual language is selected
+                        if self.selected_language.is_none() {
+                            if let Some(locale) = videos.detected_locale {
+                                self.current_locale = locale;
+                            }
                         }
 
                         // Update sort filters if available
