@@ -86,54 +86,76 @@ enum Message {
 }
 
 struct App {
+    // Shared state
     query: String,
-    results: Vec<SearchResult>, // Shared: search results or channel videos
     thumbs: HashMap<String, iced::widget::image::Handle>,
-    searching: bool,
-    continuation: Option<String>,     // Shared: continuation token
-    current_locale: (String, String), // Shared: detected locale
-    loading_more: bool,               // Shared: loading more results
-    preload_count: usize,             // Shared: track preloading (3 pages)
-    preloading: bool,                 // Shared: whether preloading
     current_view: View,
+    language_combo_state: combo_box::State<LanguageOption>,
+    selected_language: Option<LanguageOption>, // User's manual language override (global)
+    playing_video: Option<String>,             // Currently playing video ID
+    countdown_value: u8,                       // Current countdown value (5, 4, 3, 2, 1, 0)
+    mpv_process: Arc<tokio::sync::Mutex<Option<std::process::Child>>>, // MPV process handle
+
+    // Search-specific state
+    search_results: Vec<SearchResult>,
+    search_continuation: Option<String>,
+    search_preload_count: usize,
+    search_locale: (String, String),
+    searching: bool,
+    search_loading_more: bool,
+    search_preloading: bool,
+
+    // Channel-specific state
+    channel_results: Vec<SearchResult>,
+    channel_continuation: Option<String>,
+    channel_preload_count: usize,
+    channel_locale: (String, String),
     current_channel: Option<ChannelInfo>,
     current_tab: ChannelTab,
     banner: Option<iced::widget::image::Handle>,
     loading_channel: bool,
+    channel_loading_more: bool,
+    channel_preloading: bool,
     available_sort_filters: Vec<SortFilter>,
     selected_sort_label: Option<String>,
-    language_combo_state: combo_box::State<LanguageOption>,
-    selected_language: Option<LanguageOption>,
-    playing_video: Option<String>, // Currently playing video ID
-    countdown_value: u8,           // Current countdown value (5, 4, 3, 2, 1, 0)
-    mpv_process: Arc<tokio::sync::Mutex<Option<std::process::Child>>>, // MPV process handle
 }
 
 impl App {
     fn new() -> (Self, Task<Message>) {
         (
             Self {
+                // Shared state
                 query: String::new(),
-                results: Vec::new(),
                 thumbs: HashMap::new(),
-                searching: false,
-                continuation: None,
-                current_locale: ("en".to_string(), "GB".to_string()),
-                loading_more: false,
-                preload_count: 0,
-                preloading: false,
                 current_view: View::Search,
-                current_channel: None,
-                current_tab: ChannelTab::Videos,
-                banner: None,
-                loading_channel: false,
-                available_sort_filters: Vec::new(),
-                selected_sort_label: None,
                 language_combo_state: combo_box::State::new(get_all_languages().to_vec()),
                 selected_language: None,
                 playing_video: None,
                 countdown_value: 0,
                 mpv_process: Arc::new(tokio::sync::Mutex::new(None)),
+
+                // Search-specific state
+                search_results: Vec::new(),
+                search_continuation: None,
+                search_preload_count: 0,
+                search_locale: ("en".to_string(), "GB".to_string()),
+                searching: false,
+                search_loading_more: false,
+                search_preloading: false,
+
+                // Channel-specific state
+                channel_results: Vec::new(),
+                channel_continuation: None,
+                channel_preload_count: 0,
+                channel_locale: ("en".to_string(), "GB".to_string()),
+                current_channel: None,
+                current_tab: ChannelTab::Videos,
+                banner: None,
+                loading_channel: false,
+                channel_loading_more: false,
+                channel_preloading: false,
+                available_sort_filters: Vec::new(),
+                selected_sort_label: None,
             },
             Task::none(),
         )
@@ -150,10 +172,10 @@ impl App {
                     return Task::none();
                 }
                 self.searching = true;
-                self.results.clear();
-                self.continuation = None;
-                self.preload_count = 0;
-                self.preloading = true;
+                self.search_results.clear();
+                self.search_continuation = None;
+                self.search_preload_count = 0;
+                self.search_preloading = true;
                 let q = self.query.clone();
 
                 // Use manual locale if selected, otherwise auto-detect
@@ -184,43 +206,43 @@ impl App {
                 match res {
                     Ok(search_results) => {
                         // Check if this is a "load more" operation (appending results)
-                        let is_load_more = self.loading_more;
-                        self.loading_more = false;
+                        let is_load_more = self.search_loading_more;
+                        self.search_loading_more = false;
 
                         // Store the new results to load thumbnails for
                         let new_results = search_results.results;
 
                         // Store continuation token for pagination
-                        self.continuation = search_results.continuation;
+                        self.search_continuation = search_results.continuation;
 
                         // Store detected locale only if no manual language is selected
                         if self.selected_language.is_none()
                             && let Some(locale) = search_results.detected_locale
                         {
-                            self.current_locale = locale;
+                            self.search_locale = locale;
                         }
 
                         // Update results (replace on first search, append on continuation/preload)
-                        if !is_load_more && self.results.is_empty() {
-                            self.results = new_results.clone();
+                        if !is_load_more && self.search_results.is_empty() {
+                            self.search_results = new_results.clone();
                             self.thumbs.clear();
                         } else {
                             // Appending results (load more or preloading)
-                            self.results.extend(new_results.clone());
+                            self.search_results.extend(new_results.clone());
                         }
 
                         // Auto-preload: fetch 3 pages (90 results) before showing content
                         const TARGET_PRELOAD_PAGES: usize = 3;
 
-                        if self.preloading {
-                            self.preload_count += 1;
+                        if self.search_preloading {
+                            self.search_preload_count += 1;
 
                             // If we haven't reached target and have continuation, auto-load more
-                            if self.preload_count < TARGET_PRELOAD_PAGES
-                                && self.continuation.is_some()
+                            if self.search_preload_count < TARGET_PRELOAD_PAGES
+                                && self.search_continuation.is_some()
                             {
-                                let token = self.continuation.as_ref().unwrap().clone();
-                                let (hl, gl) = self.current_locale.clone();
+                                let token = self.search_continuation.as_ref().unwrap().clone();
+                                let (hl, gl) = self.search_locale.clone();
 
                                 // Start loading thumbnails for current batch while fetching next page
                                 let thumb_tasks = create_thumbnail_tasks(&new_results);
@@ -241,9 +263,9 @@ impl App {
                                 return Task::batch([Task::batch(thumb_tasks), next_page_task]);
                             } else {
                                 // Preloading complete
-                                self.preloading = false;
+                                self.search_preloading = false;
                                 self.searching = false;
-                                self.loading_more = false;
+                                self.search_loading_more = false;
                             }
                         }
 
@@ -252,9 +274,9 @@ impl App {
                     }
                     Err(e) => {
                         eprintln!("Error: {}", e);
-                        self.preloading = false;
+                        self.search_preloading = false;
                         self.searching = false;
-                        self.loading_more = false;
+                        self.search_loading_more = false;
                         Task::none()
                     }
                 }
@@ -345,13 +367,14 @@ impl App {
                 self.loading_channel = true;
                 self.current_view = View::Channel;
                 self.banner = None;
-                self.results.clear();
+                // Don't clear search state! Only initialize channel state
+                self.channel_results.clear();
                 self.current_tab = ChannelTab::Videos;
                 self.available_sort_filters.clear();
                 self.selected_sort_label = None;
-                self.continuation = None;
-                self.preload_count = 0;
-                self.preloading = true;
+                self.channel_continuation = None;
+                self.channel_preload_count = 0;
+                self.channel_preloading = true;
                 // Keep selected_language if it exists (persist from search view)
 
                 let id = channel_id.clone();
@@ -360,7 +383,7 @@ impl App {
                 if let Some(ref language) = self.selected_language {
                     let hl = language.hl.to_string();
                     let gl = language.gl.to_string();
-                    self.current_locale = (hl, gl);
+                    self.channel_locale = (hl, gl);
                 }
 
                 // First load channel info, then use channel name for locale detection when loading videos
@@ -461,27 +484,27 @@ impl App {
                 match res {
                     Ok(videos) => {
                         // Check if this is a "load more" operation (appending videos)
-                        let is_load_more = self.loading_more;
-                        self.loading_more = false;
+                        let is_load_more = self.channel_loading_more;
+                        self.channel_loading_more = false;
 
                         // Store the new videos to load thumbnails for
                         let new_videos = videos.videos;
 
                         // Update videos (append if load more, replace otherwise)
-                        if is_load_more || self.preloading {
-                            self.results.extend(new_videos.clone());
+                        if is_load_more || self.channel_preloading {
+                            self.channel_results.extend(new_videos.clone());
                         } else {
-                            self.results = new_videos.clone();
+                            self.channel_results = new_videos.clone();
                         }
 
                         // Store continuation token for pagination
-                        self.continuation = videos.continuation;
+                        self.channel_continuation = videos.continuation;
 
                         // Store detected locale only if no manual language is selected
                         if self.selected_language.is_none()
                             && let Some(locale) = videos.detected_locale
                         {
-                            self.current_locale = locale;
+                            self.channel_locale = locale;
                         }
 
                         // Update sort filters if available
@@ -496,15 +519,15 @@ impl App {
                         // Auto-preload: fetch 3 pages (90 videos) before showing content
                         const TARGET_PRELOAD_PAGES: usize = 3;
 
-                        if self.preloading {
-                            self.preload_count += 1;
+                        if self.channel_preloading {
+                            self.channel_preload_count += 1;
 
                             // If we haven't reached target and have continuation, auto-load more
-                            if self.preload_count < TARGET_PRELOAD_PAGES
-                                && self.continuation.is_some()
+                            if self.channel_preload_count < TARGET_PRELOAD_PAGES
+                                && self.channel_continuation.is_some()
                             {
-                                let token = self.continuation.as_ref().unwrap().clone();
-                                let (hl, gl) = self.current_locale.clone();
+                                let token = self.channel_continuation.as_ref().unwrap().clone();
+                                let (hl, gl) = self.channel_locale.clone();
 
                                 // Start loading thumbnails for current batch while fetching next page
                                 let thumb_tasks = create_thumbnail_tasks(&new_videos);
@@ -527,9 +550,9 @@ impl App {
                                 return Task::batch([Task::batch(thumb_tasks), next_page_task]);
                             } else {
                                 // Preloading complete
-                                self.preloading = false;
+                                self.channel_preloading = false;
                                 self.loading_channel = false;
-                                self.loading_more = false;
+                                self.channel_loading_more = false;
                             }
                         }
 
@@ -538,9 +561,9 @@ impl App {
                     }
                     Err(e) => {
                         eprintln!("Error loading channel videos: {}", e);
-                        self.preloading = false;
+                        self.channel_preloading = false;
                         self.loading_channel = false;
-                        self.loading_more = false;
+                        self.channel_loading_more = false;
                         Task::none()
                     }
                 }
@@ -548,17 +571,17 @@ impl App {
             Message::ChangeChannelTab(tab) => {
                 if let Some(ref channel) = self.current_channel {
                     self.current_tab = tab;
-                    self.results.clear();
+                    self.channel_results.clear();
                     self.available_sort_filters.clear();
                     self.selected_sort_label = None;
-                    self.continuation = None;
-                    self.preload_count = 0;
-                    self.preloading = true;
+                    self.channel_continuation = None;
+                    self.channel_preload_count = 0;
+                    self.channel_preloading = true;
                     self.loading_channel = true;
 
                     let channel_id = channel.id.clone();
                     // Use stored locale for consistent results across tabs
-                    let (hl, gl) = self.current_locale.clone();
+                    let (hl, gl) = self.channel_locale.clone();
                     Task::perform(
                         async move {
                             let client = InnerTube::new().await.map_err(|e| e.to_string())?;
@@ -582,14 +605,14 @@ impl App {
                     && let Some(ref token) = filter.continuation_token
                 {
                     self.selected_sort_label = Some(label);
-                    self.results.clear();
-                    self.continuation = None; // Will be updated with new continuation
-                    self.preload_count = 0;
-                    self.preloading = true;
+                    self.channel_results.clear();
+                    self.channel_continuation = None; // Will be updated with new continuation
+                    self.channel_preload_count = 0;
+                    self.channel_preloading = true;
                     self.loading_channel = true;
 
                     let token = token.clone();
-                    let (hl, gl) = self.current_locale.clone();
+                    let (hl, gl) = self.channel_locale.clone();
                     return Task::perform(
                         async move {
                             let client = InnerTube::new().await.map_err(|e| e.to_string())?;
@@ -605,17 +628,17 @@ impl App {
             }
 
             Message::LoadMoreVideos => {
-                if let Some(ref token) = self.continuation
-                    && !self.loading_more
+                if let Some(ref token) = self.channel_continuation
+                    && !self.channel_loading_more
                 {
-                    self.loading_more = true;
+                    self.channel_loading_more = true;
                     // Enable preloading to fetch 3 more pages
-                    self.preload_count = 0;
-                    self.preloading = true;
+                    self.channel_preload_count = 0;
+                    self.channel_preloading = true;
 
                     let token = token.clone();
                     // Use stored locale for consistent results
-                    let (hl, gl) = self.current_locale.clone();
+                    let (hl, gl) = self.channel_locale.clone();
                     return Task::perform(
                         async move {
                             let client = InnerTube::new().await.map_err(|e| e.to_string())?;
@@ -630,17 +653,17 @@ impl App {
                 Task::none()
             }
             Message::LoadMoreSearchResults => {
-                if let Some(ref token) = self.continuation
-                    && !self.loading_more
+                if let Some(ref token) = self.search_continuation
+                    && !self.search_loading_more
                 {
-                    self.loading_more = true;
+                    self.search_loading_more = true;
                     // Enable preloading to fetch 3 more pages
-                    self.preload_count = 0;
-                    self.preloading = true;
+                    self.search_preload_count = 0;
+                    self.search_preloading = true;
 
                     let token = token.clone();
                     // Use stored locale for consistent results
-                    let (hl, gl) = self.current_locale.clone();
+                    let (hl, gl) = self.search_locale.clone();
                     return Task::perform(
                         async move {
                             let client = InnerTube::new().await.map_err(|e| e.to_string())?;
@@ -656,12 +679,17 @@ impl App {
             }
             Message::BackToSearch => {
                 self.current_view = View::Search;
+                // Clear only channel state, preserve search state!
                 self.current_channel = None;
-                self.results.clear();
+                self.channel_results.clear();
                 self.banner = None;
                 self.available_sort_filters.clear();
                 self.selected_sort_label = None;
-                self.continuation = None;
+                self.channel_continuation = None;
+                self.channel_preload_count = 0;
+                self.channel_preloading = false;
+                self.loading_channel = false;
+                self.channel_loading_more = false;
                 Task::none()
             }
             Message::LanguageSelected(language) => {
@@ -669,17 +697,18 @@ impl App {
                 let hl = language.hl.to_string();
                 let gl = language.gl.to_string();
 
-                // Update current_locale to the manually selected language
-                self.current_locale = (hl.clone(), gl.clone());
+                // Update both locales to the manually selected language
+                self.search_locale = (hl.clone(), gl.clone());
+                self.channel_locale = (hl.clone(), gl.clone());
 
                 match self.current_view {
                     View::Channel => {
                         // Re-fetch channel with this locale
                         if let Some(ref channel) = self.current_channel {
-                            self.results.clear();
-                            self.continuation = None;
-                            self.preload_count = 0;
-                            self.preloading = true;
+                            self.channel_results.clear();
+                            self.channel_continuation = None;
+                            self.channel_preload_count = 0;
+                            self.channel_preloading = true;
                             self.loading_channel = true;
 
                             let channel_id = channel.id.clone();
@@ -704,10 +733,10 @@ impl App {
                         // Re-run search with new locale if there's an active query
                         if !self.query.is_empty() && !self.searching {
                             self.searching = true;
-                            self.results.clear();
-                            self.continuation = None;
-                            self.preload_count = 0;
-                            self.preloading = true;
+                            self.search_results.clear();
+                            self.search_continuation = None;
+                            self.search_preload_count = 0;
+                            self.search_preloading = true;
                             let q = self.query.clone();
 
                             Task::perform(
@@ -781,7 +810,7 @@ impl App {
         .height(100)
         .width(Length::Fill);
 
-        let body: Element<Message> = if self.results.is_empty() {
+        let body: Element<Message> = if self.search_results.is_empty() {
             if self.searching {
                 container(text("Searching...")).padding(40).into()
             } else {
@@ -799,7 +828,7 @@ impl App {
             }
         } else {
             let cards: Vec<Element<Message>> = self
-                .results
+                .search_results
                 .iter()
                 .filter_map(|r| {
                     let vid = r.video_id.clone()?;
@@ -910,12 +939,12 @@ impl App {
             .align_x(Alignment::Center);
 
             // Show "Load More" button or loading indicator
-            if self.loading_more {
+            if self.search_loading_more {
                 let loading_indicator = container(text("Loading more...").size(14))
                     .padding(20)
                     .center_x(Length::Fill);
                 search_content = search_content.push(loading_indicator);
-            } else if self.continuation.is_some() {
+            } else if self.search_continuation.is_some() {
                 // Show "Load More" button if we have more results to load
                 let load_more_btn = container(
                     button(text("Load More Results"))
@@ -997,7 +1026,7 @@ impl App {
             // Language and Sort controls on the same row
             // Find the auto-detected language name to display in placeholder (O(1) HashMap lookup)
             let auto_detected_name =
-                get_language_by_locale(&self.current_locale.0, &self.current_locale.1)
+                get_language_by_locale(&self.channel_locale.0, &self.channel_locale.1)
                     .map(|lang| lang.name)
                     .unwrap_or("Unknown");
 
@@ -1068,7 +1097,7 @@ impl App {
 
             // Videos grid
             let video_cards: Vec<Element<Message>> = self
-                .results
+                .channel_results
                 .iter()
                 .filter_map(|r| {
                     let vid = r.video_id.as_ref()?;
@@ -1146,12 +1175,12 @@ impl App {
                 ];
 
                 // Show "Load More" button or loading indicator
-                if self.loading_more {
+                if self.channel_loading_more {
                     let loading_indicator = container(text("Loading more...").size(14))
                         .padding(20)
                         .center_x(Length::Fill);
                     video_content = video_content.push(loading_indicator);
-                } else if self.continuation.is_some() {
+                } else if self.channel_continuation.is_some() {
                     // Show "Load More" button if we have more videos to load
                     let load_more_btn = container(
                         button(text("Load More Videos"))
