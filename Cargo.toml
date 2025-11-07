@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "ytrs-client"]
+resolver = "2"
+
 [package]
 name = "ytrs"
 version = "0.1.0"
@@ -25,3 +29,8 @@ lingua = "1.7"
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[patch.crates-io]
+iced_core = { git = "https://github.com/iced-rs/iced", branch = "master" }
+iced_widget = { git = "https://github.com/iced-rs/iced", branch = "master" }
+iced_renderer = { git = "https://github.com/iced-rs/iced", branch = "master" }
