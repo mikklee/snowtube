@@ -1,8 +1,8 @@
 use iced::Alignment::Center;
 use iced::widget::button::Style;
 use iced::widget::{
-    Image, button, column, combo_box, container, lazy, pick_list, row, scrollable, space, text,
-    text_input,
+    Image, button, column, combo_box, container, lazy, pick_list, row, scrollable, space, stack,
+    text, text_input,
 };
 use iced::{Alignment, Element, Length, Task, Theme};
 use iced_aw::Wrap;
@@ -73,6 +73,7 @@ enum Message {
     ThumbLoaded(String, Result<Vec<u8>, String>),
     BannerLoaded(Result<Vec<u8>, String>),
     Play(String),
+    CountdownTick,
     ViewChannel(String), // channel_id
     ChannelLoaded(Result<ChannelInfo, String>),
     ChannelVideosLoaded(Result<ChannelVideos, String>),
@@ -103,6 +104,8 @@ struct App {
     selected_sort_label: Option<String>,
     language_combo_state: combo_box::State<LanguageOption>,
     selected_language: Option<LanguageOption>,
+    playing_video: Option<String>, // Currently playing video ID
+    countdown_value: u8,           // Current countdown value (5, 4, 3, 2, 1, 0)
 }
 
 impl App {
@@ -127,6 +130,8 @@ impl App {
                 selected_sort_label: None,
                 language_combo_state: combo_box::State::new(get_all_languages().to_vec()),
                 selected_language: None,
+                playing_video: None,
+                countdown_value: 0,
             },
             Task::none(),
         )
@@ -266,6 +271,11 @@ impl App {
                 Task::none()
             }
             Message::Play(id) => {
+                // Set up countdown state
+                self.playing_video = Some(id.clone());
+                self.countdown_value = 5;
+
+                // Start MPV playback
                 let url = format!("https://www.youtube.com/watch?v={}", id);
                 std::thread::spawn(move || {
                     let _ = Command::new("mpv")
@@ -274,7 +284,33 @@ impl App {
                         .arg("--script-opts=ytdl_hook-ytdl_path=yt-dlp")
                         .spawn();
                 });
-                Task::none()
+
+                // Start countdown timer
+                Task::perform(
+                    async {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    },
+                    |_| Message::CountdownTick,
+                )
+            }
+            Message::CountdownTick => {
+                if self.countdown_value > 0 {
+                    self.countdown_value -= 1;
+                }
+
+                if self.countdown_value > 0 {
+                    // Continue countdown
+                    Task::perform(
+                        async {
+                            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                        },
+                        |_| Message::CountdownTick,
+                    )
+                } else {
+                    // Countdown complete, clear playing state
+                    self.playing_video = None;
+                    Task::none()
+                }
             }
             Message::ViewChannel(channel_id) => {
                 self.loading_channel = true;
@@ -747,11 +783,49 @@ impl App {
                     let duration = r.duration.clone();
                     let title = r.title.clone();
                     let channel = r.channel.clone();
+                    let is_playing = self.playing_video.as_ref() == Some(&vid);
+                    let countdown = self.countdown_value;
 
                     // Lazy widget caches rendering - only rebuilds when vid changes
                     Some(
                         lazy(vid.clone(), move |_| {
                             let thumb = Image::new(h.clone()).width(240).height(135);
+
+                            // Create thumbnail with optional countdown overlay
+                            let thumb_with_overlay: Element<Message> = if is_playing {
+                                stack![
+                                    thumb,
+                                    // Gray overlay
+                                    container(space()).width(240).height(135).style(
+                                        |_theme: &Theme| container::Style {
+                                            background: Some(iced::Background::Color(
+                                                iced::Color::from_rgba(0.0, 0.0, 0.0, 0.6)
+                                            )),
+                                            ..Default::default()
+                                        }
+                                    ),
+                                    // Countdown text
+                                    container(
+                                        column![
+                                            text("Waiting for required preload time")
+                                                .size(12)
+                                                .color(iced::Color::WHITE),
+                                            text(countdown.to_string())
+                                                .size(48)
+                                                .color(iced::Color::WHITE)
+                                        ]
+                                        .align_x(Alignment::Center)
+                                        .spacing(5)
+                                    )
+                                    .width(240)
+                                    .height(135)
+                                    .center_x(240)
+                                    .center_y(135)
+                                ]
+                                .into()
+                            } else {
+                                thumb.into()
+                            };
 
                             // Build metadata line
                             let mut meta_parts = vec![];
@@ -819,7 +893,7 @@ impl App {
                             }
 
                             let card = column![
-                                thumb,
+                                thumb_with_overlay,
                                 container(info_col.spacing(4))
                                     .padding(8)
                                     .width(240)
@@ -999,54 +1073,93 @@ impl App {
             content = content.push(controls_with_border);
 
             // Videos grid
-            let video_cards: Vec<Element<Message>> = self
-                .results
-                .iter()
-                .filter_map(|r| {
-                    let vid = r.video_id.as_ref()?;
-                    let h = self.thumbs.get(vid)?;
+            let video_cards: Vec<Element<Message>> =
+                self.results
+                    .iter()
+                    .filter_map(|r| {
+                        let vid = r.video_id.as_ref()?;
+                        let h = self.thumbs.get(vid)?;
 
-                    let thumb: Element<Message> =
-                        Image::new(h.clone()).width(240).height(135).into();
+                        let thumb = Image::new(h.clone()).width(240).height(135);
 
-                    let mut meta = vec![];
-                    if let Some(v) = r.view_count {
-                        meta.push(format!("{} views", fmt_num(v)));
-                    }
-                    if let Some(ref d) = r.duration {
-                        meta.push(d.clone());
-                    }
-                    if let Some(ref p) = r.published_text {
-                        meta.push(p.clone());
-                    }
+                        // Check if this video is currently playing
+                        let is_playing = self.playing_video.as_ref() == Some(vid);
+                        let countdown = self.countdown_value;
 
-                    let full_title = r.title.clone();
-                    let display_title = truncate_title(&r.title, 25);
+                        // Create thumbnail with optional countdown overlay
+                        let thumb_with_overlay: Element<Message> = if is_playing {
+                            stack![
+                                thumb,
+                                // Gray overlay
+                                container(space()).width(240).height(135).style(
+                                    |_theme: &Theme| container::Style {
+                                        background: Some(iced::Background::Color(
+                                            iced::Color::from_rgba(0.0, 0.0, 0.0, 0.6)
+                                        )),
+                                        ..Default::default()
+                                    }
+                                ),
+                                // Countdown text
+                                container(
+                                    column![
+                                        text("Waiting for required preload time")
+                                            .size(12)
+                                            .color(iced::Color::WHITE),
+                                        text(countdown.to_string())
+                                            .size(48)
+                                            .color(iced::Color::WHITE)
+                                    ]
+                                    .align_x(Alignment::Center)
+                                    .spacing(5)
+                                )
+                                .width(240)
+                                .height(135)
+                                .center_x(240)
+                                .center_y(135)
+                            ]
+                            .into()
+                        } else {
+                            thumb.into()
+                        };
 
-                    let title_widget = iced::widget::tooltip(
-                        text(display_title).size(14),
-                        container(text(full_title))
-                            .style(container::dark)
-                            .padding(10),
-                        iced::widget::tooltip::Position::FollowCursor,
-                    );
+                        let mut meta = vec![];
+                        if let Some(v) = r.view_count {
+                            meta.push(format!("{} views", fmt_num(v)));
+                        }
+                        if let Some(ref d) = r.duration {
+                            meta.push(d.clone());
+                        }
+                        if let Some(ref p) = r.published_text {
+                            meta.push(p.clone());
+                        }
 
-                    let card = column![
-                        thumb,
-                        container(
-                            column![title_widget, text(meta.join(" • ")).size(12),].spacing(4)
-                        )
-                        .padding(8)
-                        .width(240)
-                        .height(Length::Fixed(100.0))
-                    ]
-                    .spacing(0)
-                    .width(240);
+                        let full_title = r.title.clone();
+                        let display_title = truncate_title(&r.title, 25);
 
-                    let v = vid.clone();
-                    Some(button(card).on_press(Message::Play(v)).padding(0).into())
-                })
-                .collect();
+                        let title_widget = iced::widget::tooltip(
+                            text(display_title).size(14),
+                            container(text(full_title))
+                                .style(container::dark)
+                                .padding(10),
+                            iced::widget::tooltip::Position::FollowCursor,
+                        );
+
+                        let card = column![
+                            thumb_with_overlay,
+                            container(
+                                column![title_widget, text(meta.join(" • ")).size(12),].spacing(4)
+                            )
+                            .padding(8)
+                            .width(240)
+                            .height(Length::Fixed(100.0))
+                        ]
+                        .spacing(0)
+                        .width(240);
+
+                        let v = vid.clone();
+                        Some(button(card).on_press(Message::Play(v)).padding(0).into())
+                    })
+                    .collect();
 
             let videos_section: Element<Message> = if video_cards.is_empty() {
                 if self.loading_channel {
