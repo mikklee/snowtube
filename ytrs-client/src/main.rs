@@ -744,8 +744,11 @@ impl App {
                 })
                 .collect();
 
-            let mut search_content =
-                column![Wrap::with_elements(cards).spacing(15.0).line_spacing(15.0),];
+            let mut search_content = column![
+                container(Wrap::with_elements(cards).spacing(15.0).line_spacing(15.0))
+                    .center_x(Length::Fill)
+            ]
+            .align_x(Alignment::Center);
 
             // Show "Load More" button or loading indicator
             if self.loading_more {
