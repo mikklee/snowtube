@@ -194,10 +194,10 @@ impl App {
                         self.continuation = search_results.continuation;
 
                         // Store detected locale only if no manual language is selected
-                        if self.selected_language.is_none() {
-                            if let Some(locale) = search_results.detected_locale {
-                                self.current_locale = locale;
-                            }
+                        if self.selected_language.is_none()
+                            && let Some(locale) = search_results.detected_locale
+                        {
+                            self.current_locale = locale;
                         }
 
                         // Update results (replace on first search, append on continuation/preload)
@@ -478,10 +478,10 @@ impl App {
                         self.continuation = videos.continuation;
 
                         // Store detected locale only if no manual language is selected
-                        if self.selected_language.is_none() {
-                            if let Some(locale) = videos.detected_locale {
-                                self.current_locale = locale;
-                            }
+                        if self.selected_language.is_none()
+                            && let Some(locale) = videos.detected_locale
+                        {
+                            self.current_locale = locale;
                         }
 
                         // Update sort filters if available
