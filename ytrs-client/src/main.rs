@@ -1,14 +1,14 @@
 use iced::Alignment::Center;
 use iced::widget::button::Style;
 use iced::widget::{
-    Image, button, column, combo_box, container, lazy, pick_list, row, scrollable, space, text,
-    text_input,
+    Image, button, column, combo_box, container, lazy, pick_list, row, scrollable, space, stack,
+    text, text_input,
 };
 use iced::{Alignment, Element, Length, Task, Theme};
 use iced_aw::Wrap;
 use std::collections::HashMap;
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use ytrs::{
     ChannelInfo, ChannelTab, ChannelVideos, InnerTube, LanguageOption, SearchResult, SearchResults,
     SortFilter, get_all_languages,
@@ -73,7 +73,8 @@ enum Message {
     ThumbLoaded(String, Result<Vec<u8>, String>),
     BannerLoaded(Result<Vec<u8>, String>),
     Play(String),
-    ViewChannel(String), // channel_id
+    CountdownTick(String), // video_id for the countdown
+    ViewChannel(String),   // channel_id
     ChannelLoaded(Result<ChannelInfo, String>),
     ChannelVideosLoaded(Result<ChannelVideos, String>),
     ChangeChannelTab(ChannelTab),
@@ -103,6 +104,9 @@ struct App {
     selected_sort_label: Option<String>,
     language_combo_state: combo_box::State<LanguageOption>,
     selected_language: Option<LanguageOption>,
+    playing_video: Option<String>, // Currently playing video ID
+    countdown_value: u8,           // Current countdown value (5, 4, 3, 2, 1, 0)
+    mpv_process: Arc<tokio::sync::Mutex<Option<std::process::Child>>>, // MPV process handle
 }
 
 impl App {
@@ -127,6 +131,9 @@ impl App {
                 selected_sort_label: None,
                 language_combo_state: combo_box::State::new(get_all_languages().to_vec()),
                 selected_language: None,
+                playing_video: None,
+                countdown_value: 0,
+                mpv_process: Arc::new(tokio::sync::Mutex::new(None)),
             },
             Task::none(),
         )
@@ -266,15 +273,73 @@ impl App {
                 Task::none()
             }
             Message::Play(id) => {
+                // Set up countdown state
+                self.playing_video = Some(id.clone());
+                self.countdown_value = 5;
+
+                // Start MPV playback in tokio spawn_blocking
                 let url = format!("https://www.youtube.com/watch?v={}", id);
-                std::thread::spawn(move || {
-                    let _ = Command::new("mpv")
-                        .arg(&url)
-                        .arg("--ytdl=yes")
-                        .arg("--script-opts=ytdl_hook-ytdl_path=yt-dlp")
-                        .spawn();
+                let mpv_process = self.mpv_process.clone();
+
+                tokio::spawn(async move {
+                    // Kill previous MPV process if it exists
+                    let mut process_lock = mpv_process.lock().await;
+                    if let Some(mut process) = process_lock.take() {
+                        let _ = process.kill();
+                    }
+                    drop(process_lock);
+
+                    // Spawn new MPV process
+                    let result = tokio::task::spawn_blocking(move || {
+                        Command::new("mpv")
+                            .arg(&url)
+                            .arg("--ytdl=yes")
+                            .arg("--script-opts=ytdl_hook-ytdl_path=yt-dlp")
+                            .spawn()
+                    })
+                    .await;
+
+                    // Store the process handle
+                    if let Ok(Ok(child)) = result {
+                        let mut process_lock = mpv_process.lock().await;
+                        *process_lock = Some(child);
+                    }
                 });
-                Task::none()
+
+                // Start countdown timer
+                let video_id = id.clone();
+                Task::perform(
+                    async move {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                        video_id
+                    },
+                    Message::CountdownTick,
+                )
+            }
+            Message::CountdownTick(video_id) => {
+                // Only process countdown if this is still the playing video
+                if self.playing_video.as_ref() != Some(&video_id) {
+                    return Task::none();
+                }
+
+                if self.countdown_value > 0 {
+                    self.countdown_value -= 1;
+                }
+
+                if self.countdown_value > 0 {
+                    // Continue countdown
+                    Task::perform(
+                        async move {
+                            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                            video_id
+                        },
+                        Message::CountdownTick,
+                    )
+                } else {
+                    // Countdown complete, clear playing state
+                    self.playing_video = None;
+                    Task::none()
+                }
             }
             Message::ViewChannel(channel_id) => {
                 self.loading_channel = true;
@@ -747,11 +812,14 @@ impl App {
                     let duration = r.duration.clone();
                     let title = r.title.clone();
                     let channel = r.channel.clone();
+                    let is_playing = self.playing_video.as_ref() == Some(&vid);
+                    let countdown = self.countdown_value;
 
-                    // Lazy widget caches rendering - only rebuilds when vid changes
+                    // Lazy widget caches rendering - only rebuilds when (vid, is_playing, countdown) changes
                     Some(
-                        lazy(vid.clone(), move |_| {
+                        lazy((vid.clone(), is_playing, countdown), move |_| {
                             let thumb = Image::new(h.clone()).width(240).height(135);
+                            let thumb_with_overlay = create_thumbnail(thumb, is_playing, countdown);
 
                             // Build metadata line
                             let mut meta_parts = vec![];
@@ -819,7 +887,7 @@ impl App {
                             }
 
                             let card = column![
-                                thumb,
+                                thumb_with_overlay,
                                 container(info_col.spacing(4))
                                     .padding(8)
                                     .width(240)
@@ -1006,8 +1074,14 @@ impl App {
                     let vid = r.video_id.as_ref()?;
                     let h = self.thumbs.get(vid)?;
 
-                    let thumb: Element<Message> =
-                        Image::new(h.clone()).width(240).height(135).into();
+                    let thumb = Image::new(h.clone()).width(240).height(135);
+
+                    // Check if this video is currently playing
+                    let is_playing = self.playing_video.as_ref() == Some(vid);
+                    let countdown = self.countdown_value;
+
+                    // Create thumbnail with optional countdown overlay
+                    let thumb_with_overlay = create_thumbnail(thumb, is_playing, countdown);
 
                     let mut meta = vec![];
                     if let Some(v) = r.view_count {
@@ -1032,7 +1106,7 @@ impl App {
                     );
 
                     let card = column![
-                        thumb,
+                        thumb_with_overlay,
                         container(
                             column![title_widget, text(meta.join(" • ")).size(12),].spacing(4)
                         )
@@ -1116,6 +1190,52 @@ fn truncate_title(title: &str, max_chars: usize) -> String {
         )
     } else {
         title.to_string()
+    }
+}
+
+/// Helper function to create a thumbnail element.
+/// If a video has been clicked, displays a 5-second countdown overlay
+/// with a gray background and "Waiting for required preload time" message.
+/// YouTube requires a 5-second preload time before MPV can start playing the video.
+fn create_thumbnail(
+    thumb: Image<iced::widget::image::Handle>,
+    is_playing: bool,
+    countdown: u8,
+) -> Element<'static, Message> {
+    if is_playing {
+        stack![
+            thumb,
+            // Gray overlay
+            container(space())
+                .width(240)
+                .height(135)
+                .style(|_theme: &Theme| container::Style {
+                    background: Some(iced::Background::Color(iced::Color::from_rgba(
+                        0.0, 0.0, 0.0, 0.6
+                    ))),
+                    ..Default::default()
+                }),
+            // Countdown text
+            container(
+                column![
+                    text("Waiting for required preload time")
+                        .size(12)
+                        .color(iced::Color::WHITE),
+                    text(countdown.to_string())
+                        .size(48)
+                        .color(iced::Color::WHITE)
+                ]
+                .align_x(Alignment::Center)
+                .spacing(5)
+            )
+            .width(240)
+            .height(135)
+            .center_x(240)
+            .center_y(135)
+        ]
+        .into()
+    } else {
+        thumb.into()
     }
 }
 
