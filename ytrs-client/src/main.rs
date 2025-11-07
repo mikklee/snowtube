@@ -589,7 +589,7 @@ impl App {
                     self.current_locale = (hl.clone(), gl.clone());
 
                     // Fetch channel info first
-                    let info_task = Task::perform(
+                    Task::perform(
                         async move {
                             let client = InnerTube::new().await.map_err(|e| e.to_string())?;
                             client
@@ -598,9 +598,7 @@ impl App {
                                 .map_err(|e| e.to_string())
                         },
                         Message::ChannelLoaded,
-                    );
-
-                    info_task
+                    )
                 } else {
                     Task::none()
                 }
