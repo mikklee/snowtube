@@ -819,42 +819,7 @@ impl App {
                     Some(
                         lazy((vid.clone(), is_playing, countdown), move |_| {
                             let thumb = Image::new(h.clone()).width(240).height(135);
-
-                            // Create thumbnail with optional countdown overlay
-                            let thumb_with_overlay: Element<Message> = if is_playing {
-                                stack![
-                                    thumb,
-                                    // Gray overlay
-                                    container(space()).width(240).height(135).style(
-                                        |_theme: &Theme| container::Style {
-                                            background: Some(iced::Background::Color(
-                                                iced::Color::from_rgba(0.0, 0.0, 0.0, 0.6)
-                                            )),
-                                            ..Default::default()
-                                        }
-                                    ),
-                                    // Countdown text
-                                    container(
-                                        column![
-                                            text("Waiting for required preload time")
-                                                .size(12)
-                                                .color(iced::Color::WHITE),
-                                            text(countdown.to_string())
-                                                .size(48)
-                                                .color(iced::Color::WHITE)
-                                        ]
-                                        .align_x(Alignment::Center)
-                                        .spacing(5)
-                                    )
-                                    .width(240)
-                                    .height(135)
-                                    .center_x(240)
-                                    .center_y(135)
-                                ]
-                                .into()
-                            } else {
-                                thumb.into()
-                            };
+                            let thumb_with_overlay = create_thumbnail(thumb, is_playing, countdown);
 
                             // Build metadata line
                             let mut meta_parts = vec![];
@@ -1102,93 +1067,60 @@ impl App {
             content = content.push(controls_with_border);
 
             // Videos grid
-            let video_cards: Vec<Element<Message>> =
-                self.results
-                    .iter()
-                    .filter_map(|r| {
-                        let vid = r.video_id.as_ref()?;
-                        let h = self.thumbs.get(vid)?;
+            let video_cards: Vec<Element<Message>> = self
+                .results
+                .iter()
+                .filter_map(|r| {
+                    let vid = r.video_id.as_ref()?;
+                    let h = self.thumbs.get(vid)?;
 
-                        let thumb = Image::new(h.clone()).width(240).height(135);
+                    let thumb = Image::new(h.clone()).width(240).height(135);
 
-                        // Check if this video is currently playing
-                        let is_playing = self.playing_video.as_ref() == Some(vid);
-                        let countdown = self.countdown_value;
+                    // Check if this video is currently playing
+                    let is_playing = self.playing_video.as_ref() == Some(vid);
+                    let countdown = self.countdown_value;
 
-                        // Create thumbnail with optional countdown overlay
-                        let thumb_with_overlay: Element<Message> = if is_playing {
-                            stack![
-                                thumb,
-                                // Gray overlay
-                                container(space()).width(240).height(135).style(
-                                    |_theme: &Theme| container::Style {
-                                        background: Some(iced::Background::Color(
-                                            iced::Color::from_rgba(0.0, 0.0, 0.0, 0.6)
-                                        )),
-                                        ..Default::default()
-                                    }
-                                ),
-                                // Countdown text
-                                container(
-                                    column![
-                                        text("Waiting for required preload time")
-                                            .size(12)
-                                            .color(iced::Color::WHITE),
-                                        text(countdown.to_string())
-                                            .size(48)
-                                            .color(iced::Color::WHITE)
-                                    ]
-                                    .align_x(Alignment::Center)
-                                    .spacing(5)
-                                )
-                                .width(240)
-                                .height(135)
-                                .center_x(240)
-                                .center_y(135)
-                            ]
-                            .into()
-                        } else {
-                            thumb.into()
-                        };
+                    // Create thumbnail with optional countdown overlay
+                    let thumb_with_overlay = create_thumbnail(thumb, is_playing, countdown);
 
-                        let mut meta = vec![];
-                        if let Some(v) = r.view_count {
-                            meta.push(format!("{} views", fmt_num(v)));
-                        }
-                        if let Some(ref d) = r.duration {
-                            meta.push(d.clone());
-                        }
-                        if let Some(ref p) = r.published_text {
-                            meta.push(p.clone());
-                        }
+                    let mut meta = vec![];
+                    if let Some(v) = r.view_count {
+                        meta.push(format!("{} views", fmt_num(v)));
+                    }
+                    if let Some(ref d) = r.duration {
+                        meta.push(d.clone());
+                    }
+                    if let Some(ref p) = r.published_text {
+                        meta.push(p.clone());
+                    }
 
-                        let full_title = r.title.clone();
-                        let display_title = truncate_title(&r.title, 25);
+                    let full_title = r.title.clone();
+                    let display_title = truncate_title(&r.title, 25);
 
-                        let title_widget = iced::widget::tooltip(
-                            text(display_title).size(14),
-                            container(text(full_title))
-                                .style(container::dark)
-                                .padding(10),
-                            iced::widget::tooltip::Position::FollowCursor,
-                        );
+                    let title_widget = iced::widget::tooltip(
+                        text(display_title).size(14),
+                        container(text(full_title))
+                            .style(container::dark)
+                            .padding(10),
+                        iced::widget::tooltip::Position::FollowCursor,
+                    );
 
-                        let card = column![
-                            thumb_with_overlay,
-                            container(
-                                column![title_widget, text(meta.join(" • ")).size(12),].spacing(4)
-                            )
-                            .padding(8)
-                            .width(240)
-                            .height(Length::Fixed(100.0))
-                        ]
-                        .spacing(0)
-                        .width(240);
+                    let card = column![
+                        thumb_with_overlay,
+                        container(
+                            column![title_widget, text(meta.join(" • ")).size(12),].spacing(4)
+                        )
+                        .padding(8)
+                        .width(240)
+                        .height(Length::Fixed(100.0))
+                    ]
+                    .spacing(0)
+                    .width(240);
 
-                        let v = vid.clone();
-                        Some(button(card).on_press(Message::Play(v)).padding(0).into())
-                    })
-                    .collect();
+                    let v = vid.clone();
+                    Some(button(card).on_press(Message::Play(v)).padding(0).into())
+                })
+                .collect();
 
             let videos_section: Element<Message> = if video_cards.is_empty() {
                 if self.loading_channel {
@@ -1258,6 +1190,52 @@ fn truncate_title(title: &str, max_chars: usize) -> String {
         )
     } else {
         title.to_string()
+    }
+}
+
+/// Helper function to create a thumbnail element.
+/// If a video has been clicked, displays a 5-second countdown overlay
+/// with a gray background and "Waiting for required preload time" message.
+/// YouTube requires a 5-second preload time before MPV can start playing the video.
+fn create_thumbnail(
+    thumb: Image<iced::widget::image::Handle>,
+    is_playing: bool,
+    countdown: u8,
+) -> Element<'static, Message> {
+    if is_playing {
+        stack![
+            thumb,
+            // Gray overlay
+            container(space())
+                .width(240)
+                .height(135)
+                .style(|_theme: &Theme| container::Style {
+                    background: Some(iced::Background::Color(iced::Color::from_rgba(
+                        0.0, 0.0, 0.0, 0.6
+                    ))),
+                    ..Default::default()
+                }),
+            // Countdown text
+            container(
+                column![
+                    text("Waiting for required preload time")
+                        .size(12)
+                        .color(iced::Color::WHITE),
+                    text(countdown.to_string())
+                        .size(48)
+                        .color(iced::Color::WHITE)
+                ]
+                .align_x(Alignment::Center)
+                .spacing(5)
+            )
+            .width(240)
+            .height(135)
+            .center_x(240)
+            .center_y(135)
+        ]
+        .into()
+    } else {
+        thumb.into()
     }
 }
 
