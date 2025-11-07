@@ -8,7 +8,7 @@ use iced::{Alignment, Element, Length, Task, Theme};
 use iced_aw::Wrap;
 use std::collections::HashMap;
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use ytrs::{
     ChannelInfo, ChannelTab, ChannelVideos, InnerTube, LanguageOption, SearchResult, SearchResults,
     SortFilter, get_all_languages,
@@ -73,8 +73,8 @@ enum Message {
     ThumbLoaded(String, Result<Vec<u8>, String>),
     BannerLoaded(Result<Vec<u8>, String>),
     Play(String),
-    CountdownTick,
-    ViewChannel(String), // channel_id
+    CountdownTick(String), // video_id for the countdown
+    ViewChannel(String),   // channel_id
     ChannelLoaded(Result<ChannelInfo, String>),
     ChannelVideosLoaded(Result<ChannelVideos, String>),
     ChangeChannelTab(ChannelTab),
@@ -106,6 +106,7 @@ struct App {
     selected_language: Option<LanguageOption>,
     playing_video: Option<String>, // Currently playing video ID
     countdown_value: u8,           // Current countdown value (5, 4, 3, 2, 1, 0)
+    mpv_process: Arc<tokio::sync::Mutex<Option<std::process::Child>>>, // MPV process handle
 }
 
 impl App {
@@ -132,6 +133,7 @@ impl App {
                 selected_language: None,
                 playing_video: None,
                 countdown_value: 0,
+                mpv_process: Arc::new(tokio::sync::Mutex::new(None)),
             },
             Task::none(),
         )
@@ -275,25 +277,51 @@ impl App {
                 self.playing_video = Some(id.clone());
                 self.countdown_value = 5;
 
-                // Start MPV playback
+                // Start MPV playback in tokio spawn_blocking
                 let url = format!("https://www.youtube.com/watch?v={}", id);
-                std::thread::spawn(move || {
-                    let _ = Command::new("mpv")
-                        .arg(&url)
-                        .arg("--ytdl=yes")
-                        .arg("--script-opts=ytdl_hook-ytdl_path=yt-dlp")
-                        .spawn();
+                let mpv_process = self.mpv_process.clone();
+
+                tokio::spawn(async move {
+                    // Kill previous MPV process if it exists
+                    let mut process_lock = mpv_process.lock().await;
+                    if let Some(mut process) = process_lock.take() {
+                        let _ = process.kill();
+                    }
+                    drop(process_lock);
+
+                    // Spawn new MPV process
+                    let result = tokio::task::spawn_blocking(move || {
+                        Command::new("mpv")
+                            .arg(&url)
+                            .arg("--ytdl=yes")
+                            .arg("--script-opts=ytdl_hook-ytdl_path=yt-dlp")
+                            .spawn()
+                    })
+                    .await;
+
+                    // Store the process handle
+                    if let Ok(Ok(child)) = result {
+                        let mut process_lock = mpv_process.lock().await;
+                        *process_lock = Some(child);
+                    }
                 });
 
                 // Start countdown timer
+                let video_id = id.clone();
                 Task::perform(
-                    async {
+                    async move {
                         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                        video_id
                     },
-                    |_| Message::CountdownTick,
+                    Message::CountdownTick,
                 )
             }
-            Message::CountdownTick => {
+            Message::CountdownTick(video_id) => {
+                // Only process countdown if this is still the playing video
+                if self.playing_video.as_ref() != Some(&video_id) {
+                    return Task::none();
+                }
+
                 if self.countdown_value > 0 {
                     self.countdown_value -= 1;
                 }
@@ -301,10 +329,11 @@ impl App {
                 if self.countdown_value > 0 {
                     // Continue countdown
                     Task::perform(
-                        async {
+                        async move {
                             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                            video_id
                         },
-                        |_| Message::CountdownTick,
+                        Message::CountdownTick,
                     )
                 } else {
                     // Countdown complete, clear playing state
