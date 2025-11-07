@@ -1,14 +1,32 @@
+use iced::Alignment::Center;
 use iced::widget::button::Style;
 use iced::widget::{
-    Image, button, column, container, lazy, pick_list, row, scrollable, text, text_input,
+    Image, button, column, combo_box, container, lazy, pick_list, row, scrollable, space, text,
+    text_input,
 };
 use iced::{Alignment, Element, Length, Task, Theme};
 use iced_aw::Wrap;
 use std::collections::HashMap;
 use std::process::Command;
+use std::sync::OnceLock;
 use ytrs::{
-    ChannelInfo, ChannelTab, ChannelVideos, InnerTube, SearchResult, SearchResults, SortFilter,
+    ChannelInfo, ChannelTab, ChannelVideos, InnerTube, LanguageOption, SearchResult, SearchResults,
+    SortFilter, get_all_languages,
 };
+
+/// Cached HashMap for O(1) language lookups by (hl, gl) tuple
+static LOCALE_TO_LANGUAGE: OnceLock<HashMap<(String, String), &'static LanguageOption>> =
+    OnceLock::new();
+
+fn get_language_by_locale(hl: &str, gl: &str) -> Option<&'static LanguageOption> {
+    let map = LOCALE_TO_LANGUAGE.get_or_init(|| {
+        get_all_languages()
+            .iter()
+            .map(|lang| ((lang.hl.to_string(), lang.gl.to_string()), lang))
+            .collect()
+    });
+    map.get(&(hl.to_string(), gl.to_string())).copied()
+}
 
 fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
@@ -63,6 +81,7 @@ enum Message {
     LoadMoreVideos,
     LoadMoreSearchResults,
     BackToSearch,
+    LanguageSelected(LanguageOption),
 }
 
 struct App {
@@ -82,6 +101,8 @@ struct App {
     loading_channel: bool,
     available_sort_filters: Vec<SortFilter>,
     selected_sort_label: Option<String>,
+    language_combo_state: combo_box::State<LanguageOption>,
+    selected_language: Option<LanguageOption>,
 }
 
 impl App {
@@ -104,6 +125,8 @@ impl App {
                 loading_channel: false,
                 available_sort_filters: Vec::new(),
                 selected_sort_label: None,
+                language_combo_state: combo_box::State::new(get_all_languages().to_vec()),
+                selected_language: None,
             },
             Task::none(),
         )
@@ -125,13 +148,30 @@ impl App {
                 self.preload_count = 0;
                 self.preloading = true;
                 let q = self.query.clone();
-                Task::perform(
-                    async move {
-                        let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                        client.search(&q).await.map_err(|e| e.to_string())
-                    },
-                    Message::SearchDone,
-                )
+
+                // Use manual locale if selected, otherwise auto-detect
+                if let Some(ref language) = self.selected_language {
+                    let hl = language.hl.to_string();
+                    let gl = language.gl.to_string();
+                    Task::perform(
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client
+                                .search_with_locale(&q, &hl, &gl)
+                                .await
+                                .map_err(|e| e.to_string())
+                        },
+                        Message::SearchDone,
+                    )
+                } else {
+                    Task::perform(
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client.search(&q).await.map_err(|e| e.to_string())
+                        },
+                        Message::SearchDone,
+                    )
+                }
             }
             Message::SearchDone(res) => {
                 match res {
@@ -146,9 +186,11 @@ impl App {
                         // Store continuation token for pagination
                         self.continuation = search_results.continuation;
 
-                        // Store detected locale for subsequent requests
-                        if let Some(locale) = search_results.detected_locale {
-                            self.current_locale = locale;
+                        // Store detected locale only if no manual language is selected
+                        if self.selected_language.is_none() {
+                            if let Some(locale) = search_results.detected_locale {
+                                self.current_locale = locale;
+                            }
                         }
 
                         // Update results (replace on first search, append on continuation/preload)
@@ -245,8 +287,16 @@ impl App {
                 self.continuation = None;
                 self.preload_count = 0;
                 self.preloading = true;
+                // Keep selected_language if it exists (persist from search view)
 
                 let id = channel_id.clone();
+
+                // Use manual locale if selected, otherwise let channel load detect it
+                if let Some(ref language) = self.selected_language {
+                    let hl = language.hl.to_string();
+                    let gl = language.gl.to_string();
+                    self.current_locale = (hl, gl);
+                }
 
                 // First load channel info, then use channel name for locale detection when loading videos
                 Task::perform(
@@ -288,25 +338,50 @@ impl App {
                             Task::none()
                         };
 
-                        // Load channel videos with locale detection based on channel description (fallback to name)
+                        // Load channel videos - use manual language if selected, otherwise auto-detect
                         let channel_id = channel.id.clone();
-                        let locale_hint =
-                            channel.description.clone().or(Some(channel.name.clone()));
+                        let tab = self.current_tab;
 
-                        let videos_task = Task::perform(
-                            async move {
-                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                                client
-                                    .get_channel_videos_with_locale(
-                                        &channel_id,
-                                        ChannelTab::Videos,
-                                        locale_hint.as_deref(),
-                                    )
-                                    .await
-                                    .map_err(|e| e.to_string())
-                            },
-                            Message::ChannelVideosLoaded,
-                        );
+                        let videos_task = if let Some(ref lang) = self.selected_language {
+                            // Use manually selected language
+                            let hl = lang.hl.to_string();
+                            let gl = lang.gl.to_string();
+                            Task::perform(
+                                async move {
+                                    let client =
+                                        InnerTube::new().await.map_err(|e| e.to_string())?;
+                                    client
+                                        .get_channel_videos_with_explicit_locale(
+                                            &channel_id,
+                                            tab,
+                                            &hl,
+                                            &gl,
+                                        )
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                },
+                                Message::ChannelVideosLoaded,
+                            )
+                        } else {
+                            // Auto-detect locale from channel description/name
+                            let locale_hint =
+                                channel.description.clone().or(Some(channel.name.clone()));
+                            Task::perform(
+                                async move {
+                                    let client =
+                                        InnerTube::new().await.map_err(|e| e.to_string())?;
+                                    client
+                                        .get_channel_videos_with_locale(
+                                            &channel_id,
+                                            tab,
+                                            locale_hint.as_deref(),
+                                        )
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                },
+                                Message::ChannelVideosLoaded,
+                            )
+                        };
 
                         self.current_channel = Some(channel);
                         Task::batch(vec![banner_task, avatar_task, videos_task])
@@ -337,9 +412,11 @@ impl App {
                         // Store continuation token for pagination
                         self.continuation = videos.continuation;
 
-                        // Store detected locale for subsequent requests
-                        if let Some(locale) = videos.detected_locale {
-                            self.current_locale = locale;
+                        // Store detected locale only if no manual language is selected
+                        if self.selected_language.is_none() {
+                            if let Some(locale) = videos.detected_locale {
+                                self.current_locale = locale;
+                            }
                         }
 
                         // Update sort filters if available
@@ -522,6 +599,69 @@ impl App {
                 self.continuation = None;
                 Task::none()
             }
+            Message::LanguageSelected(language) => {
+                self.selected_language = Some(language.clone());
+                let hl = language.hl.to_string();
+                let gl = language.gl.to_string();
+
+                // Update current_locale to the manually selected language
+                self.current_locale = (hl.clone(), gl.clone());
+
+                match self.current_view {
+                    View::Channel => {
+                        // Re-fetch channel with this locale
+                        if let Some(ref channel) = self.current_channel {
+                            self.results.clear();
+                            self.continuation = None;
+                            self.preload_count = 0;
+                            self.preloading = true;
+                            self.loading_channel = true;
+
+                            let channel_id = channel.id.clone();
+
+                            // Fetch channel info first
+                            Task::perform(
+                                async move {
+                                    let client =
+                                        InnerTube::new().await.map_err(|e| e.to_string())?;
+                                    client
+                                        .get_channel(&channel_id)
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                },
+                                Message::ChannelLoaded,
+                            )
+                        } else {
+                            Task::none()
+                        }
+                    }
+                    View::Search => {
+                        // Re-run search with new locale if there's an active query
+                        if !self.query.is_empty() && !self.searching {
+                            self.searching = true;
+                            self.results.clear();
+                            self.continuation = None;
+                            self.preload_count = 0;
+                            self.preloading = true;
+                            let q = self.query.clone();
+
+                            Task::perform(
+                                async move {
+                                    let client =
+                                        InnerTube::new().await.map_err(|e| e.to_string())?;
+                                    client
+                                        .search_with_locale(&q, &hl, &gl)
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                },
+                                Message::SearchDone,
+                            )
+                        } else {
+                            Task::none()
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -533,16 +673,48 @@ impl App {
     }
 
     fn view_search(&self) -> Element<'_, Message> {
-        let search = row![
+        let search_row = row![
             text_input("Search YouTube...", &self.query)
                 .on_input(Message::InputChanged)
                 .on_submit(Message::Search)
                 .padding(10)
-                .width(Length::FillPortion(8)),
+                .width(Length::Fill),
             button(text("Search")).on_press(Message::Search).padding(10)
         ]
+        .spacing(10);
+
+        let language_row = row![
+            text("Language:").size(14),
+            combo_box(
+                &self.language_combo_state,
+                "Auto-detect",
+                self.selected_language.as_ref(),
+                Message::LanguageSelected,
+            )
+            .width(250)
+        ]
         .spacing(10)
-        .padding(20);
+        .align_y(Alignment::Center);
+
+        let search = container(column![
+            row![
+                column![
+                    iced::widget::space::vertical(),
+                    search_row,
+                    iced::widget::space::vertical()
+                ]
+                .spacing(10),
+                column![
+                    iced::widget::space::vertical(),
+                    language_row,
+                    iced::widget::space::vertical()
+                ],
+            ]
+            .spacing(20)
+            .padding(20),
+        ])
+        .height(100)
+        .width(Length::Fill);
 
         let body: Element<Message> = if self.results.is_empty() {
             if self.searching {
@@ -663,8 +835,11 @@ impl App {
                 })
                 .collect();
 
-            let mut search_content =
-                column![Wrap::with_elements(cards).spacing(15.0).line_spacing(15.0),];
+            let mut search_content = column![
+                container(Wrap::with_elements(cards).spacing(15.0).line_spacing(15.0))
+                    .center_x(Length::Fill)
+            ]
+            .align_x(Alignment::Center);
 
             // Show "Load More" button or loading indicator
             if self.loading_more {
@@ -694,31 +869,31 @@ impl App {
         if let Some(ref channel) = self.current_channel {
             let mut content = column![].spacing(0);
 
-            // Banner
-            if let Some(ref banner_handle) = self.banner {
-                content = content.push(
-                    container(
-                        Image::new(banner_handle.clone())
-                            .width(Length::Fill)
-                            .height(200),
-                    )
-                    .width(Length::Fill),
-                );
+            // Banner with header overlay
+            let banner_image: Element<Message> = if let Some(ref banner_handle) = self.banner {
+                Image::new(banner_handle.clone())
+                    .width(Length::Fill)
+                    .height(200)
+                    .into()
             } else {
                 // Placeholder banner
-                content = content.push(container(text("")).width(Length::Fill).height(200).style(
-                    |theme: &Theme| container::Style {
+                container(iced::widget::space::horizontal())
+                    .width(Length::Fill)
+                    .height(200)
+                    .style(|theme: &Theme| container::Style {
                         background: Some(iced::Background::Color(theme.palette().primary)),
                         ..Default::default()
-                    },
-                ));
-            }
+                    })
+                    .into()
+            };
 
-            // Channel header with avatar, name, and subscriber count
+            content = content.push(banner_image);
+
+            // Back button, avatar, and channel info on same row
             let avatar: Element<Message> = if let Some(h) = self.thumbs.get(&channel.id) {
-                Image::new(h.clone()).width(100).height(100).into()
+                Image::new(h.clone()).width(80).height(80).into()
             } else {
-                container(text("")).width(100).height(100).into()
+                container(space()).width(80).height(80).into()
             };
 
             let mut info_column = column![text(&channel.name).size(24),].spacing(5);
@@ -731,14 +906,11 @@ impl App {
                 button(text("← Back"))
                     .on_press(Message::BackToSearch)
                     .padding(10),
-                container(avatar).padding(10),
+                avatar,
                 info_column.padding(10),
             ]
             .spacing(10)
-            .padding(20)
             .align_y(Alignment::Center);
-
-            content = content.push(header);
 
             // Tabs
             let tabs = row![
@@ -752,12 +924,31 @@ impl App {
                     .on_press(Message::ChangeChannelTab(ChannelTab::Streams))
                     .padding(10),
             ]
-            .spacing(5)
-            .padding(10);
+            .spacing(10);
 
-            content = content.push(tabs);
+            // Language and Sort controls on the same row
+            // Find the auto-detected language name to display in placeholder (O(1) HashMap lookup)
+            let auto_detected_name =
+                get_language_by_locale(&self.current_locale.0, &self.current_locale.1)
+                    .map(|lang| lang.name)
+                    .unwrap_or("Unknown");
 
-            // Sort dropdown (only show if we have sort filters available)
+            let placeholder = format!("Auto-detected: {}", auto_detected_name);
+
+            let mut controls_row = row![
+                text("Language:").size(14),
+                combo_box(
+                    &self.language_combo_state,
+                    &placeholder,
+                    self.selected_language.as_ref(),
+                    Message::LanguageSelected,
+                )
+                .width(250)
+            ]
+            .align_y(Center)
+            .spacing(10);
+
+            // Add sort dropdown if we have sort filters available
             if !self.available_sort_filters.is_empty() {
                 let filter_labels: Vec<String> = self
                     .available_sort_filters
@@ -765,21 +956,47 @@ impl App {
                     .map(|f| f.label.clone())
                     .collect();
 
-                let sort_row = row![
-                    text("Sort by:").size(14),
-                    pick_list(
-                        filter_labels,
-                        self.selected_sort_label.clone(),
-                        Message::ChangeSortFilter,
-                    )
-                    .padding(5)
-                ]
-                .spacing(10)
-                .padding(10)
-                .align_y(Alignment::Center);
-
-                content = content.push(sort_row);
+                controls_row = controls_row.push(
+                    row![
+                        text("Sort by:").size(14),
+                        pick_list(
+                            filter_labels,
+                            self.selected_sort_label.clone(),
+                            Message::ChangeSortFilter,
+                        )
+                        .padding(5)
+                    ]
+                    .spacing(10)
+                    .padding(10)
+                    .align_y(Alignment::Center),
+                );
             }
+
+            // Add controls section with background and 2px bottom border
+            let controls_with_border = column![
+                container(row![
+                    column![header, tabs].spacing(10).width(Length::Fill),
+                    column![iced::widget::space::vertical(), controls_row]
+                ])
+                .padding(10)
+                .height(150)
+                .width(Length::Fill)
+                .style(|theme: &Theme| container::Style {
+                    background: Some(iced::Background::Color(theme.palette().background)),
+                    ..Default::default()
+                }),
+                // 2px bottom border line
+                container(space())
+                    .width(Length::Fill)
+                    .height(2)
+                    .style(|theme: &Theme| container::Style {
+                        background: Some(iced::Background::Color(theme.palette().primary)),
+                        ..Default::default()
+                    })
+            ]
+            .spacing(0);
+
+            content = content.push(controls_with_border);
 
             // Videos grid
             let video_cards: Vec<Element<Message>> = self
@@ -833,15 +1050,25 @@ impl App {
 
             let videos_section: Element<Message> = if video_cards.is_empty() {
                 if self.loading_channel {
-                    container(text("Loading...")).padding(40).into()
+                    container(text("Loading..."))
+                        .padding(40)
+                        .center_x(Length::Fill)
+                        .into()
                 } else {
-                    container(text("No videos found")).padding(40).into()
+                    container(text("No videos found"))
+                        .padding(40)
+                        .center_x(Length::Fill)
+                        .into()
                 }
             } else {
                 let mut video_content = column![
-                    Wrap::with_elements(video_cards)
-                        .spacing(15.0)
-                        .line_spacing(15.0),
+                    container(
+                        Wrap::with_elements(video_cards)
+                            .spacing(15.0)
+                            .line_spacing(15.0),
+                    )
+                    .center_x(Length::Fill)
+                    .align_x(Alignment::Center)
                 ];
 
                 // Show "Load More" button or loading indicator
@@ -862,7 +1089,7 @@ impl App {
                     video_content = video_content.push(load_more_btn);
                 }
 
-                scrollable(container(video_content).padding(20).width(Length::Fill)).into()
+                scrollable(container(video_content).padding(20)).into()
             };
 
             content = content.push(videos_section);

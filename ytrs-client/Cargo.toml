@@ -14,8 +14,3 @@ tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
 image = "0.25"
 bytes = "1.10"
-
-[patch.crates-io]
-iced_core = { git = "https://github.com/iced-rs/iced", branch = "master" }
-iced_widget = { git = "https://github.com/iced-rs/iced", branch = "master" }
-iced_renderer = { git = "https://github.com/iced-rs/iced", branch = "master" }
