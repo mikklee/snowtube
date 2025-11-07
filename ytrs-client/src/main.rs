@@ -148,13 +148,30 @@ impl App {
                 self.preload_count = 0;
                 self.preloading = true;
                 let q = self.query.clone();
-                Task::perform(
-                    async move {
-                        let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                        client.search(&q).await.map_err(|e| e.to_string())
-                    },
-                    Message::SearchDone,
-                )
+
+                // Use manual locale if selected, otherwise auto-detect
+                if let Some(ref language) = self.selected_language {
+                    let hl = language.hl.to_string();
+                    let gl = language.gl.to_string();
+                    Task::perform(
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client
+                                .search_with_locale(&q, &hl, &gl)
+                                .await
+                                .map_err(|e| e.to_string())
+                        },
+                        Message::SearchDone,
+                    )
+                } else {
+                    Task::perform(
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client.search(&q).await.map_err(|e| e.to_string())
+                        },
+                        Message::SearchDone,
+                    )
+                }
             }
             Message::SearchDone(res) => {
                 match res {
@@ -169,9 +186,11 @@ impl App {
                         // Store continuation token for pagination
                         self.continuation = search_results.continuation;
 
-                        // Store detected locale for subsequent requests
-                        if let Some(locale) = search_results.detected_locale {
-                            self.current_locale = locale;
+                        // Store detected locale only if no manual language is selected
+                        if self.selected_language.is_none() {
+                            if let Some(locale) = search_results.detected_locale {
+                                self.current_locale = locale;
+                            }
                         }
 
                         // Update results (replace on first search, append on continuation/preload)
@@ -572,35 +591,66 @@ impl App {
                 Task::none()
             }
             Message::LanguageSelected(language) => {
-                // User manually selected a language - re-fetch channel with this locale
-                if let Some(ref channel) = self.current_channel {
-                    self.selected_language = Some(language.clone());
-                    self.results.clear();
-                    self.continuation = None;
-                    self.preload_count = 0;
-                    self.preloading = true;
-                    self.loading_channel = true;
+                self.selected_language = Some(language.clone());
+                let hl = language.hl.to_string();
+                let gl = language.gl.to_string();
 
-                    let channel_id = channel.id.clone();
-                    let hl = language.hl.to_string();
-                    let gl = language.gl.to_string();
+                // Update current_locale to the manually selected language
+                self.current_locale = (hl.clone(), gl.clone());
 
-                    // Update current_locale to the manually selected language
-                    self.current_locale = (hl.clone(), gl.clone());
+                match self.current_view {
+                    View::Channel => {
+                        // Re-fetch channel with this locale
+                        if let Some(ref channel) = self.current_channel {
+                            self.results.clear();
+                            self.continuation = None;
+                            self.preload_count = 0;
+                            self.preloading = true;
+                            self.loading_channel = true;
 
-                    // Fetch channel info first
-                    Task::perform(
-                        async move {
-                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                            client
-                                .get_channel(&channel_id)
-                                .await
-                                .map_err(|e| e.to_string())
-                        },
-                        Message::ChannelLoaded,
-                    )
-                } else {
-                    Task::none()
+                            let channel_id = channel.id.clone();
+
+                            // Fetch channel info first
+                            Task::perform(
+                                async move {
+                                    let client =
+                                        InnerTube::new().await.map_err(|e| e.to_string())?;
+                                    client
+                                        .get_channel(&channel_id)
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                },
+                                Message::ChannelLoaded,
+                            )
+                        } else {
+                            Task::none()
+                        }
+                    }
+                    View::Search => {
+                        // Re-run search with new locale if there's an active query
+                        if !self.query.is_empty() && !self.searching {
+                            self.searching = true;
+                            self.results.clear();
+                            self.continuation = None;
+                            self.preload_count = 0;
+                            self.preloading = true;
+                            let q = self.query.clone();
+
+                            Task::perform(
+                                async move {
+                                    let client =
+                                        InnerTube::new().await.map_err(|e| e.to_string())?;
+                                    client
+                                        .search_with_locale(&q, &hl, &gl)
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                },
+                                Message::SearchDone,
+                            )
+                        } else {
+                            Task::none()
+                        }
+                    }
                 }
             }
         }
@@ -614,16 +664,48 @@ impl App {
     }
 
     fn view_search(&self) -> Element<'_, Message> {
-        let search = row![
+        let search_row = row![
             text_input("Search YouTube...", &self.query)
                 .on_input(Message::InputChanged)
                 .on_submit(Message::Search)
                 .padding(10)
-                .width(Length::FillPortion(8)),
+                .width(Length::Fill),
             button(text("Search")).on_press(Message::Search).padding(10)
         ]
+        .spacing(10);
+
+        let language_row = row![
+            text("Language:").size(14),
+            combo_box(
+                &self.language_combo_state,
+                "Auto-detect",
+                self.selected_language.as_ref(),
+                Message::LanguageSelected,
+            )
+            .width(250)
+        ]
         .spacing(10)
-        .padding(20);
+        .align_y(Alignment::Center);
+
+        let search = container(column![
+            row![
+                column![
+                    iced::widget::space::vertical(),
+                    search_row,
+                    iced::widget::space::vertical()
+                ]
+                .spacing(10),
+                column![
+                    iced::widget::space::vertical(),
+                    language_row,
+                    iced::widget::space::vertical()
+                ],
+            ]
+            .spacing(20)
+            .padding(20),
+        ])
+        .height(100)
+        .width(Length::Fill);
 
         let body: Element<Message> = if self.results.is_empty() {
             if self.searching {

@@ -72,9 +72,19 @@ impl InnerTube {
     pub async fn search(&self, query: &str) -> Result<SearchResults> {
         // Detect language and update context
         let (hl, gl) = utils::detect_locale(query);
+        self.search_with_locale(query, &hl, &gl).await
+    }
+
+    /// Search for videos on YouTube with a specific locale
+    pub async fn search_with_locale(
+        &self,
+        query: &str,
+        hl: &str,
+        gl: &str,
+    ) -> Result<SearchResults> {
         let mut context = self.context.clone();
-        context.client.hl = hl.clone();
-        context.client.gl = gl.clone();
+        context.client.hl = hl.to_string();
+        context.client.gl = gl.to_string();
 
         let body = json!({
             "context": context,
@@ -83,7 +93,7 @@ impl InnerTube {
 
         let response = self.post("/search", body).await?;
         let mut search_results = parsers::parse_search_results(&response)?;
-        search_results.detected_locale = Some((hl, gl));
+        search_results.detected_locale = Some((hl.to_string(), gl.to_string()));
         Ok(search_results)
     }
 
@@ -140,26 +150,26 @@ impl InnerTube {
         let mut results = Vec::new();
         if let Some(contents) = response.pointer(
             "/contents/twoColumnWatchNextResults/secondaryResults/secondaryResults/results",
-        )
-            && let Some(items) = contents.as_array() {
-                for item in items {
-                    if let Some(video) = item.get("compactVideoRenderer") {
-                        // Parse compact video renderer (similar to video renderer but slightly different structure)
-                        if let Some(video_id) = video.pointer("/videoId").and_then(|v| v.as_str()) {
-                            results.push(SearchResult {
-                                video_id: Some(video_id.to_string()),
-                                title: "Related Video".to_string(), // Would need proper parsing
-                                description: None,
-                                channel: None,
-                                view_count: None,
-                                duration: None,
-                                published_text: None,
-                                thumbnails: vec![],
-                            });
-                        }
+        ) && let Some(items) = contents.as_array()
+        {
+            for item in items {
+                if let Some(video) = item.get("compactVideoRenderer") {
+                    // Parse compact video renderer (similar to video renderer but slightly different structure)
+                    if let Some(video_id) = video.pointer("/videoId").and_then(|v| v.as_str()) {
+                        results.push(SearchResult {
+                            video_id: Some(video_id.to_string()),
+                            title: "Related Video".to_string(), // Would need proper parsing
+                            description: None,
+                            channel: None,
+                            view_count: None,
+                            duration: None,
+                            published_text: None,
+                            thumbnails: vec![],
+                        });
                     }
                 }
             }
+        }
 
         Ok(results)
     }
