@@ -1195,7 +1195,14 @@ impl App {
                 ];
 
                 // Show "Load More" button or loading indicator
-                if self.channel_loading_more {
+                if self.channel_preloading {
+                    // Still preloading initial videos
+                    let loading_indicator =
+                        container(text("Still requesting videos from YouTube...").size(14))
+                            .padding(20)
+                            .center_x(Length::Fill);
+                    video_content = video_content.push(loading_indicator);
+                } else if self.channel_loading_more {
                     let loading_indicator = container(text("Loading more...").size(14))
                         .padding(20)
                         .center_x(Length::Fill);
