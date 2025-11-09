@@ -29,6 +29,7 @@ lingua = "1.7"
 
 [dev-dependencies]
 tokio-test = "0.4"
+mockito = "1.7.0"
 
 [patch.crates-io]
 iced_core = { git = "https://github.com/iced-rs/iced", branch = "master" }

@@ -41,9 +41,10 @@ pub fn parse_search_results(data: &Value) -> Result<SearchResults> {
         {
             for item in items {
                 if let Some(video) = item.get("videoRenderer")
-                    && let Ok(result) = parse_video_renderer(video) {
-                        results.push(result);
-                    }
+                    && let Ok(result) = parse_video_renderer(video)
+                {
+                    results.push(result);
+                }
             }
         }
 
@@ -72,14 +73,16 @@ fn parse_continuation_items(items: &Value) -> Result<SearchResults> {
         for item in items_array {
             // Parse video items
             if let Some(section) = item.get("itemSectionRenderer")
-                && let Some(contents) = section.pointer("/contents").and_then(|v| v.as_array()) {
-                    for content in contents {
-                        if let Some(video) = content.get("videoRenderer")
-                            && let Ok(result) = parse_video_renderer(video) {
-                                results.push(result);
-                            }
+                && let Some(contents) = section.pointer("/contents").and_then(|v| v.as_array())
+            {
+                for content in contents {
+                    if let Some(video) = content.get("videoRenderer")
+                        && let Ok(result) = parse_video_renderer(video)
+                    {
+                        results.push(result);
                     }
                 }
+            }
 
             // Extract continuation token
             if let Some(token) = item
@@ -98,8 +101,53 @@ fn parse_continuation_items(items: &Value) -> Result<SearchResults> {
     })
 }
 
+/// Parse badges from a video renderer to detect premium/members-only content
+pub(crate) fn parse_badges(video: &Value) -> (Option<bool>, Option<Vec<String>>) {
+    let mut is_premium = None;
+    let mut badge_labels = Vec::new();
+
+    // Check main badges array
+    if let Some(badges) = video.pointer("/badges").and_then(|v| v.as_array()) {
+        for badge in badges {
+            if let Some(label) = badge
+                .pointer("/metadataBadgeRenderer/label")
+                .and_then(|v| v.as_str())
+            {
+                badge_labels.push(label.to_string());
+            }
+
+            // Check the style field as a locale-independent indicator
+            if let Some(style) = badge
+                .pointer("/metadataBadgeRenderer/style")
+                .and_then(|v| v.as_str())
+            {
+                // YouTube uses specific styles for premium/members-only badges
+                if style.contains("BADGE_STYLE_TYPE_MEMBERS_ONLY") {
+                    is_premium = Some(true);
+                }
+            }
+        }
+    }
+
+    // Check topStandaloneBadge as alternative indicator
+    if video
+        .pointer("/topStandaloneBadge/metadataBadgeRenderer")
+        .is_some()
+    {
+        is_premium = Some(true);
+    }
+
+    let badges = if !badge_labels.is_empty() {
+        Some(badge_labels)
+    } else {
+        None
+    };
+
+    (is_premium, badges)
+}
+
 /// Parse a video renderer object
-fn parse_video_renderer(video: &Value) -> Result<SearchResult> {
+pub(crate) fn parse_video_renderer(video: &Value) -> Result<SearchResult> {
     let video_id = video
         .pointer("/videoId")
         .and_then(|v| v.as_str())
@@ -148,6 +196,8 @@ fn parse_video_renderer(video: &Value) -> Result<SearchResult> {
 
     let thumbnails = parse_thumbnails(video.pointer("/thumbnail"));
 
+    let (is_premium, badges) = parse_badges(video);
+
     Ok(SearchResult {
         video_id,
         title,
@@ -157,6 +207,8 @@ fn parse_video_renderer(video: &Value) -> Result<SearchResult> {
         duration,
         published_text,
         thumbnails,
+        is_premium,
+        badges,
     })
 }
 
@@ -561,16 +613,17 @@ fn parse_chip_bar(chip_bar: &Value) -> Option<Vec<SortFilter>> {
 fn parse_sort_filters(data: &Value) -> Option<Vec<SortFilter>> {
     // First check initial response: tabs -> tabRenderer -> content -> richGridRenderer -> header
     if let Some(tabs) = data.pointer("/contents/twoColumnBrowseResultsRenderer/tabs")
-        && let Some(tabs_array) = tabs.as_array() {
-            for tab in tabs_array {
-                if let Some(chip_bar) = tab.pointer(
-                    "/tabRenderer/content/richGridRenderer/header/feedFilterChipBarRenderer",
-                )
-                    && let Some(filters) = parse_chip_bar(chip_bar) {
-                        return Some(filters);
-                    }
+        && let Some(tabs_array) = tabs.as_array()
+    {
+        for tab in tabs_array {
+            if let Some(chip_bar) = tab
+                .pointer("/tabRenderer/content/richGridRenderer/header/feedFilterChipBarRenderer")
+                && let Some(filters) = parse_chip_bar(chip_bar)
+            {
+                return Some(filters);
             }
         }
+    }
 
     // Also check continuation responses (reloadContinuationItemsCommand)
     let actions = data.pointer("/onResponseReceivedActions")?.as_array()?;
@@ -582,14 +635,16 @@ fn parse_sort_filters(data: &Value) -> Option<Vec<SortFilter>> {
             .or_else(|| action.pointer("/appendContinuationItemsAction/continuationItems"));
 
         if let Some(items) = items
-            && let Some(items_array) = items.as_array() {
-                for item in items_array {
-                    if let Some(chip_bar) = item.get("feedFilterChipBarRenderer")
-                        && let Some(filters) = parse_chip_bar(chip_bar) {
-                            return Some(filters);
-                        }
+            && let Some(items_array) = items.as_array()
+        {
+            for item in items_array {
+                if let Some(chip_bar) = item.get("feedFilterChipBarRenderer")
+                    && let Some(filters) = parse_chip_bar(chip_bar)
+                {
+                    return Some(filters);
                 }
             }
+        }
     }
 
     None
@@ -641,19 +696,20 @@ pub fn parse_channel_videos(data: &Value) -> Result<ChannelVideos> {
         let mut found_contents = None;
         for action in actions {
             if let Some(items) = action.pointer("/reloadContinuationItemsCommand/continuationItems")
-                && let Some(items_array) = items.as_array() {
-                    // Check if this array contains video items (not just filter chips)
-                    let has_videos = items_array.iter().any(|item| {
-                        item.get("richItemRenderer").is_some()
-                            || item.get("videoRenderer").is_some()
-                            || item.get("gridVideoRenderer").is_some()
-                    });
+                && let Some(items_array) = items.as_array()
+            {
+                // Check if this array contains video items (not just filter chips)
+                let has_videos = items_array.iter().any(|item| {
+                    item.get("richItemRenderer").is_some()
+                        || item.get("videoRenderer").is_some()
+                        || item.get("gridVideoRenderer").is_some()
+                });
 
-                    if has_videos {
-                        found_contents = Some(items);
-                        break;
-                    }
+                if has_videos {
+                    found_contents = Some(items);
+                    break;
                 }
+            }
         }
 
         found_contents
@@ -727,6 +783,8 @@ fn parse_grid_video_renderer(video: &Value) -> Result<SearchResult> {
 
     let published_text = extract_text(video.pointer("/publishedTimeText"));
 
+    let (is_premium, badges) = parse_badges(video);
+
     Ok(SearchResult {
         video_id,
         title,
@@ -736,6 +794,8 @@ fn parse_grid_video_renderer(video: &Value) -> Result<SearchResult> {
         duration,
         published_text,
         thumbnails,
+        is_premium,
+        badges,
     })
 }
 
@@ -810,6 +870,8 @@ fn parse_shorts_lockup(short: &Value) -> Result<SearchResult> {
             }
         });
 
+    let (is_premium, badges) = parse_badges(short);
+
     Ok(SearchResult {
         video_id,
         title,
@@ -819,5 +881,7 @@ fn parse_shorts_lockup(short: &Value) -> Result<SearchResult> {
         duration: None, // Shorts don't typically show duration
         published_text: None,
         thumbnails,
+        is_premium,
+        badges,
     })
 }

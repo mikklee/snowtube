@@ -18,7 +18,7 @@
 //!     // Search for videos
 //!     let results = client.search("rust programming").await?;
 //!
-//!     println!("Found {} results", results.len());
+//!     println!("Found {} results", results.results.len());
 //!
 //!     Ok(())
 //! }
@@ -31,6 +31,11 @@ pub mod locale_map;
 mod models;
 mod parsers;
 mod utils;
+
+#[cfg(test)]
+mod client_tests;
+#[cfg(test)]
+mod parsers_tests;
 
 pub use client::InnerTube;
 pub use error::{Error, Result};

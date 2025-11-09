@@ -516,16 +516,28 @@ impl App {
                             self.available_sort_filters = filters;
                         }
 
-                        // Auto-preload: fetch 3 pages (90 videos) before showing content
-                        const TARGET_PRELOAD_PAGES: usize = 3;
+                        // Auto-preload: fetch pages until we have enough playable (non-premium) videos
+                        const MAX_PRELOAD_PAGES: usize = 10; // Maximum pages to fetch
+                        const MIN_PLAYABLE_VIDEOS: usize = 30;
 
                         if self.channel_preloading {
                             self.channel_preload_count += 1;
 
-                            // If we haven't reached target and have continuation, auto-load more
-                            if self.channel_preload_count < TARGET_PRELOAD_PAGES
-                                && self.channel_continuation.is_some()
-                            {
+                            // Count non-premium videos
+                            let playable_count = self
+                                .channel_results
+                                .iter()
+                                .filter(|r| r.is_premium != Some(true))
+                                .count();
+
+                            // Keep loading if we have a continuation AND either:
+                            // - We don't have enough playable videos yet (primary goal)
+                            // - We haven't reached the absolute maximum page limit (safety limit)
+                            let should_continue = self.channel_continuation.is_some()
+                                && playable_count < MIN_PLAYABLE_VIDEOS
+                                && self.channel_preload_count < MAX_PRELOAD_PAGES;
+
+                            if should_continue {
                                 let token = self.channel_continuation.as_ref().unwrap().clone();
                                 let (hl, gl) = self.channel_locale.clone();
 
@@ -830,6 +842,10 @@ impl App {
             let cards: Vec<Element<Message>> = self
                 .search_results
                 .iter()
+                .filter(|r| {
+                    // Filter out premium/members-only videos (keep videos where is_premium is NOT true)
+                    r.is_premium != Some(true)
+                })
                 .filter_map(|r| {
                     let vid = r.video_id.clone()?;
 
@@ -1099,6 +1115,10 @@ impl App {
             let video_cards: Vec<Element<Message>> = self
                 .channel_results
                 .iter()
+                .filter(|r| {
+                    // Filter out premium/members-only videos (keep videos where is_premium is NOT true)
+                    r.is_premium != Some(true)
+                })
                 .filter_map(|r| {
                     let vid = r.video_id.as_ref()?;
                     let h = self.thumbs.get(vid)?;
@@ -1175,7 +1195,14 @@ impl App {
                 ];
 
                 // Show "Load More" button or loading indicator
-                if self.channel_loading_more {
+                if self.channel_preloading {
+                    // Still preloading initial videos
+                    let loading_indicator =
+                        container(text("Still requesting videos from YouTube...").size(14))
+                            .padding(20)
+                            .center_x(Length::Fill);
+                    video_content = video_content.push(loading_indicator);
+                } else if self.channel_loading_more {
                     let loading_indicator = container(text("Loading more...").size(14))
                         .padding(20)
                         .center_x(Length::Fill);
