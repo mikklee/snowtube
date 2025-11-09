@@ -165,6 +165,8 @@ impl InnerTube {
                             duration: None,
                             published_text: None,
                             thumbnails: vec![],
+                            is_premium: None,
+                            badges: None,
                         });
                     }
                 }

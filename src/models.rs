@@ -41,6 +41,10 @@ pub struct SearchResult {
     pub duration: Option<String>,
     pub published_text: Option<String>,
     pub thumbnails: Vec<Thumbnail>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_premium: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub badges: Option<Vec<String>>,
 }
 
 /// Channel information (basic)
@@ -89,8 +93,7 @@ pub struct SortFilter {
 }
 
 /// Channel tab types for browsing different content
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ChannelTab {
     /// Videos tab
     #[default]
@@ -111,7 +114,6 @@ impl ChannelTab {
         }
     }
 }
-
 
 /// Thumbnail information
 #[derive(Debug, Clone, Serialize, Deserialize)]

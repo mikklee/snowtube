@@ -830,6 +830,10 @@ impl App {
             let cards: Vec<Element<Message>> = self
                 .search_results
                 .iter()
+                .filter(|r| {
+                    // Filter out premium/members-only videos (keep videos where is_premium is NOT true)
+                    r.is_premium != Some(true)
+                })
                 .filter_map(|r| {
                     let vid = r.video_id.clone()?;
 
@@ -1099,6 +1103,10 @@ impl App {
             let video_cards: Vec<Element<Message>> = self
                 .channel_results
                 .iter()
+                .filter(|r| {
+                    // Filter out premium/members-only videos (keep videos where is_premium is NOT true)
+                    r.is_premium != Some(true)
+                })
                 .filter_map(|r| {
                     let vid = r.video_id.as_ref()?;
                     let h = self.thumbs.get(vid)?;
