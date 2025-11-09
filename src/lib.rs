@@ -33,6 +33,8 @@ mod parsers;
 mod utils;
 
 #[cfg(test)]
+mod client_tests;
+#[cfg(test)]
 mod parsers_tests;
 
 pub use client::InnerTube;

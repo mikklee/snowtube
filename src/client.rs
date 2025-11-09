@@ -13,7 +13,9 @@ use serde_json::{Value, json};
 pub struct InnerTube {
     client: Client,
     context: InnerTubeContext,
-    api_key: String,
+    pub(crate) api_key: String,
+    #[cfg(test)]
+    pub(crate) base_url: String,
 }
 
 impl InnerTube {
@@ -40,7 +42,17 @@ impl InnerTube {
             client,
             context,
             api_key: INNERTUBE_API_KEY.to_string(),
+            #[cfg(test)]
+            base_url: INNERTUBE_API_BASE.to_string(),
         })
+    }
+
+    /// Create a new InnerTube client with a custom base URL (for testing)
+    #[cfg(test)]
+    pub async fn new_with_base_url(base_url: String) -> Result<Self> {
+        let mut client = Self::new().await?;
+        client.base_url = base_url;
+        Ok(client)
     }
 
     /// Create a new InnerTube client with custom language and region
@@ -52,20 +64,59 @@ impl InnerTube {
     }
 
     /// Make a POST request to an InnerTube endpoint
-    async fn post(&self, endpoint: &str, body: Value) -> Result<Value> {
-        let url = format!("{}{}?key={}", INNERTUBE_API_BASE, endpoint, self.api_key);
+    pub(crate) async fn post(&self, endpoint: &str, body: Value) -> Result<Value> {
+        #[cfg(test)]
+        let base = &self.base_url;
+        #[cfg(not(test))]
+        let base = INNERTUBE_API_BASE;
 
-        let response = self.client.post(&url).json(&body).send().await?;
+        let url = format!("{}{}?key={}", base, endpoint, self.api_key);
+        const MAX_RETRIES: u32 = 3;
 
-        if !response.status().is_success() {
-            return Err(Error::ApiError(format!(
-                "API returned status: {}",
-                response.status()
-            )));
+        let mut last_error = None;
+
+        for attempt in 0..MAX_RETRIES {
+            let response = match self.client.post(&url).json(&body).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    last_error = Some(Error::from(e));
+                    continue;
+                }
+            };
+
+            let status = response.status();
+
+            // Retry on 500-level errors
+            if status.is_server_error() {
+                eprintln!(
+                    "YouTube API returned {}, attempt {}/{}, retrying...",
+                    status,
+                    attempt + 1,
+                    MAX_RETRIES
+                );
+
+                // Exponential backoff: 1s, 2s, 4s
+                if attempt < MAX_RETRIES - 1 {
+                    let delay = std::time::Duration::from_secs(2_u64.pow(attempt));
+                    tokio::time::sleep(delay).await;
+                }
+
+                last_error = Some(Error::ApiError(format!("API returned status: {}", status)));
+                continue;
+            }
+
+            // Don't retry on client errors (4xx)
+            if !status.is_success() {
+                return Err(Error::ApiError(format!("API returned status: {}", status)));
+            }
+
+            // Success - parse and return
+            let json = response.json::<Value>().await?;
+            return Ok(json);
         }
 
-        let json = response.json::<Value>().await?;
-        Ok(json)
+        // All retries exhausted
+        Err(last_error.unwrap_or_else(|| Error::ApiError("All retries failed".to_string())))
     }
 
     /// Search for videos on YouTube
@@ -348,6 +399,8 @@ impl Default for InnerTube {
                 },
             },
             api_key: INNERTUBE_API_KEY.to_string(),
+            #[cfg(test)]
+            base_url: INNERTUBE_API_BASE.to_string(),
         }
     }
 }
