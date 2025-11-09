@@ -516,16 +516,28 @@ impl App {
                             self.available_sort_filters = filters;
                         }
 
-                        // Auto-preload: fetch 3 pages (90 videos) before showing content
-                        const TARGET_PRELOAD_PAGES: usize = 3;
+                        // Auto-preload: fetch pages until we have enough playable (non-premium) videos
+                        const MAX_PRELOAD_PAGES: usize = 10; // Maximum pages to fetch
+                        const MIN_PLAYABLE_VIDEOS: usize = 30;
 
                         if self.channel_preloading {
                             self.channel_preload_count += 1;
 
-                            // If we haven't reached target and have continuation, auto-load more
-                            if self.channel_preload_count < TARGET_PRELOAD_PAGES
-                                && self.channel_continuation.is_some()
-                            {
+                            // Count non-premium videos
+                            let playable_count = self
+                                .channel_results
+                                .iter()
+                                .filter(|r| r.is_premium != Some(true))
+                                .count();
+
+                            // Keep loading if we have a continuation AND either:
+                            // - We don't have enough playable videos yet (primary goal)
+                            // - We haven't reached the absolute maximum page limit (safety limit)
+                            let should_continue = self.channel_continuation.is_some()
+                                && playable_count < MIN_PLAYABLE_VIDEOS
+                                && self.channel_preload_count < MAX_PRELOAD_PAGES;
+
+                            if should_continue {
                                 let token = self.channel_continuation.as_ref().unwrap().clone();
                                 let (hl, gl) = self.channel_locale.clone();
 
