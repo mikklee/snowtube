@@ -2,8 +2,36 @@
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use snafu::prelude::*;
 use std::path::PathBuf;
 use tokio::fs;
+
+#[derive(Debug, Snafu)]
+pub enum ConfigError {
+    #[snafu(display("Could not determine config directory"))]
+    NoConfigDirectory,
+
+    #[snafu(display("Failed to read config file: {source}"))]
+    ReadConfig { source: std::io::Error },
+
+    #[snafu(display("Failed to parse config file: {source}"))]
+    ParseConfig { source: serde_json::Error },
+
+    #[snafu(display("Invalid or missing version in config file"))]
+    InvalidVersion,
+
+    #[snafu(display("Failed to deserialize config: {source}"))]
+    DeserializeConfig { source: serde_json::Error },
+
+    #[snafu(display("Failed to create config directory: {source}"))]
+    CreateConfigDirectory { source: std::io::Error },
+
+    #[snafu(display("Failed to serialize config: {source}"))]
+    SerializeConfig { source: serde_json::Error },
+
+    #[snafu(display("Failed to write config file: {source}"))]
+    WriteConfig { source: std::io::Error },
+}
 
 /// Serializable version of LanguageOption for config persistence
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -65,21 +93,19 @@ impl YtrsConfig {
 
     /// Load configuration from disk asynchronously
     /// If it does not exists, returns YtrsConfig::default()
-    pub async fn load_if_exists() -> Result<Self, String> {
-        let path = Self::config_path().ok_or("Could not determine config directory")?;
+    pub async fn load_if_exists() -> Result<Self, ConfigError> {
+        let path = Self::config_path().context(NoConfigDirectorySnafu)?;
 
         // If config file doesn't exist, return default
         if !path.exists() {
             return Ok(Self::default());
         }
 
-        let contents = fs::read_to_string(&path)
-            .await
-            .map_err(|e| format!("Failed to read config file: {}", e))?;
+        let contents = fs::read_to_string(&path).await.context(ReadConfigSnafu)?;
 
         // First, deserialize just to get the version
-        let raw_ytrs_config: serde_json::Value = serde_json::from_str(&contents)
-            .map_err(|e| format!("Failed to parse config file: {}", e))?;
+        let raw_ytrs_config: serde_json::Value =
+            serde_json::from_str(&contents).context(ParseConfigSnafu)?;
 
         match raw_ytrs_config.get("config") {
             Some(c) => {
@@ -103,8 +129,7 @@ impl YtrsConfig {
                 };
                 */
                 Ok(Self {
-                    config: serde_json::from_value(c.clone())
-                        .map_err(|e| format!("Failed to deserialize config {}", e))?,
+                    config: serde_json::from_value(c.clone()).context(DeserializeConfigSnafu)?,
                     ..Default::default()
                 })
             }
@@ -117,24 +142,21 @@ impl YtrsConfig {
     }
 
     /// Save configuration to disk asynchronously
-    pub async fn save(&self) -> Result<(), String> {
-        let path = Self::config_path().ok_or("Could not determine config directory")?;
+    pub async fn save(&self) -> Result<(), ConfigError> {
+        let path = Self::config_path().context(NoConfigDirectorySnafu)?;
 
         // Create config directory if it doesn't exist
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .await
-                .map_err(|e| format!("Failed to create config directory: {}", e))?;
+                .context(CreateConfigDirectorySnafu)?;
         }
 
         // Serialize to JSON
-        let contents = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize config: {}", e))?;
+        let contents = serde_json::to_string_pretty(self).context(SerializeConfigSnafu)?;
 
         // Write to file
-        fs::write(&path, contents)
-            .await
-            .map_err(|e| format!("Failed to write config file: {}", e))?;
+        fs::write(&path, contents).await.context(WriteConfigSnafu)?;
 
         Ok(())
     }

@@ -177,6 +177,7 @@ impl App {
                     YtrsConfig::load_if_exists()
                         .await
                         .map(|config_file| config_file.config)
+                        .map_err(|e| e.to_string())
                 },
                 Message::ConfigLoaded,
             ),
@@ -804,7 +805,7 @@ impl App {
                                     config,
                                     ..Default::default()
                                 };
-                                new_config.save().await
+                                new_config.save().await.map_err(|e| e.to_string())
                             },
                             Message::ConfigSaved,
                         )
