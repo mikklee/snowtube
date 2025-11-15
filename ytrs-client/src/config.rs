@@ -4,7 +4,18 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use tokio::fs;
+
+/// Cached current version parsed from CARGO_PKG_VERSION
+static CURRENT_VERSION: OnceLock<Version> = OnceLock::new();
+
+fn current_version() -> &'static Version {
+    CURRENT_VERSION.get_or_init(|| {
+        Version::parse(env!("CARGO_PKG_VERSION"))
+            .expect("CARGO_PKG_VERSION should always be a valid semver")
+    })
+}
 
 #[derive(Debug, Snafu)]
 pub enum ConfigError {
@@ -66,16 +77,16 @@ pub struct AppConfig {
 }
 
 /// Top-level configuration file with version for future migrations
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct YtrsConfig {
-    pub version: Version,
+    pub version: &'static Version,
     pub config: AppConfig,
 }
 
 impl Default for YtrsConfig {
     fn default() -> Self {
         Self {
-            version: Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
+            version: current_version(),
             config: AppConfig::default(),
         }
     }
@@ -169,15 +180,14 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = YtrsConfig::default();
-        let expected_version = Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
-        assert_eq!(config.version, expected_version);
+        assert_eq!(config.version, current_version());
         assert_eq!(config.config.default_language, None);
     }
 
     #[test]
     fn test_serialization() {
         let config = YtrsConfig {
-            version: Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
+            version: current_version(),
             config: AppConfig {
                 default_language: Some(SerializableLanguageOption {
                     hl: "ja".to_string(),
