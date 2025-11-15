@@ -1,3 +1,5 @@
+mod config;
+
 use iced::Alignment::Center;
 use iced::widget::button::Style;
 use iced::widget::{
@@ -13,6 +15,8 @@ use ytrs::{
     ChannelInfo, ChannelTab, ChannelVideos, InnerTube, LanguageOption, SearchResult, SearchResults,
     SortFilter, get_all_languages,
 };
+
+use config::{AppConfig, SerializableLanguageOption, YtrsConfig};
 
 /// Cached HashMap for O(1) language lookups by (hl, gl) tuple
 static LOCALE_TO_LANGUAGE: OnceLock<HashMap<(String, String), &'static LanguageOption>> =
@@ -63,6 +67,7 @@ fn cosmic_palette() -> iced::theme::Palette {
 enum View {
     Search,
     Channel,
+    Config,
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +88,11 @@ enum Message {
     LoadMoreSearchResults,
     BackToSearch,
     LanguageSelected(LanguageOption),
+    // Config-related messages
+    OpenConfig,
+    CloseConfig,
+    ConfigLoaded(Result<AppConfig, String>),
+    ConfigSaved(Result<(), String>),
 }
 
 struct App {
@@ -90,11 +100,13 @@ struct App {
     query: String,
     thumbs: HashMap<String, iced::widget::image::Handle>,
     current_view: View,
+    previous_view: View, // Track which view to return to from config
     language_combo_state: combo_box::State<LanguageOption>,
     selected_language: Option<LanguageOption>, // User's manual language override (global)
     playing_video: Option<String>,             // Currently playing video ID
     countdown_value: u8,                       // Current countdown value (5, 4, 3, 2, 1, 0)
     mpv_process: Arc<tokio::sync::Mutex<Option<std::process::Child>>>, // MPV process handle
+    config: AppConfig,                         // Persistent configuration
 
     // Search-specific state
     search_results: Vec<SearchResult>,
@@ -128,11 +140,13 @@ impl App {
                 query: String::new(),
                 thumbs: HashMap::new(),
                 current_view: View::Search,
+                previous_view: View::Search,
                 language_combo_state: combo_box::State::new(get_all_languages().to_vec()),
                 selected_language: None,
                 playing_video: None,
                 countdown_value: 0,
                 mpv_process: Arc::new(tokio::sync::Mutex::new(None)),
+                config: AppConfig::default(),
 
                 // Search-specific state
                 search_results: Vec::new(),
@@ -157,7 +171,15 @@ impl App {
                 available_sort_filters: Vec::new(),
                 selected_sort_label: None,
             },
-            Task::none(),
+            // Load config asynchronously on startup
+            Task::perform(
+                async {
+                    YtrsConfig::load_if_exists()
+                        .await
+                        .map(|config_file| config_file.config)
+                },
+                Message::ConfigLoaded,
+            ),
         )
     }
 
@@ -766,7 +788,63 @@ impl App {
                             Task::none()
                         }
                     }
+                    View::Config => {
+                        // Update config and save
+                        if let Some(ref lang) = self.selected_language {
+                            self.config.default_language =
+                                Some(SerializableLanguageOption::from_language_option(lang));
+                        } else {
+                            self.config.default_language = None;
+                        }
+
+                        let config = self.config.clone();
+                        Task::perform(
+                            async move {
+                                let new_config = YtrsConfig {
+                                    config,
+                                    ..Default::default()
+                                };
+                                new_config.save().await
+                            },
+                            Message::ConfigSaved,
+                        )
+                    }
                 }
+            }
+            Message::OpenConfig => {
+                self.previous_view = self.current_view.clone();
+                self.current_view = View::Config;
+                Task::none()
+            }
+            Message::CloseConfig => {
+                self.current_view = self.previous_view.clone();
+                Task::none()
+            }
+            Message::ConfigLoaded(result) => {
+                match result {
+                    Ok(config) => {
+                        self.config = config;
+
+                        // Apply default language if set
+                        if let Some(ref lang_config) = self.config.default_language
+                            && let Some(lang) = lang_config.to_language_option()
+                        {
+                            self.selected_language = Some(lang.clone());
+                            self.search_locale = (lang.hl.to_string(), lang.gl.to_string());
+                            self.channel_locale = (lang.hl.to_string(), lang.gl.to_string());
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to load config: {}", e);
+                    }
+                }
+                Task::none()
+            }
+            Message::ConfigSaved(result) => {
+                if let Err(e) = result {
+                    eprintln!("Failed to save config: {}", e);
+                }
+                Task::none()
             }
         }
     }
@@ -775,51 +853,48 @@ impl App {
         match self.current_view {
             View::Search => self.view_search(),
             View::Channel => self.view_channel(),
+            View::Config => self.view_config(),
         }
     }
 
     fn view_search(&self) -> Element<'_, Message> {
-        let search_row = row![
-            text_input("Search YouTube...", &self.query)
-                .on_input(Message::InputChanged)
-                .on_submit(Message::Search)
-                .padding(10)
-                .width(Length::Fill),
-            button(text("Search")).on_press(Message::Search).padding(10)
-        ]
-        .spacing(10);
+        let search_input = text_input("Search YouTube...", &self.query)
+            .on_input(Message::InputChanged)
+            .on_submit(Message::Search)
+            .padding(10)
+            .width(400);
 
-        let language_row = row![
-            text("Language:").size(14),
-            combo_box(
-                &self.language_combo_state,
-                "Auto-detect",
-                self.selected_language.as_ref(),
-                Message::LanguageSelected,
-            )
-            .width(250)
-        ]
-        .spacing(10)
-        .align_y(Alignment::Center);
+        let search_button = button(text("Search")).on_press(Message::Search).padding(10);
 
-        let search = container(column![
-            row![
-                column![
-                    iced::widget::space::vertical(),
-                    search_row,
-                    iced::widget::space::vertical()
-                ]
-                .spacing(10),
-                column![
-                    iced::widget::space::vertical(),
-                    language_row,
-                    iced::widget::space::vertical()
-                ],
-            ]
-            .spacing(20)
-            .padding(20),
-        ])
-        .height(100)
+        let language_label = text("Language:").size(14);
+
+        let language_selector = combo_box(
+            &self.language_combo_state,
+            "Auto-detect",
+            self.selected_language.as_ref(),
+            Message::LanguageSelected,
+        )
+        .width(250);
+
+        let settings_button = button(text("⚙ Settings"))
+            .on_press(Message::OpenConfig)
+            .padding(10);
+
+        let controls = vec![
+            search_input.into(),
+            search_button.into(),
+            space::horizontal().width(Length::Shrink).into(),
+            language_label.into(),
+            language_selector.into(),
+            settings_button.into(),
+        ];
+
+        let search = container(
+            Wrap::with_elements(controls)
+                .spacing(10.0)
+                .line_spacing(10.0),
+        )
+        .padding(20)
         .width(Length::Fill);
 
         let body: Element<Message> = if self.search_results.is_empty() {
@@ -1228,6 +1303,60 @@ impl App {
         } else {
             container(text("Loading channel...")).padding(40).into()
         }
+    }
+
+    fn view_config(&self) -> Element<'_, Message> {
+        let title = text("Configuration").size(32).color(iced::Color::WHITE);
+
+        let header = container(title).padding(20).width(Length::Fill);
+
+        // Language Section
+        let language_section_title = text("Default Language").size(20).color(iced::Color::WHITE);
+
+        let language_explanation = text(
+            "Sets the default language for search results and channel videos. \
+             Auto-detect will use the language from channel metadata. \
+             You can still override this in Search and Channel views.",
+        )
+        .size(14)
+        .color(iced::Color::from_rgb(0.8, 0.8, 0.85));
+
+        let language_row = row![
+            text("Language:").size(14),
+            combo_box(
+                &self.language_combo_state,
+                "Auto-detect",
+                self.selected_language.as_ref(),
+                Message::LanguageSelected,
+            )
+            .width(250)
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center);
+
+        let language_section = column![
+            language_section_title,
+            space::vertical().height(10),
+            language_explanation,
+            space::vertical().height(20),
+            language_row,
+        ]
+        .spacing(5);
+
+        // Back button
+        let back_button = button(text("← Back"))
+            .on_press(Message::CloseConfig)
+            .padding(10);
+
+        let content = column![
+            header,
+            container(
+                column![language_section, space::vertical().height(30), back_button,].padding(20)
+            )
+            .width(Length::Fill)
+        ];
+
+        scrollable(content).into()
     }
 }
 
