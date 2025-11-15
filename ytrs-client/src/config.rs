@@ -7,6 +7,18 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use tokio::fs;
 
+/// Macro to extract field names from any struct at compile time
+/// Usage: field_name!(YtrsConfig, version) returns "version"
+/// The macro ensures at compile time that the field actually exists
+macro_rules! field_name {
+    ($struct:ty, $field:ident) => {{
+        let _ = |x: &$struct| {
+            let _ = &x.$field;
+        }; // Compile-time check that field exists
+        stringify!($field)
+    }};
+}
+
 /// Cached current version parsed from CARGO_PKG_VERSION
 static CURRENT_VERSION: OnceLock<Version> = OnceLock::new();
 
@@ -118,11 +130,11 @@ impl YtrsConfig {
         let raw_ytrs_config: serde_json::Value =
             serde_json::from_str(&contents).context(ParseConfigSnafu)?;
 
-        match raw_ytrs_config.get("config") {
+        match raw_ytrs_config.get(field_name!(YtrsConfig, config)) {
             Some(c) => {
                 /* Future migration logic
                 let stored_version = raw_ytrs_config
-                    .get("version")
+                    .get(field_name!(YtrsConfig, version))
                     .and_then(|v| v.as_str())
                     .and_then(|v| Version::parse(v).ok())
                     .ok_or("Invalid or missing version in config file")?;
@@ -197,9 +209,26 @@ mod tests {
         };
 
         let json = serde_json::to_string(&config).unwrap();
-        let deserialized: YtrsConfig = serde_json::from_str(&json).unwrap();
+        let raw_ytrs_config: serde_json::Value = serde_json::from_str(&json)
+            .expect("Expected to deserialize config to serde_json::Value");
 
-        assert_eq!(config.version, deserialized.version);
-        assert_eq!(config.config, deserialized.config);
+        let version: semver::Version = serde_json::from_value(
+            raw_ytrs_config
+                .get(field_name!(YtrsConfig, version))
+                .expect("Expected serialized config to have a version property")
+                .clone(),
+        )
+        .expect("Expected version to be a semver::Version");
+        assert_eq!(config.version, &version);
+
+        let deserialized: AppConfig = serde_json::from_value(
+            raw_ytrs_config
+                .get(field_name!(YtrsConfig, config))
+                .expect("Expected serialized config to have a config property")
+                .clone(),
+        )
+        .expect("Expected to deserialize config");
+
+        assert_eq!(config.config, deserialized);
     }
 }
