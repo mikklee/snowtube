@@ -215,7 +215,7 @@ mod tests {
         let version: semver::Version = serde_json::from_value(
             raw_ytrs_config
                 .get(field_name!(YtrsConfig, version))
-                .expect("Expected serialized config to have a version property")
+                .expect("Expected serialized config to have a version field")
                 .clone(),
         )
         .expect("Expected version to be a semver::Version");
@@ -224,7 +224,7 @@ mod tests {
         let deserialized: AppConfig = serde_json::from_value(
             raw_ytrs_config
                 .get(field_name!(YtrsConfig, config))
-                .expect("Expected serialized config to have a config property")
+                .expect("Expected serialized config to have a config field")
                 .clone(),
         )
         .expect("Expected to deserialize config");
