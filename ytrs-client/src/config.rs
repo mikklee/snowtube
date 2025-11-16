@@ -139,9 +139,8 @@ impl YtrsConfig {
                     .and_then(|v| Version::parse(v).ok())
                     .ok_or("Invalid or missing version in config file")?;
 
-                let current_version = Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
-                let migration_handled_config = if stored_version != current_version {
-                    if stored_version > current_version {
+                let migration_handled_config = if stored_version != current_version() {
+                    if stored_version > current_version() {
                         // Dowgrade code here
                     } else {
                         // Upgrade code here
