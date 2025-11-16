@@ -1,22 +1,19 @@
 mod config;
+mod helpers;
+mod messages;
+mod views;
 
-use iced::Alignment::Center;
-use iced::widget::button::Style;
-use iced::widget::{
-    Image, button, column, combo_box, container, lazy, pick_list, row, scrollable, space, stack,
-    text, text_input,
-};
-use iced::{Alignment, Element, Length, Task, Theme};
-use iced_aw::Wrap;
+use iced::widget::combo_box;
+use iced::{Element, Task, Theme};
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::{Arc, OnceLock};
 use ytrs::{
-    ChannelInfo, ChannelTab, ChannelVideos, InnerTube, LanguageOption, SearchResult, SearchResults,
-    SortFilter, get_all_languages,
+    ChannelInfo, ChannelTab, InnerTube, LanguageOption, SearchResult, SortFilter, get_all_languages,
 };
 
 use config::{AppConfig, SerializableLanguageOption, YtrsConfig};
+use messages::{Message, View};
 
 /// Cached HashMap for O(1) language lookups by (hl, gl) tuple
 static LOCALE_TO_LANGUAGE: OnceLock<HashMap<(String, String), &'static LanguageOption>> =
@@ -63,73 +60,41 @@ fn cosmic_palette() -> iced::theme::Palette {
     }
 }
 
-#[derive(Debug, Clone)]
-enum View {
-    Search,
-    Channel,
-    Config,
-}
-
-#[derive(Debug, Clone)]
-enum Message {
-    InputChanged(String),
-    Search,
-    SearchDone(Result<SearchResults, String>),
-    ThumbLoaded(String, Result<Vec<u8>, String>),
-    BannerLoaded(Result<Vec<u8>, String>),
-    Play(String),
-    CountdownTick(String), // video_id for the countdown
-    ViewChannel(String),   // channel_id
-    ChannelLoaded(Result<ChannelInfo, String>),
-    ChannelVideosLoaded(Result<ChannelVideos, String>),
-    ChangeChannelTab(ChannelTab),
-    ChangeSortFilter(String), // sort filter label
-    LoadMoreVideos,
-    LoadMoreSearchResults,
-    BackToSearch,
-    LanguageSelected(LanguageOption),
-    // Config-related messages
-    OpenConfig,
-    CloseConfig,
-    ConfigLoaded(Result<AppConfig, String>),
-    ConfigSaved(Result<(), String>),
-}
-
-struct App {
+pub struct App {
     // Shared state
-    query: String,
-    thumbs: HashMap<String, iced::widget::image::Handle>,
-    current_view: View,
-    previous_view: View, // Track which view to return to from config
-    language_combo_state: combo_box::State<LanguageOption>,
-    selected_language: Option<LanguageOption>, // User's manual language override (global)
-    playing_video: Option<String>,             // Currently playing video ID
-    countdown_value: u8,                       // Current countdown value (5, 4, 3, 2, 1, 0)
-    mpv_process: Arc<tokio::sync::Mutex<Option<std::process::Child>>>, // MPV process handle
-    config: AppConfig,                         // Persistent configuration
+    pub query: String,
+    pub thumbs: HashMap<String, iced::widget::image::Handle>,
+    pub current_view: View,
+    pub previous_view: View, // Track which view to return to from config
+    pub language_combo_state: combo_box::State<LanguageOption>,
+    pub selected_language: Option<LanguageOption>, // User's manual language override (global)
+    pub playing_video: Option<String>,             // Currently playing video ID
+    pub countdown_value: u8,                       // Current countdown value (5, 4, 3, 2, 1, 0)
+    pub mpv_process: Arc<tokio::sync::Mutex<Option<std::process::Child>>>, // MPV process handle
+    pub config: AppConfig,                         // Persistent configuration
 
     // Search-specific state
-    search_results: Vec<SearchResult>,
-    search_continuation: Option<String>,
-    search_preload_count: usize,
-    search_locale: (String, String),
-    searching: bool,
-    search_loading_more: bool,
-    search_preloading: bool,
+    pub search_results: Vec<SearchResult>,
+    pub search_continuation: Option<String>,
+    pub search_preload_count: usize,
+    pub search_locale: (String, String),
+    pub searching: bool,
+    pub search_loading_more: bool,
+    pub search_preloading: bool,
 
     // Channel-specific state
-    channel_results: Vec<SearchResult>,
-    channel_continuation: Option<String>,
-    channel_preload_count: usize,
-    channel_locale: (String, String),
-    current_channel: Option<ChannelInfo>,
-    current_tab: ChannelTab,
-    banner: Option<iced::widget::image::Handle>,
-    loading_channel: bool,
-    channel_loading_more: bool,
-    channel_preloading: bool,
-    available_sort_filters: Vec<SortFilter>,
-    selected_sort_label: Option<String>,
+    pub channel_results: Vec<SearchResult>,
+    pub channel_continuation: Option<String>,
+    pub channel_preload_count: usize,
+    pub channel_locale: (String, String),
+    pub current_channel: Option<ChannelInfo>,
+    pub current_tab: ChannelTab,
+    pub banner: Option<iced::widget::image::Handle>,
+    pub loading_channel: bool,
+    pub channel_loading_more: bool,
+    pub channel_preloading: bool,
+    pub available_sort_filters: Vec<SortFilter>,
+    pub selected_sort_label: Option<String>,
 }
 
 impl App {
@@ -268,7 +233,7 @@ impl App {
                                 let (hl, gl) = self.search_locale.clone();
 
                                 // Start loading thumbnails for current batch while fetching next page
-                                let thumb_tasks = create_thumbnail_tasks(&new_results);
+                                let thumb_tasks = helpers::create_thumbnail_tasks(&new_results);
 
                                 // Fetch next page with stored locale
                                 let next_page_task = Task::perform(
@@ -293,7 +258,7 @@ impl App {
                         }
 
                         // Load thumbnails ONLY for the new results (not all results)
-                        Task::batch(create_thumbnail_tasks(&new_results))
+                        Task::batch(helpers::create_thumbnail_tasks(&new_results))
                     }
                     Err(e) => {
                         eprintln!("Error: {}", e);
@@ -427,7 +392,9 @@ impl App {
                             if let Some(banner) = banner_images.last() {
                                 let url = banner.url.clone();
                                 Task::perform(
-                                    async move { load_thumb(&url).await.map_err(|e| e.to_string()) },
+                                    async move {
+                                        helpers::load_thumb(&url).await.map_err(|e| e.to_string())
+                                    },
                                     Message::BannerLoaded,
                                 )
                             } else {
@@ -442,7 +409,9 @@ impl App {
                             let url = thumb.url.clone();
                             let id = channel.id.clone();
                             Task::perform(
-                                async move { load_thumb(&url).await.map_err(|e| e.to_string()) },
+                                async move {
+                                    helpers::load_thumb(&url).await.map_err(|e| e.to_string())
+                                },
                                 move |r| Message::ThumbLoaded(id.clone(), r),
                             )
                         } else {
@@ -565,7 +534,7 @@ impl App {
                                 let (hl, gl) = self.channel_locale.clone();
 
                                 // Start loading thumbnails for current batch while fetching next page
-                                let thumb_tasks = create_thumbnail_tasks(&new_videos);
+                                let thumb_tasks = helpers::create_thumbnail_tasks(&new_videos);
 
                                 // Fetch next page with stored locale
                                 let next_page_task = Task::perform(
@@ -592,7 +561,7 @@ impl App {
                         }
 
                         // Load thumbnails ONLY for the new videos (not all videos)
-                        Task::batch(create_thumbnail_tasks(&new_videos))
+                        Task::batch(helpers::create_thumbnail_tasks(&new_videos))
                     }
                     Err(e) => {
                         eprintln!("Error loading channel videos: {}", e);
@@ -852,624 +821,9 @@ impl App {
 
     fn view(&self) -> Element<'_, Message> {
         match self.current_view {
-            View::Search => self.view_search(),
-            View::Channel => self.view_channel(),
-            View::Config => self.view_config(),
+            View::Search => views::search::view(self),
+            View::Channel => views::channel::view(self, get_language_by_locale),
+            View::Config => views::config::view(self),
         }
-    }
-
-    fn view_search(&self) -> Element<'_, Message> {
-        let search_input = text_input("Search YouTube...", &self.query)
-            .on_input(Message::InputChanged)
-            .on_submit(Message::Search)
-            .padding(10)
-            .width(400);
-
-        let search_button = button(text("Search")).on_press(Message::Search).padding(10);
-
-        let language_label = text("Language:").size(14);
-
-        let language_selector = combo_box(
-            &self.language_combo_state,
-            "Auto-detect",
-            self.selected_language.as_ref(),
-            Message::LanguageSelected,
-        )
-        .width(250);
-
-        let settings_button = button(text("⚙ Settings"))
-            .on_press(Message::OpenConfig)
-            .padding(10);
-
-        let controls = vec![
-            search_input.into(),
-            search_button.into(),
-            space::horizontal().width(Length::Shrink).into(),
-            language_label.into(),
-            language_selector.into(),
-            settings_button.into(),
-        ];
-
-        let search = container(
-            Wrap::with_elements(controls)
-                .spacing(10.0)
-                .line_spacing(10.0),
-        )
-        .padding(20)
-        .width(Length::Fill);
-
-        let body: Element<Message> = if self.search_results.is_empty() {
-            if self.searching {
-                container(text("Searching...")).padding(40).into()
-            } else {
-                container(
-                    column![
-                        text("ytrs").size(40),
-                        text("YouTube for polyglots").size(14)
-                    ]
-                    .spacing(10)
-                    .align_x(Alignment::Center),
-                )
-                .padding(60)
-                .center_x(Length::FillPortion(1))
-                .into()
-            }
-        } else {
-            let cards: Vec<Element<Message>> = self
-                .search_results
-                .iter()
-                .filter(|r| {
-                    // Filter out premium/members-only videos (keep videos where is_premium is NOT true)
-                    r.is_premium != Some(true)
-                })
-                .filter_map(|r| {
-                    let vid = r.video_id.clone()?;
-
-                    // Only render videos if thumbnail is loaded
-                    let h = self.thumbs.get(&vid)?.clone();
-
-                    // Clone all data for lazy closure (must be owned)
-                    let view_count = r.view_count;
-                    let duration = r.duration.clone();
-                    let title = r.title.clone();
-                    let channel = r.channel.clone();
-                    let is_playing = self.playing_video.as_ref() == Some(&vid);
-                    let countdown = self.countdown_value;
-
-                    // Lazy widget caches rendering - only rebuilds when (vid, is_playing, countdown) changes
-                    Some(
-                        lazy((vid.clone(), is_playing, countdown), move |_| {
-                            let thumb = Image::new(h.clone()).width(240).height(135);
-                            let thumb_with_overlay = create_thumbnail(thumb, is_playing, countdown);
-
-                            // Build metadata line
-                            let mut meta_parts = vec![];
-                            if let Some(v) = view_count {
-                                meta_parts.push(format!("{} views", fmt_num(v)));
-                            }
-                            if let Some(ref d) = duration {
-                                meta_parts.push(d.clone());
-                            }
-
-                            // Create info section with title and metadata
-                            let full_title = title.clone();
-                            let display_title = truncate_title(&title, 25);
-
-                            let title_widget = iced::widget::tooltip(
-                                text(display_title).size(14),
-                                container(text(full_title))
-                                    .style(container::dark)
-                                    .padding(10),
-                                iced::widget::tooltip::Position::FollowCursor,
-                            );
-
-                            let mut info_col = column![title_widget];
-
-                            // Add clickable channel name if available
-                            if let Some(ref ch) = channel {
-                                if let Some(ref cid) = ch.id {
-                                    info_col = info_col.push(
-                                        // users.rust-lang.org/t/how-to-make-a-static-str-from-a-variable/53718/15
-                                        // Leaking memory here is done to make the channel name have a 'static lifetime
-                                        // This allows us to 'cache' the video tiles, improving performance drastically.
-                                        // However, the downside being that memory is not regained before exiting the application.
-                                        // This is probably acceptable for normal use, but there may be a better way of doing this.
-                                        button(&*Box::leak(ch.name.clone().into_boxed_str()))
-                                            .style(|theme: &Theme, status| match status {
-                                                button::Status::Active => Style {
-                                                    text_color: theme.palette().text,
-                                                    ..Default::default()
-                                                },
-                                                button::Status::Hovered => Style {
-                                                    text_color: theme.palette().success,
-                                                    ..Default::default()
-                                                },
-                                                button::Status::Pressed => Style {
-                                                    text_color: theme.palette().text,
-                                                    ..Default::default()
-                                                },
-                                                button::Status::Disabled => Style {
-                                                    text_color: theme.palette().background,
-                                                    ..Default::default()
-                                                },
-                                            })
-                                            .padding(0)
-                                            .on_press(Message::ViewChannel(cid.clone())),
-                                    );
-                                } else {
-                                    info_col = info_col
-                                        .push(text(&*Box::leak(ch.name.clone().into_boxed_str())));
-                                }
-                            }
-
-                            // Add metadata line if we have any
-                            if !meta_parts.is_empty() {
-                                info_col = info_col.push(text(meta_parts.join(" • ")).size(12));
-                            }
-
-                            let card = column![
-                                thumb_with_overlay,
-                                container(info_col.spacing(4))
-                                    .padding(8)
-                                    .width(240)
-                                    .height(Length::Fixed(100.0))
-                            ]
-                            .spacing(0)
-                            .width(240);
-
-                            button(card).on_press(Message::Play(vid.clone())).padding(0)
-                        })
-                        .into(),
-                    )
-                })
-                .collect();
-
-            let mut search_content = column![
-                container(Wrap::with_elements(cards).spacing(15.0).line_spacing(15.0))
-                    .center_x(Length::Fill)
-            ]
-            .align_x(Alignment::Center);
-
-            // Show "Load More" button or loading indicator
-            if self.search_loading_more {
-                let loading_indicator = container(text("Loading more...").size(14))
-                    .padding(20)
-                    .center_x(Length::Fill);
-                search_content = search_content.push(loading_indicator);
-            } else if self.search_continuation.is_some() {
-                // Show "Load More" button if we have more results to load
-                let load_more_btn = container(
-                    button(text("Load More Results"))
-                        .on_press(Message::LoadMoreSearchResults)
-                        .padding(10),
-                )
-                .padding(20)
-                .center_x(Length::Fill);
-                search_content = search_content.push(load_more_btn);
-            }
-
-            scrollable(container(search_content).padding(20).width(Length::Fill)).into()
-        };
-
-        column![search, body].into()
-    }
-
-    fn view_channel(&self) -> Element<'_, Message> {
-        if let Some(ref channel) = self.current_channel {
-            let mut content = column![].spacing(0);
-
-            // Banner with header overlay
-            let banner_image: Element<Message> = if let Some(ref banner_handle) = self.banner {
-                Image::new(banner_handle.clone())
-                    .width(Length::Fill)
-                    .height(200)
-                    .into()
-            } else {
-                // Placeholder banner
-                container(iced::widget::space::horizontal())
-                    .width(Length::Fill)
-                    .height(200)
-                    .style(|theme: &Theme| container::Style {
-                        background: Some(iced::Background::Color(theme.palette().primary)),
-                        ..Default::default()
-                    })
-                    .into()
-            };
-
-            content = content.push(banner_image);
-
-            // Back button, avatar, and channel info on same row
-            let avatar: Element<Message> = if let Some(h) = self.thumbs.get(&channel.id) {
-                Image::new(h.clone()).width(80).height(80).into()
-            } else {
-                container(space()).width(80).height(80).into()
-            };
-
-            let mut info_column = column![text(&channel.name).size(24),].spacing(5);
-
-            if let Some(ref subs) = channel.subscriber_count {
-                info_column = info_column.push(text(subs).size(14));
-            }
-
-            let header = row![
-                button(text("← Back"))
-                    .on_press(Message::BackToSearch)
-                    .padding(10),
-                avatar,
-                info_column.padding(10),
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center);
-
-            // Tabs
-            let tabs = row![
-                button(text("VIDEOS"))
-                    .on_press(Message::ChangeChannelTab(ChannelTab::Videos))
-                    .padding(10),
-                button(text("SHORTS"))
-                    .on_press(Message::ChangeChannelTab(ChannelTab::Shorts))
-                    .padding(10),
-                button(text("LIVE"))
-                    .on_press(Message::ChangeChannelTab(ChannelTab::Streams))
-                    .padding(10),
-            ]
-            .spacing(10);
-
-            // Language and Sort controls on the same row
-            // Find the auto-detected language name to display in placeholder (O(1) HashMap lookup)
-            let auto_detected_name =
-                get_language_by_locale(&self.channel_locale.0, &self.channel_locale.1)
-                    .map(|lang| lang.name)
-                    .unwrap_or("Unknown");
-
-            let placeholder = format!("Auto-detected: {}", auto_detected_name);
-
-            let mut controls_row = row![
-                text("Language:").size(14),
-                combo_box(
-                    &self.language_combo_state,
-                    &placeholder,
-                    self.selected_language.as_ref(),
-                    Message::LanguageSelected,
-                )
-                .width(250)
-            ]
-            .align_y(Center)
-            .spacing(10);
-
-            // Add sort dropdown if we have sort filters available
-            if !self.available_sort_filters.is_empty() {
-                let filter_labels: Vec<String> = self
-                    .available_sort_filters
-                    .iter()
-                    .map(|f| f.label.clone())
-                    .collect();
-
-                controls_row = controls_row.push(
-                    row![
-                        text("Sort by:").size(14),
-                        pick_list(
-                            filter_labels,
-                            self.selected_sort_label.clone(),
-                            Message::ChangeSortFilter,
-                        )
-                        .padding(5)
-                    ]
-                    .spacing(10)
-                    .padding(10)
-                    .align_y(Alignment::Center),
-                );
-            }
-
-            // Add controls section with background and 2px bottom border
-            let controls_with_border = column![
-                container(row![
-                    column![header, tabs].spacing(10).width(Length::Fill),
-                    column![iced::widget::space::vertical(), controls_row]
-                ])
-                .padding(10)
-                .height(150)
-                .width(Length::Fill)
-                .style(|theme: &Theme| container::Style {
-                    background: Some(iced::Background::Color(theme.palette().background)),
-                    ..Default::default()
-                }),
-                // 2px bottom border line
-                container(space())
-                    .width(Length::Fill)
-                    .height(2)
-                    .style(|theme: &Theme| container::Style {
-                        background: Some(iced::Background::Color(theme.palette().primary)),
-                        ..Default::default()
-                    })
-            ]
-            .spacing(0);
-
-            content = content.push(controls_with_border);
-
-            // Videos grid
-            let video_cards: Vec<Element<Message>> = self
-                .channel_results
-                .iter()
-                .filter(|r| {
-                    // Filter out premium/members-only videos (keep videos where is_premium is NOT true)
-                    r.is_premium != Some(true)
-                })
-                .filter_map(|r| {
-                    let vid = r.video_id.as_ref()?;
-                    let h = self.thumbs.get(vid)?;
-
-                    let thumb = Image::new(h.clone()).width(240).height(135);
-
-                    // Check if this video is currently playing
-                    let is_playing = self.playing_video.as_ref() == Some(vid);
-                    let countdown = self.countdown_value;
-
-                    // Create thumbnail with optional countdown overlay
-                    let thumb_with_overlay = create_thumbnail(thumb, is_playing, countdown);
-
-                    let mut meta = vec![];
-                    if let Some(v) = r.view_count {
-                        meta.push(format!("{} views", fmt_num(v)));
-                    }
-                    if let Some(ref d) = r.duration {
-                        meta.push(d.clone());
-                    }
-                    if let Some(ref p) = r.published_text {
-                        meta.push(p.clone());
-                    }
-
-                    let full_title = r.title.clone();
-                    let display_title = truncate_title(&r.title, 25);
-
-                    let title_widget = iced::widget::tooltip(
-                        text(display_title).size(14),
-                        container(text(full_title))
-                            .style(container::dark)
-                            .padding(10),
-                        iced::widget::tooltip::Position::FollowCursor,
-                    );
-
-                    let card = column![
-                        thumb_with_overlay,
-                        container(
-                            column![title_widget, text(meta.join(" • ")).size(12),].spacing(4)
-                        )
-                        .padding(8)
-                        .width(240)
-                        .height(Length::Fixed(100.0))
-                    ]
-                    .spacing(0)
-                    .width(240);
-
-                    let v = vid.clone();
-                    Some(button(card).on_press(Message::Play(v)).padding(0).into())
-                })
-                .collect();
-
-            let videos_section: Element<Message> = if video_cards.is_empty() {
-                if self.loading_channel {
-                    container(text("Loading..."))
-                        .padding(40)
-                        .center_x(Length::Fill)
-                        .into()
-                } else {
-                    container(text("No videos found"))
-                        .padding(40)
-                        .center_x(Length::Fill)
-                        .into()
-                }
-            } else {
-                let mut video_content = column![
-                    container(
-                        Wrap::with_elements(video_cards)
-                            .spacing(15.0)
-                            .line_spacing(15.0),
-                    )
-                    .center_x(Length::Fill)
-                    .align_x(Alignment::Center)
-                ];
-
-                // Show "Load More" button or loading indicator
-                if self.channel_preloading {
-                    // Still preloading initial videos
-                    let loading_indicator =
-                        container(text("Still requesting videos from YouTube...").size(14))
-                            .padding(20)
-                            .center_x(Length::Fill);
-                    video_content = video_content.push(loading_indicator);
-                } else if self.channel_loading_more {
-                    let loading_indicator = container(text("Loading more...").size(14))
-                        .padding(20)
-                        .center_x(Length::Fill);
-                    video_content = video_content.push(loading_indicator);
-                } else if self.channel_continuation.is_some() {
-                    // Show "Load More" button if we have more videos to load
-                    let load_more_btn = container(
-                        button(text("Load More Videos"))
-                            .on_press(Message::LoadMoreVideos)
-                            .padding(10),
-                    )
-                    .padding(20)
-                    .center_x(Length::Fill);
-                    video_content = video_content.push(load_more_btn);
-                }
-
-                scrollable(container(video_content).padding(20)).into()
-            };
-
-            content = content.push(videos_section);
-
-            content.into()
-        } else {
-            container(text("Loading channel...")).padding(40).into()
-        }
-    }
-
-    fn view_config(&self) -> Element<'_, Message> {
-        let title = text("Configuration").size(32).color(iced::Color::WHITE);
-
-        let header = container(title).padding(20).width(Length::Fill);
-
-        // Language Section
-        let language_section_title = text("Default Language").size(20).color(iced::Color::WHITE);
-
-        let language_explanation = text(
-            "Sets the default language for search results and channel videos. \
-             Auto-detect will use the language from channel metadata. \
-             You can still override this in Search and Channel views.",
-        )
-        .size(14)
-        .color(iced::Color::from_rgb(0.8, 0.8, 0.85));
-
-        let language_row = row![
-            text("Language:").size(14),
-            combo_box(
-                &self.language_combo_state,
-                "Auto-detect",
-                self.selected_language.as_ref(),
-                Message::LanguageSelected,
-            )
-            .width(250)
-        ]
-        .spacing(10)
-        .align_y(Alignment::Center);
-
-        let language_section = column![
-            language_section_title,
-            space::vertical().height(10),
-            language_explanation,
-            space::vertical().height(20),
-            language_row,
-        ]
-        .spacing(5);
-
-        // Back button
-        let back_button = button(text("← Back"))
-            .on_press(Message::CloseConfig)
-            .padding(10);
-
-        let content = column![
-            header,
-            container(
-                column![language_section, space::vertical().height(30), back_button,].padding(20)
-            )
-            .width(Length::Fill)
-        ];
-
-        scrollable(content).into()
-    }
-}
-
-async fn load_thumb(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let r = reqwest::get(url).await?;
-    let b = r.bytes().await?;
-    Ok(b.to_vec())
-}
-
-/// Helper function to truncate title text with ellipsis
-fn truncate_title(title: &str, max_chars: usize) -> String {
-    if title.chars().count() > max_chars {
-        format!(
-            "{}...",
-            title.chars().take(max_chars - 3).collect::<String>()
-        )
-    } else {
-        title.to_string()
-    }
-}
-
-/// Helper function to create a thumbnail element.
-/// If a video has been clicked, displays a 5-second countdown overlay
-/// with a gray background and "Waiting for required preload time" message.
-/// YouTube requires a 5-second preload time before MPV can start playing the video.
-fn create_thumbnail(
-    thumb: Image<iced::widget::image::Handle>,
-    is_playing: bool,
-    countdown: u8,
-) -> Element<'static, Message> {
-    if is_playing {
-        stack![
-            thumb,
-            // Gray overlay
-            container(space())
-                .width(240)
-                .height(135)
-                .style(|_theme: &Theme| container::Style {
-                    background: Some(iced::Background::Color(iced::Color::from_rgba(
-                        0.0, 0.0, 0.0, 0.6
-                    ))),
-                    ..Default::default()
-                }),
-            // Countdown text
-            container(
-                column![
-                    text("Waiting for required preload time")
-                        .size(12)
-                        .color(iced::Color::WHITE),
-                    text(countdown.to_string())
-                        .size(48)
-                        .color(iced::Color::WHITE)
-                ]
-                .align_x(Alignment::Center)
-                .spacing(5)
-            )
-            .width(240)
-            .height(135)
-            .center_x(240)
-            .center_y(135)
-        ]
-        .into()
-    } else {
-        thumb.into()
-    }
-}
-
-/// Helper function to create thumbnail loading tasks for search results
-fn create_thumbnail_tasks(results: &[SearchResult]) -> Vec<Task<Message>> {
-    results
-        .iter()
-        .filter_map(|r| {
-            // Load video thumbnails
-            if let Some(vid) = r.video_id.as_ref() {
-                r.thumbnails.first().map(|t| {
-                    let id = vid.clone();
-                    let url = t.url.clone();
-                    Task::perform(
-                        async move { load_thumb(&url).await.map_err(|e| e.to_string()) },
-                        move |res| Message::ThumbLoaded(id.clone(), res),
-                    )
-                })
-            }
-            // Load channel thumbnails
-            else if let Some(channel) = r.channel.as_ref() {
-                if let Some(cid) = channel.id.as_ref() {
-                    r.thumbnails.first().map(|t| {
-                        let id = cid.clone();
-                        let url = t.url.clone();
-                        Task::perform(
-                            async move { load_thumb(&url).await.map_err(|e| e.to_string()) },
-                            move |res| Message::ThumbLoaded(id.clone(), res),
-                        )
-                    })
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-fn fmt_num(n: u64) -> String {
-    if n >= 1_000_000_000 {
-        format!("{:.1}B", n as f64 / 1e9)
-    } else if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1e6)
-    } else if n >= 1_000 {
-        format!("{:.1}K", n as f64 / 1e3)
-    } else {
-        n.to_string()
     }
 }
