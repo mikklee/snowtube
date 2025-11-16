@@ -37,4 +37,6 @@ pub enum Message {
     ThemeChanged(AppTheme),
     // Window events
     Resized(f32, f32), // width, height
+    // No-op message for non-interactive elements
+    NoOp,
 }

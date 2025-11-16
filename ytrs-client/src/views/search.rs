@@ -10,7 +10,7 @@ use iced::{
 use iced_aw::Wrap;
 
 use crate::App;
-use crate::helpers::{create_thumbnail, fmt_num, truncate_title};
+use crate::helpers::{ChannelInfo, create_thumbnail, create_video_tile, fmt_num};
 use crate::messages::Message;
 
 /// Render the search view
@@ -118,74 +118,30 @@ pub fn view(app: &App) -> Element<'_, Message> {
                         if let Some(ref d) = duration {
                             meta_parts.push(d.clone());
                         }
+                        let metadata_text = if !meta_parts.is_empty() {
+                            Some(meta_parts.join(" • "))
+                        } else {
+                            None
+                        };
 
-                        // Create info section with title and metadata
-                        let full_title = title.clone();
-                        let display_title = truncate_title(&title, 25);
+                        // Build channel info
+                        // users.rust-lang.org/t/how-to-make-a-static-str-from-a-variable/53718/15
+                        // Leaking memory here is done to make the channel name have a 'static lifetime
+                        // This allows us to 'cache' the video tiles, improving performance drastically.
+                        // However, the downside being that memory is not regained before exiting the application.
+                        // This is probably acceptable for normal use, but there may be a better way of doing this.
+                        let channel_info = channel.as_ref().map(|ch| ChannelInfo {
+                            name: &*Box::leak(ch.name.clone().into_boxed_str()),
+                            on_press: ch.id.clone().map(Message::ViewChannel),
+                        });
 
-                        let title_widget = iced::widget::tooltip(
-                            text(display_title).size(14),
-                            container(text(full_title))
-                                .style(container::dark)
-                                .padding(10),
-                            iced::widget::tooltip::Position::FollowCursor,
-                        );
-
-                        let mut info_col = column![title_widget];
-
-                        // Add clickable channel name if available
-                        if let Some(ref ch) = channel {
-                            if let Some(ref cid) = ch.id {
-                                info_col = info_col.push(
-                                    // users.rust-lang.org/t/how-to-make-a-static-str-from-a-variable/53718/15
-                                    // Leaking memory here is done to make the channel name have a 'static lifetime
-                                    // This allows us to 'cache' the video tiles, improving performance drastically.
-                                    // However, the downside being that memory is not regained before exiting the application.
-                                    // This is probably acceptable for normal use, but there may be a better way of doing this.
-                                    button(&*Box::leak(ch.name.clone().into_boxed_str()))
-                                        .style(|theme: &iced::Theme, status| match status {
-                                            button::Status::Active => button::Style {
-                                                text_color: theme.palette().text,
-                                                ..Default::default()
-                                            },
-                                            button::Status::Hovered => button::Style {
-                                                text_color: theme.palette().success,
-                                                ..Default::default()
-                                            },
-                                            button::Status::Pressed => button::Style {
-                                                text_color: theme.palette().text,
-                                                ..Default::default()
-                                            },
-                                            button::Status::Disabled => button::Style {
-                                                text_color: theme.palette().background,
-                                                ..Default::default()
-                                            },
-                                        })
-                                        .padding(0)
-                                        .on_press(Message::ViewChannel(cid.clone())),
-                                );
-                            } else {
-                                info_col = info_col
-                                    .push(text(&*Box::leak(ch.name.clone().into_boxed_str())));
-                            }
-                        }
-
-                        // Add metadata line if we have any
-                        if !meta_parts.is_empty() {
-                            info_col = info_col.push(text(meta_parts.join(" • ")).size(12));
-                        }
-
-                        let card = column![
+                        create_video_tile(
                             thumb_with_overlay,
-                            container(info_col.spacing(4))
-                                .padding(8)
-                                .width(240)
-                                .height(Length::Fixed(100.0))
-                        ]
-                        .spacing(0)
-                        .width(240);
-
-                        button(card).on_press(Message::Play(vid.clone())).padding(0)
+                            &title,
+                            channel_info,
+                            metadata_text,
+                            Message::Play(vid.clone()),
+                        )
                     })
                     .into(),
                 )

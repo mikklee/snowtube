@@ -1,14 +1,42 @@
 //! Configuration view for the ytrs-client application
 
 use iced::{
-    Alignment, Element, Length,
+    Alignment, Background, Color, Element, Length, Theme,
     widget::{button, column, combo_box, container, pick_list, row, scrollable, text},
 };
 use strum::IntoEnumIterator;
 
 use crate::App;
+use crate::helpers::{ChannelInfo, create_video_tile};
 use crate::messages::Message;
 use crate::theme::AppTheme;
+
+/// Create a mock video tile preview to show how the theme looks
+fn create_theme_preview() -> Element<'static, Message> {
+    // Mock thumbnail - simulating a real thumbnail with duration badge
+    let mock_thumbnail = container(
+        column![iced::widget::space::vertical().height(Length::Fill),]
+            .align_x(Alignment::End)
+            .padding(4),
+    )
+    .width(240)
+    .height(135)
+    .style(|_theme: &Theme| container::Style {
+        background: Some(Background::Color(Color::BLACK)),
+        ..Default::default()
+    });
+
+    create_video_tile(
+        mock_thumbnail.into(),
+        "Example video tile",
+        Some(ChannelInfo {
+            name: "Lorem Lipsum",
+            on_press: Some(Message::NoOp),
+        }),
+        Some("20.4K views • 14:46".to_string()),
+        Message::NoOp,
+    )
+}
 
 /// Render the configuration view
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -65,12 +93,20 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .spacing(10)
     .align_y(Alignment::Center);
 
+    // Theme preview
+    let preview_title = text("Preview:").size(14);
+    let preview = create_theme_preview();
+
     let theme_section = column![
         theme_section_title,
         iced::widget::space::vertical().height(10),
         theme_explanation,
         iced::widget::space::vertical().height(20),
         theme_row,
+        iced::widget::space::vertical().height(15),
+        preview_title,
+        iced::widget::space::vertical().height(10),
+        preview,
     ]
     .spacing(5);
 

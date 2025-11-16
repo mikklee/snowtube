@@ -122,3 +122,85 @@ pub fn fmt_num(n: u64) -> String {
         n.to_string()
     }
 }
+
+/// Channel info for video tiles
+pub struct ChannelInfo {
+    pub name: &'static str,
+    pub on_press: Option<Message>,
+}
+
+/// Create a video tile with thumbnail, title, channel, and metadata
+pub fn create_video_tile<'a>(
+    thumbnail: Element<'a, Message>,
+    title_text: &str,
+    channel: Option<ChannelInfo>,
+    metadata_text: Option<String>,
+    on_press: Message,
+) -> Element<'a, Message> {
+    use iced::{
+        Length,
+        widget::{button, column, container, text, tooltip},
+    };
+
+    // Create title with tooltip
+    let full_title = title_text.to_string();
+    let display_title = truncate_title(title_text, 25);
+
+    let title_widget = tooltip(
+        text(display_title).size(14),
+        container(text(full_title))
+            .style(container::dark)
+            .padding(10),
+        tooltip::Position::FollowCursor,
+    );
+
+    let mut info_col = column![title_widget];
+
+    // Add channel if provided
+    if let Some(ch) = channel {
+        if let Some(msg) = ch.on_press {
+            info_col = info_col.push(
+                button(ch.name)
+                    .style(|theme: &Theme, status| match status {
+                        button::Status::Active => button::Style {
+                            text_color: theme.palette().text,
+                            ..Default::default()
+                        },
+                        button::Status::Hovered => button::Style {
+                            text_color: theme.palette().success,
+                            ..Default::default()
+                        },
+                        button::Status::Pressed => button::Style {
+                            text_color: theme.palette().text,
+                            ..Default::default()
+                        },
+                        button::Status::Disabled => button::Style {
+                            text_color: theme.palette().background,
+                            ..Default::default()
+                        },
+                    })
+                    .padding(0)
+                    .on_press(msg),
+            );
+        } else {
+            info_col = info_col.push(text(ch.name));
+        }
+    }
+
+    // Add metadata if provided
+    if let Some(meta) = metadata_text {
+        info_col = info_col.push(text(meta).size(12));
+    }
+
+    let card = column![
+        thumbnail,
+        container(info_col.spacing(4))
+            .padding(8)
+            .width(240)
+            .height(Length::Fixed(100.0))
+    ]
+    .spacing(0)
+    .width(240);
+
+    button(card).on_press(on_press).padding(0).into()
+}

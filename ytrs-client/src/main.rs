@@ -835,6 +835,7 @@ impl App {
                 self.window_width = width;
                 Task::none()
             }
+            Message::NoOp => Task::none(),
         }
     }
 
