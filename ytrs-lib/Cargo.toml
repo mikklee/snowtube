@@ -1,0 +1,28 @@
+[package]
+name = "ytrs-lib"
+version = "0.1.0"
+edition = "2024"
+authors = ["ytrs contributors"]
+description = "A Rust client for YouTube's private InnerTube API"
+license = "MIT"
+repository = "https://github.com/mtl/ytrs"
+keywords = ["youtube", "api", "innertube", "video"]
+categories = ["api-bindings", "web-programming"]
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json", "gzip", "rustls-tls"], default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+url = "2.5"
+base64 = "0.22"
+sha1 = "0.10"
+rand = "0.8"
+whatlang = "0.18"
+lingua = "1.7"
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockito = "1.7.0"

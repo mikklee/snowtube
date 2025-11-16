@@ -19,6 +19,35 @@ ytrs automatically detects the language of your search query using [whatlang](ht
 
 ## Features
 
+### Library (`ytrs-lib`)
+
+Rust client library for YouTube's private InnerTube API.
+
+- Search with locale support (auto-detection or manual override)
+- Channel information and video listings
+- Tab navigation (Videos/Shorts/Streams)
+- Sort filters and pagination
+- Async API using [reqwest](https://crates.io/crates/reqwest) and [tokio](https://crates.io/crates/tokio)
+
+**Usage:**
+
+Basic example:
+```rust
+use ytrs_lib::InnerTube;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = InnerTube::new().await?;
+    let results = client.search("rust programming").await?;
+
+    for video in results.results {
+        println!("{}", video.title);
+    }
+
+    Ok(())
+}
+```
+
 ### Client (`ytrs-client`)
 
 GUI client built with [Iced](https://iced.rs/).

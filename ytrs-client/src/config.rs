@@ -64,17 +64,17 @@ pub struct SerializableLanguageOption {
 }
 
 impl SerializableLanguageOption {
-    /// Convert from ytrs::LanguageOption
-    pub fn from_language_option(lang: &ytrs::LanguageOption) -> Self {
+    /// Convert from ytrs_lib::LanguageOption
+    pub fn from_language_option(lang: &ytrs_lib::LanguageOption) -> Self {
         Self {
             hl: lang.hl.to_string(),
             gl: lang.gl.to_string(),
         }
     }
 
-    /// Find matching LanguageOption from ytrs
-    pub fn to_language_option(&self) -> Option<ytrs::LanguageOption> {
-        ytrs::get_all_languages()
+    /// Find matching LanguageOption from ytrs_lib
+    pub fn to_language_option(&self) -> Option<ytrs_lib::LanguageOption> {
+        ytrs_lib::get_all_languages()
             .iter()
             .find(|lang| lang.hl == self.hl && lang.gl == self.gl)
             .cloned()

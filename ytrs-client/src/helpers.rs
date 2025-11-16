@@ -4,7 +4,7 @@ use iced::{
     Alignment, Element, Task, Theme,
     widget::{Image, column, container, stack, text},
 };
-use ytrs::SearchResult;
+use ytrs_lib::SearchResult;
 
 use crate::messages::Message;
 

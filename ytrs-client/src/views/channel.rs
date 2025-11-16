@@ -7,7 +7,7 @@ use iced::{
     widget::{Image, button, column, combo_box, container, pick_list, row, scrollable, text},
 };
 use iced_aw::Wrap;
-use ytrs::ChannelTab;
+use ytrs_lib::ChannelTab;
 
 use crate::App;
 use crate::helpers::{create_thumbnail, fmt_num, truncate_title};
@@ -16,7 +16,7 @@ use crate::messages::Message;
 /// Render the channel view
 pub fn view(
     app: &App,
-    get_language_by_locale: fn(&str, &str) -> Option<&'static ytrs::LanguageOption>,
+    get_language_by_locale: fn(&str, &str) -> Option<&'static ytrs_lib::LanguageOption>,
 ) -> Element<'_, Message> {
     if let Some(ref channel) = app.current_channel {
         let mut content = column![].spacing(0);
