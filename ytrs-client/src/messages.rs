@@ -33,4 +33,6 @@ pub enum Message {
     CloseConfig,
     ConfigLoaded(Result<AppConfig, String>),
     ConfigSaved(Result<(), String>),
+    // Window events
+    Resized(f32, f32), // width, height
 }

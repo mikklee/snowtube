@@ -1,8 +1,11 @@
 //! Search view for the ytrs-client application
 
 use iced::{
-    Alignment, Element, Length,
-    widget::{Image, button, column, combo_box, container, lazy, scrollable, text, text_input},
+    Alignment::{self, Center},
+    Element, Length,
+    widget::{
+        Image, button, column, combo_box, container, lazy, row, scrollable, text, text_input,
+    },
 };
 use iced_aw::Wrap;
 
@@ -12,11 +15,12 @@ use crate::messages::Message;
 
 /// Render the search view
 pub fn view(app: &App) -> Element<'_, Message> {
-    let search_input = text_input("Search YouTube...", &app.query)
-        .on_input(Message::InputChanged)
-        .on_submit(Message::Search)
-        .padding(10)
-        .width(400);
+    let search_input: iced::widget::TextInput<'_, Message> =
+        text_input("Search YouTube...", &app.query)
+            .on_input(Message::InputChanged)
+            .on_submit(Message::Search)
+            .padding(10)
+            .width(400);
 
     let search_button = button(text("Search")).on_press(Message::Search).padding(10);
 
@@ -34,24 +38,33 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .on_press(Message::OpenConfig)
         .padding(10);
 
-    let controls = vec![
-        search_input.into(),
-        search_button.into(),
-        iced::widget::space::horizontal()
-            .width(Length::Shrink)
-            .into(),
-        language_label.into(),
-        language_selector.into(),
-        settings_button.into(),
-    ];
+    // Responsive layout: under 1000px width, stack controls in two rows
+    let controls: Element<Message> = if app.window_width < 1000.0 {
+        column![
+            row![language_label, language_selector, settings_button]
+                .align_y(Center)
+                .spacing(10),
+            row![search_input, search_button].spacing(10),
+        ]
+        .align_x(Center)
+        .width(Length::Fill)
+        .spacing(10)
+        .into()
+    } else {
+        row![
+            search_input,
+            search_button,
+            iced::widget::space::horizontal().width(Length::Fill),
+            language_label,
+            language_selector,
+            settings_button,
+        ]
+        .align_y(Center)
+        .spacing(10)
+        .into()
+    };
 
-    let search = container(
-        Wrap::with_elements(controls)
-            .spacing(10.0)
-            .line_spacing(10.0),
-    )
-    .padding(20)
-    .width(Length::Fill);
+    let search = container(controls).padding(20).width(Length::Fill);
 
     let body: Element<Message> = if app.search_results.is_empty() {
         if app.searching {

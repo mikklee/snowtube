@@ -4,7 +4,7 @@ mod messages;
 mod views;
 
 use iced::widget::combo_box;
-use iced::{Element, Task, Theme};
+use iced::{Element, Size, Subscription, Task, Theme, event};
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::{Arc, OnceLock};
@@ -33,6 +33,7 @@ fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
         .title(cosmic_title)
         .theme(cosmic_theme)
+        .subscription(App::subscription)
         .font(include_bytes!("../fonts/NotoSansCJK-VF.otf.ttc"))
         .default_font(iced::Font {
             family: iced::font::Family::Name("Noto Sans CJK JP"),
@@ -72,6 +73,7 @@ pub struct App {
     pub countdown_value: u8,                       // Current countdown value (5, 4, 3, 2, 1, 0)
     pub mpv_process: Arc<tokio::sync::Mutex<Option<std::process::Child>>>, // MPV process handle
     pub config: AppConfig,                         // Persistent configuration
+    pub window_width: f32,                         // Current window width for responsive layout
 
     // Search-specific state
     pub search_results: Vec<SearchResult>,
@@ -112,6 +114,7 @@ impl App {
                 countdown_value: 0,
                 mpv_process: Arc::new(tokio::sync::Mutex::new(None)),
                 config: AppConfig::default(),
+                window_width: 800.0,
 
                 // Search-specific state
                 search_results: Vec::new(),
@@ -816,6 +819,10 @@ impl App {
                 }
                 Task::none()
             }
+            Message::Resized(width, _height) => {
+                self.window_width = width;
+                Task::none()
+            }
         }
     }
 
@@ -825,5 +832,15 @@ impl App {
             View::Channel => views::channel::view(self, get_language_by_locale),
             View::Config => views::config::view(self),
         }
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        event::listen_with(|ev, _status, _id| {
+            if let iced::Event::Window(iced::window::Event::Resized(Size { width, height })) = ev {
+                Some(Message::Resized(width, height))
+            } else {
+                None
+            }
+        })
     }
 }
