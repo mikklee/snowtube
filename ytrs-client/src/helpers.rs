@@ -1,7 +1,7 @@
 //! Helper functions for the ytrs-client UI
 
 use iced::{
-    Alignment, Element, Task, Theme,
+    Alignment, Color, Element, Task, Theme,
     widget::{Image, column, container, stack, text},
 };
 use ytrs_lib::SearchResult;
@@ -162,9 +162,20 @@ pub fn create_video_tile<'a>(
             info_col = info_col.push(
                 button(ch.name)
                     .style(|theme: &Theme, status| match status {
-                        button::Status::Active => button::Style {
-                            text_color: theme.palette().text,
-                            ..Default::default()
+                        button::Status::Active => match theme {
+                            // For some of the themes the text ends up blending with the background.
+                            // So, we have to override the text_color.
+                            Theme::SolarizedDark
+                            | Theme::SolarizedLight
+                            | Theme::TokyoNightStorm
+                            | Theme::TokyoNight => button::Style {
+                                text_color: Color::WHITE,
+                                ..Default::default()
+                            },
+                            _other => button::Style {
+                                text_color: theme.palette().text,
+                                ..Default::default()
+                            },
                         },
                         button::Status::Hovered => button::Style {
                             text_color: theme.palette().success,
