@@ -9,7 +9,7 @@
 //! ## Example
 //!
 //! ```no_run
-//! use ytrs::InnerTube;
+//! use ytrs_lib::InnerTube;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
