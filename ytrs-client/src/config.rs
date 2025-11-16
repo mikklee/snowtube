@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use tokio::fs;
 
+use crate::theme::AppTheme;
+
 /// Macro to extract field names from any struct at compile time
 /// Usage: field_name!(YtrsConfig, version) returns "version"
 /// The macro ensures at compile time that the field actually exists
@@ -82,10 +84,22 @@ impl SerializableLanguageOption {
 }
 
 /// Application configuration data
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AppConfig {
     /// Default language for search results and channel videos
     pub default_language: Option<SerializableLanguageOption>,
+    /// Selected theme
+    #[serde(default)]
+    pub theme: AppTheme,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            default_language: None,
+            theme: AppTheme::default(),
+        }
+    }
 }
 
 /// Top-level configuration file with version for future migrations
@@ -193,6 +207,7 @@ mod tests {
         let config = YtrsConfig::default();
         assert_eq!(config.version, current_version());
         assert_eq!(config.config.default_language, None);
+        assert_eq!(config.config.theme, AppTheme::Cyberpunk);
     }
 
     #[test]
@@ -204,6 +219,7 @@ mod tests {
                     hl: "ja".to_string(),
                     gl: "JP".to_string(),
                 }),
+                theme: AppTheme::TokyoNight,
             },
         };
 
@@ -229,5 +245,36 @@ mod tests {
         .expect("Expected to deserialize config");
 
         assert_eq!(config.config, deserialized);
+    }
+
+    #[test]
+    fn test_deserialize_config_without_theme() {
+        // Test deserializing an old config file that doesn't have the theme field
+        // This simulates loading a config from before the theme feature was added
+        let old_config_json = r#"{
+            "version": "0.1.0",
+            "config": {
+                "default_language": {
+                    "hl": "en",
+                    "gl": "US"
+                }
+            }
+        }"#;
+
+        let raw_ytrs_config: serde_json::Value =
+            serde_json::from_str(old_config_json).expect("Failed to parse old config JSON");
+
+        let deserialized: AppConfig = serde_json::from_value(
+            raw_ytrs_config
+                .get(field_name!(YtrsConfig, config))
+                .expect("Expected config field")
+                .clone(),
+        )
+        .expect("Failed to deserialize old config");
+
+        // Should use default theme when not specified
+        assert_eq!(deserialized.theme, AppTheme::Cyberpunk);
+        assert!(deserialized.default_language.is_some());
+        assert_eq!(deserialized.default_language.unwrap().hl, "en");
     }
 }
