@@ -21,6 +21,10 @@ pub enum AppTheme {
     TokyoNight,
     TokyoNightStorm,
     KanagawaWave,
+    CatppuccinLatte,
+    CatppuccinFrappe,
+    CatppuccinMacchiato,
+    CatppuccinMocha,
 }
 
 impl Default for AppTheme {
@@ -45,6 +49,10 @@ impl AppTheme {
             AppTheme::TokyoNight => Theme::TokyoNight,
             AppTheme::TokyoNightStorm => Theme::TokyoNightStorm,
             AppTheme::KanagawaWave => Theme::KanagawaWave,
+            AppTheme::CatppuccinLatte => Theme::CatppuccinLatte,
+            AppTheme::CatppuccinFrappe => Theme::CatppuccinFrappe,
+            AppTheme::CatppuccinMacchiato => Theme::CatppuccinMacchiato,
+            AppTheme::CatppuccinMocha => Theme::CatppuccinMocha,
         }
     }
 }
