@@ -1,6 +1,7 @@
 mod config;
 mod helpers;
 mod messages;
+mod theme;
 mod views;
 
 use iced::widget::combo_box;
@@ -14,6 +15,7 @@ use ytrs_lib::{
 
 use config::{AppConfig, SerializableLanguageOption, YtrsConfig};
 use messages::{Message, View};
+use theme::AppTheme;
 
 /// Cached HashMap for O(1) language lookups by (hl, gl) tuple
 static LOCALE_TO_LANGUAGE: OnceLock<HashMap<(String, String), &'static LanguageOption>> =
@@ -32,7 +34,7 @@ fn get_language_by_locale(hl: &str, gl: &str) -> Option<&'static LanguageOption>
 fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
         .title(cosmic_title)
-        .theme(cosmic_theme)
+        .theme(app_theme)
         .subscription(App::subscription)
         .font(include_bytes!("../fonts/NotoSansCJK-VF.otf.ttc"))
         .default_font(iced::Font {
@@ -46,19 +48,8 @@ fn cosmic_title(_: &App) -> String {
     "ytrs".to_string()
 }
 
-fn cosmic_theme(_: &App) -> Theme {
-    Theme::custom("Cosmic".to_string(), cosmic_palette())
-}
-
-fn cosmic_palette() -> iced::theme::Palette {
-    iced::theme::Palette {
-        background: iced::Color::from_rgb(0.08, 0.08, 0.12),
-        text: iced::Color::from_rgb(0.95, 0.95, 0.98),
-        primary: iced::Color::from_rgb(0.5, 0.4, 0.9),
-        success: iced::Color::from_rgb(0.3, 0.8, 0.6),
-        danger: iced::Color::from_rgb(0.9, 0.3, 0.4),
-        warning: iced::Color::from_rgb(0.9, 0.7, 0.3),
-    }
+fn app_theme(app: &App) -> Theme {
+    app.current_theme.clone()
 }
 
 pub struct App {
@@ -74,6 +65,7 @@ pub struct App {
     pub mpv_process: Arc<tokio::sync::Mutex<Option<std::process::Child>>>, // MPV process handle
     pub config: AppConfig,                         // Persistent configuration
     pub window_width: f32,                         // Current window width for responsive layout
+    pub current_theme: Theme,                      // Current theme
 
     // Search-specific state
     pub search_results: Vec<SearchResult>,
@@ -115,6 +107,7 @@ impl App {
                 mpv_process: Arc::new(tokio::sync::Mutex::new(None)),
                 config: AppConfig::default(),
                 window_width: 800.0,
+                current_theme: AppTheme::default().to_iced_theme(),
 
                 // Search-specific state
                 search_results: Vec::new(),
@@ -798,6 +791,9 @@ impl App {
                     Ok(config) => {
                         self.config = config;
 
+                        // Apply theme from config
+                        self.current_theme = self.config.theme.to_iced_theme();
+
                         // Apply default language if set
                         if let Some(ref lang_config) = self.config.default_language
                             && let Some(lang) = lang_config.to_language_option()
@@ -818,6 +814,22 @@ impl App {
                     eprintln!("Failed to save config: {}", e);
                 }
                 Task::none()
+            }
+            Message::ThemeChanged(new_theme) => {
+                self.current_theme = new_theme.to_iced_theme();
+                self.config.theme = new_theme;
+
+                let config = self.config.clone();
+                Task::perform(
+                    async move {
+                        let new_config = YtrsConfig {
+                            config,
+                            ..Default::default()
+                        };
+                        new_config.save().await.map_err(|e| e.to_string())
+                    },
+                    Message::ConfigSaved,
+                )
             }
             Message::Resized(width, _height) => {
                 self.window_width = width;

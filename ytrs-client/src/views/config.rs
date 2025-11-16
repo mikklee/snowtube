@@ -2,28 +2,29 @@
 
 use iced::{
     Alignment, Element, Length,
-    widget::{button, column, combo_box, container, row, scrollable, text},
+    widget::{button, column, combo_box, container, pick_list, row, scrollable, text},
 };
+use strum::IntoEnumIterator;
 
 use crate::App;
 use crate::messages::Message;
+use crate::theme::AppTheme;
 
 /// Render the configuration view
 pub fn view(app: &App) -> Element<'_, Message> {
-    let title = text("Configuration").size(32).color(iced::Color::WHITE);
+    let title = text("Configuration").size(32);
 
     let header = container(title).padding(20).width(Length::Fill);
 
     // Language Section
-    let language_section_title = text("Default Language").size(20).color(iced::Color::WHITE);
+    let language_section_title = text("Default Language").size(20);
 
     let language_explanation = text(
         "Sets the default language for search results and channel videos. \
          Auto-detect will use the language from channel metadata. \
          You can still override this in Search and Channel views.",
     )
-    .size(14)
-    .color(iced::Color::from_rgb(0.8, 0.8, 0.85));
+    .size(14);
 
     let language_row = row![
         text("Language:").size(14),
@@ -47,6 +48,32 @@ pub fn view(app: &App) -> Element<'_, Message> {
     ]
     .spacing(5);
 
+    // Theme Section
+    let theme_section_title = text("Theme").size(20);
+
+    let theme_explanation = text(
+        "Choose your preferred color theme for the application. \
+         The theme will be applied immediately and saved for future sessions.",
+    )
+    .size(14);
+
+    let theme_options: Vec<AppTheme> = AppTheme::iter().collect();
+    let theme_row = row![
+        text("Theme:").size(14),
+        pick_list(theme_options, Some(app.config.theme), Message::ThemeChanged).padding(5)
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+
+    let theme_section = column![
+        theme_section_title,
+        iced::widget::space::vertical().height(10),
+        theme_explanation,
+        iced::widget::space::vertical().height(20),
+        theme_row,
+    ]
+    .spacing(5);
+
     // Back button
     let back_button = button(text("← Back"))
         .on_press(Message::CloseConfig)
@@ -57,6 +84,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
         container(
             column![
                 language_section,
+                iced::widget::space::vertical().height(30),
+                theme_section,
                 iced::widget::space::vertical().height(30),
                 back_button,
             ]

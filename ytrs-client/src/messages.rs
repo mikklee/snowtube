@@ -1,6 +1,7 @@
 //! Message and View types for the ytrs-client application
 
 use crate::config::AppConfig;
+use crate::theme::AppTheme;
 use ytrs_lib::{ChannelInfo, ChannelTab, ChannelVideos, SearchResults};
 
 #[derive(Debug, Clone)]
@@ -33,6 +34,7 @@ pub enum Message {
     CloseConfig,
     ConfigLoaded(Result<AppConfig, String>),
     ConfigSaved(Result<(), String>),
+    ThemeChanged(AppTheme),
     // Window events
     Resized(f32, f32), // width, height
 }
