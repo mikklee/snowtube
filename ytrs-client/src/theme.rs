@@ -6,9 +6,20 @@ use strum::{Display, EnumIter, EnumString};
 
 /// Available application themes
 #[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Display, EnumIter, EnumString,
+    Debug,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    Display,
+    EnumIter,
+    EnumString,
+    Default,
 )]
 pub enum AppTheme {
+    #[default]
     Cyberpunk,
     Light,
     Dark,
@@ -25,12 +36,6 @@ pub enum AppTheme {
     CatppuccinFrappe,
     CatppuccinMacchiato,
     CatppuccinMocha,
-}
-
-impl Default for AppTheme {
-    fn default() -> Self {
-        Self::Cyberpunk
-    }
 }
 
 impl AppTheme {

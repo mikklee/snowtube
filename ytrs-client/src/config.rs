@@ -84,22 +84,14 @@ impl SerializableLanguageOption {
 }
 
 /// Application configuration data
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AppConfig {
     /// Default language for search results and channel videos
+    #[serde(default)]
     pub default_language: Option<SerializableLanguageOption>,
     /// Selected theme
     #[serde(default)]
     pub theme: AppTheme,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            default_language: None,
-            theme: AppTheme::default(),
-        }
-    }
 }
 
 /// Top-level configuration file with version for future migrations
