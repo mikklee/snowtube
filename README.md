@@ -58,6 +58,7 @@ GUI client built with [Iced](https://iced.rs/).
 - Video playback via mpv
 - Persistent configuration
 - Responsive layout
+- Theme selection (16 themes including Catppuccin, Tokyo Night, Gruvbox, and more)
 
 **Requirements:** [mpv](https://mpv.io/) and [yt-dlp](https://github.com/yt-dlp/yt-dlp) for video playback
 
