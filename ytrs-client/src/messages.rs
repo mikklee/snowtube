@@ -1,7 +1,7 @@
 //! Message and View types for the ytrs-client application
 
 use crate::config::AppConfig;
-use ytrs::{ChannelInfo, ChannelTab, ChannelVideos, SearchResults};
+use ytrs_lib::{ChannelInfo, ChannelTab, ChannelVideos, SearchResults};
 
 #[derive(Debug, Clone)]
 pub enum View {
@@ -27,7 +27,7 @@ pub enum Message {
     LoadMoreVideos,
     LoadMoreSearchResults,
     BackToSearch,
-    LanguageSelected(ytrs::LanguageOption),
+    LanguageSelected(ytrs_lib::LanguageOption),
     // Config-related messages
     OpenConfig,
     CloseConfig,

@@ -8,7 +8,7 @@ use iced::{Element, Size, Subscription, Task, Theme, event};
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::{Arc, OnceLock};
-use ytrs::{
+use ytrs_lib::{
     ChannelInfo, ChannelTab, InnerTube, LanguageOption, SearchResult, SortFilter, get_all_languages,
 };
 

@@ -7,7 +7,7 @@ description = "GUI client for ytrs - YouTube search and playback"
 license = "GPL-3.0"
 
 [dependencies]
-ytrs = { path = ".." }
+ytrs-lib = { path = "../ytrs-lib" }
 iced = { git = "https://github.com/iced-rs/iced", branch = "master", features = ["tokio", "image", "lazy"] }
 iced_aw = { git = "https://github.com/iced-rs/iced_aw", branch = "main", default-features = false, features = ["wrap"] }
 tokio = { version = "1", features = ["full"] }
