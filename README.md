@@ -1,34 +1,94 @@
 # YTRS
 
-This is a work in progress InnerTube API YouTube library written in Rust, originally based on [YouTube.JS](https://github.com/LuanRT/YouTube.js/).
+A work in progress YouTube client and InnerTube API library in Rust. Originally based on [YouTube.JS](https://github.com/LuanRT/YouTube.js/).
 
-This project was mainly created because I wanted to understand the InnerTube API. Also out of necessity to build a Youtube client that allows me to watch and search for videos in the language they were created in.
+Built to solve a specific problem: watching YouTube content in its original language.
 
-It's mainly maintained for my personal use.
+## Screenshots
 
-### What makes this different from anything else?
+![Search view](ytrs-client/screenshots/1.png)
+![Channel view](ytrs-client/screenshots/2.png)
 
-- The search function tries to determine the language of your search keywords using [whatlang](https://crates.io/crates/whatlang) and [lingua](https://crates.io/crates/lingua). It then sets that as the locale when querying the InnerTube API. Results are then hopefully returned in the determined language.
-- The channel video list fetch function does the same as the search function, but uses the channel description or title to try to determine the language.
+## Why?
 
-*Why?*
-- I'm tired of being shown videos with poorly translated english titles when I can read the original language.
-- I don't want to manually change the locale everytime I want to search
+YouTube's auto-translation often replaces original titles with poor machine translations. If you're multilingual, this makes discovering content in specific languages frustrating.
 
-*limitations*
-- YouTube also uses your location (IP) to feed you local videos. It does not matter what locale you set. You will still be served those when searching.
+ytrs automatically detects the language of your search query using [whatlang](https://crates.io/crates/whatlang) and [lingua](https://crates.io/crates/lingua), then requests results in that locale from the InnerTube API. You can also manually change the locale, and even save your preferred locale so you don't have to change it when you restart the application.
 
-*AI Disclosure*
-- I experimented with Claude in supervised mode to create this. I don't commit code I don't understand. There are however many improvements that can be made to the code structure.
+**Limitations:** YouTube still uses your IP location for some results regardless of locale settings.
 
-## YTRS client
+## Features
 
-This is a work in progress YTRS client written in rust using [Iced.rs](https://iced.rs/) for the graphical user interface.
+### Client (`ytrs-client`)
 
-### Functionality
-- Search
-- Channel browsing with separate tabs as well as sorting
-  - Videos
-  - Shorts
-  - Streams
-- Playing videos in mpv (requires [mpv](https://mpv.io/) and [yt-dlp](https://github.com/yt-dlp/yt-dlp))
+GUI client built with [Iced](https://iced.rs/).
+
+- Search with language override
+- Channel browsing (videos/shorts/streams tabs)
+- Sort filters
+- Video playback via mpv
+- Persistent configuration
+- Responsive layout
+
+**Requirements:** [mpv](https://mpv.io/) and [yt-dlp](https://github.com/yt-dlp/yt-dlp) for video playback
+
+## Installation
+
+### Dependencies
+
+Install mpv and yt-dlp:
+
+**Note:** Package repositories often have outdated yt-dlp versions. Consider following the [official installation instructions](https://github.com/yt-dlp/yt-dlp#installation) instead.
+
+**Arch Linux:**
+```bash
+sudo pacman -S mpv yt-dlp
+```
+
+**Ubuntu/Debian:**
+```bash
+sudo apt install mpv yt-dlp
+```
+
+**NixOS:**
+```bash
+nix-env -iA nixpkgs.mpv nixpkgs.yt-dlp
+```
+
+Or add to `configuration.nix`:
+```nix
+environment.systemPackages = with pkgs; [
+  mpv
+  yt-dlp
+];
+```
+
+**macOS:**
+```bash
+brew install mpv yt-dlp
+```
+
+**Windows:**
+- Download mpv from [mpv.io](https://mpv.io/installation/)
+- Install yt-dlp: `pip install yt-dlp` or download from [releases](https://github.com/yt-dlp/yt-dlp/releases)
+
+### Building
+
+```bash
+cargo build --release
+```
+
+Run the client:
+```bash
+cargo run -p ytrs-client
+```
+
+## Status
+
+Work in progress. Maintained for personal use. Contributions are welcome.
+
+This project is maintained at [Codeberg](https://codeberg.org/mikklee/ytrs) but mirrored to [Github](https://github.com/mikklee/ytrs) for disoverability.
+
+## Development
+
+Parts of this project were built with AI assistance (Claude). Code is reviewed and understood before committing.

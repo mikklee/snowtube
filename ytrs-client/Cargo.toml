@@ -13,9 +13,9 @@ iced_aw = { git = "https://github.com/iced-rs/iced_aw", branch = "main", default
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
 image = "0.25"
-bytes = "1.10"
+bytes = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-dirs = "5"
+dirs = "6"
 semver = { version = "1", features = ["serde"] }
 snafu = "0.8"
