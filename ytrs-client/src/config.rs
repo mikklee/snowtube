@@ -92,6 +92,9 @@ pub struct AppConfig {
     /// Selected theme
     #[serde(default)]
     pub theme: AppTheme,
+    /// Channel subscriptions
+    #[serde(default)]
+    pub subscriptions: Vec<ytrs_lib::ChannelSubscription>,
 }
 
 /// Top-level configuration file with version for future migrations

@@ -56,6 +56,7 @@ pub struct App {
     // Shared state
     pub query: String,
     pub thumbs: HashMap<String, iced::widget::image::Handle>,
+    pub subscription_thumbs: HashMap<String, iced::widget::image::Handle>, // Channel avatars for subscriptions
     pub current_view: View,
     pub previous_view: View, // Track which view to return to from config
     pub language_combo_state: combo_box::State<LanguageOption>,
@@ -98,6 +99,7 @@ impl App {
                 // Shared state
                 query: String::new(),
                 thumbs: HashMap::new(),
+                subscription_thumbs: HashMap::new(),
                 current_view: View::Search,
                 previous_view: View::Search,
                 language_combo_state: combo_box::State::new(get_all_languages().to_vec()),
@@ -729,6 +731,10 @@ impl App {
                             Task::none()
                         }
                     }
+                    View::Subscriptions => {
+                        // No action needed for subscriptions view
+                        Task::none()
+                    }
                     View::Search => {
                         // Re-run search with new locale if there's an active query
                         if !self.query.is_empty() && !self.searching {
@@ -835,6 +841,104 @@ impl App {
                 self.window_width = width;
                 Task::none()
             }
+            Message::OpenSubscriptions => {
+                self.previous_view = self.current_view.clone();
+                self.current_view = View::Subscriptions;
+
+                // Load circular thumbnails for all subscriptions that aren't already loaded
+                let tasks: Vec<Task<Message>> = self
+                    .config
+                    .subscriptions
+                    .iter()
+                    .filter(|sub| !self.subscription_thumbs.contains_key(&sub.channel_id))
+                    .map(|sub| {
+                        let channel_id = sub.channel_id.clone();
+                        let url = sub.thumbnail_url.clone();
+                        Task::perform(
+                            async move {
+                                helpers::load_circular_thumb(&url, 80)
+                                    .await
+                                    .map_err(|e| e.to_string())
+                            },
+                            move |res| {
+                                Message::SubscriptionChannelThumbLoaded(channel_id.clone(), res)
+                            },
+                        )
+                    })
+                    .collect();
+
+                Task::batch(tasks)
+            }
+            Message::SubscribeToChannel => {
+                if let Some(ref channel) = self.current_channel {
+                    // Check if already subscribed
+                    let already_subscribed = self
+                        .config
+                        .subscriptions
+                        .iter()
+                        .any(|sub| sub.channel_id == channel.id);
+
+                    if !already_subscribed {
+                        // Get the best quality thumbnail
+                        let thumbnail_url = channel
+                            .thumbnails
+                            .last()
+                            .map(|t| t.url.clone())
+                            .unwrap_or_default();
+
+                        // Create subscription
+                        let subscription = ytrs_lib::ChannelSubscription {
+                            channel_id: channel.id.clone(),
+                            channel_name: channel.name.clone(),
+                            channel_handle: channel.handle.clone(),
+                            thumbnail_url,
+                            subscribed_at: chrono::Utc::now().to_rfc3339(),
+                        };
+
+                        // Add to config
+                        self.config.subscriptions.push(subscription);
+
+                        // Save config
+                        let new_config = YtrsConfig {
+                            config: self.config.clone(),
+                            ..Default::default()
+                        };
+
+                        return Task::perform(
+                            async move { new_config.save().await.map_err(|e| e.to_string()) },
+                            Message::ConfigSaved,
+                        );
+                    }
+                }
+                Task::none()
+            }
+            Message::UnsubscribeFromChannel(channel_id) => {
+                // Remove from subscriptions
+                self.config
+                    .subscriptions
+                    .retain(|sub| sub.channel_id != channel_id);
+
+                // Remove thumbnail from cache
+                self.subscription_thumbs.remove(&channel_id);
+
+                // Save config
+                let new_config = YtrsConfig {
+                    config: self.config.clone(),
+                    ..Default::default()
+                };
+
+                Task::perform(
+                    async move { new_config.save().await.map_err(|e| e.to_string()) },
+                    Message::ConfigSaved,
+                )
+            }
+            Message::SubscriptionChannelThumbLoaded(channel_id, res) => {
+                if let Ok(bytes) = res {
+                    self.subscription_thumbs
+                        .insert(channel_id, iced::widget::image::Handle::from_bytes(bytes));
+                }
+                Task::none()
+            }
             Message::NoOp => Task::none(),
         }
     }
@@ -844,6 +948,7 @@ impl App {
             View::Search => views::search::view(self),
             View::Channel => views::channel::view(self, get_language_by_locale),
             View::Config => views::config::view(self),
+            View::Subscriptions => views::subscriptions::view(self),
         }
     }
 

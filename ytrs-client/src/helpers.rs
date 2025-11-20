@@ -15,6 +15,48 @@ pub async fn load_thumb(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>
     Ok(b.to_vec())
 }
 
+/// Load thumbnail and make it circular
+pub async fn load_circular_thumb(
+    url: &str,
+    size: u32,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
+
+    let r = reqwest::get(url).await?;
+    let bytes = r.bytes().await?;
+
+    // Load image
+    let img = image::load_from_memory(&bytes)?;
+
+    // Resize to square
+    let img = img.resize_exact(size, size, image::imageops::FilterType::Lanczos3);
+
+    // Create circular mask
+    let mut output = ImageBuffer::new(size, size);
+    let center = size as f32 / 2.0;
+    let radius = center;
+
+    for (x, y, pixel) in output.enumerate_pixels_mut() {
+        let dx = x as f32 - center;
+        let dy = y as f32 - center;
+        let distance = (dx * dx + dy * dy).sqrt();
+
+        if distance <= radius {
+            let img_pixel = img.get_pixel(x, y);
+            *pixel = Rgba([img_pixel[0], img_pixel[1], img_pixel[2], img_pixel[3]]);
+        } else {
+            *pixel = Rgba([0, 0, 0, 0]); // Transparent
+        }
+    }
+
+    // Encode back to PNG
+    let mut buf = Vec::new();
+    DynamicImage::ImageRgba8(output)
+        .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)?;
+
+    Ok(buf)
+}
+
 /// Helper function to truncate title text with ellipsis
 pub fn truncate_title(title: &str, max_chars: usize) -> String {
     if title.chars().count() > max_chars {

@@ -54,12 +54,30 @@ pub fn view(
             info_column = info_column.push(text(subs).size(14));
         }
 
+        // Check if subscribed
+        let is_subscribed = app
+            .config
+            .subscriptions
+            .iter()
+            .any(|sub| sub.channel_id == channel.id);
+
+        let subscribe_button = if is_subscribed {
+            button(text("Unsubscribe"))
+                .on_press(Message::UnsubscribeFromChannel(channel.id.clone()))
+                .padding(10)
+        } else {
+            button(text("Subscribe"))
+                .on_press(Message::SubscribeToChannel)
+                .padding(10)
+        };
+
         let header = row![
             button(text("← Back"))
                 .on_press(Message::BackToSearch)
                 .padding(10),
             avatar,
             info_column.padding(10),
+            subscribe_button,
         ]
         .spacing(10)
         .align_y(Alignment::Center);

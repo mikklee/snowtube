@@ -9,6 +9,7 @@ pub enum View {
     Search,
     Channel,
     Config,
+    Subscriptions,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +38,11 @@ pub enum Message {
     ThemeChanged(AppTheme),
     // Window events
     Resized(f32, f32), // width, height
+    // Subscription-related messages
+    OpenSubscriptions,
+    SubscribeToChannel,
+    UnsubscribeFromChannel(String), // channel_id
+    SubscriptionChannelThumbLoaded(String, Result<Vec<u8>, String>), // channel_id, thumb_data
     // No-op message for non-interactive elements
     NoOp,
 }

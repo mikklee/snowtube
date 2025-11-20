@@ -208,3 +208,14 @@ pub struct PlaylistVideo {
     pub duration: Option<String>,
     pub thumbnails: Vec<Thumbnail>,
 }
+
+/// Channel subscription information
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelSubscription {
+    pub channel_id: String,
+    pub channel_name: String,
+    pub channel_handle: Option<String>,
+    pub thumbnail_url: String,
+    pub subscribed_at: String, // ISO 8601 timestamp
+}

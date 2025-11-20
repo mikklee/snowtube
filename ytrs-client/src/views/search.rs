@@ -34,6 +34,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
     )
     .width(250);
 
+    let subscriptions_button = button(text("📺 Subscriptions"))
+        .on_press(Message::OpenSubscriptions)
+        .padding(10);
+
     let settings_button = button(text("⚙ Settings"))
         .on_press(Message::OpenConfig)
         .padding(10);
@@ -41,9 +45,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
     // Responsive layout: under 1000px width, stack controls in two rows
     let controls: Element<Message> = if app.window_width < 1000.0 {
         column![
-            row![language_label, language_selector, settings_button]
-                .align_y(Center)
-                .spacing(10),
+            row![
+                language_label,
+                language_selector,
+                subscriptions_button,
+                settings_button
+            ]
+            .align_y(Center)
+            .spacing(10),
             row![search_input, search_button].spacing(10),
         ]
         .align_x(Center)
@@ -57,6 +66,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             iced::widget::space::horizontal().width(Length::Fill),
             language_label,
             language_selector,
+            subscriptions_button,
             settings_button,
         ]
         .align_y(Center)
