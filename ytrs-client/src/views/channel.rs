@@ -73,7 +73,7 @@ pub fn view(
 
         let header = row![
             button(text("← Back"))
-                .on_press(Message::BackToSearch)
+                .on_press(Message::BackToChannels)
                 .padding(10),
             avatar,
             info_column.padding(10),

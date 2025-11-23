@@ -1,34 +1,26 @@
-//! Subscriptions view for the ytrs-client application
+//! Channels (subscriptions) view for the ytrs-client application
 
 use iced::{
     Alignment::Center,
     Element, Length,
-    widget::{Image, button, column, container, row, scrollable, text},
+    widget::{Image, button, column, container, scrollable, text},
 };
 use iced_aw::Wrap;
 
 use crate::App;
 use crate::messages::Message;
 
-/// Render the subscriptions view
+/// Render the channels (subscriptions) view
 pub fn view(app: &App) -> Element<'_, Message> {
-    let back_button = button(text("← Back"))
-        .on_press(Message::BackToSearch)
-        .padding(10);
-
-    let header = container(
-        row![back_button, text("Subscriptions").size(24),]
-            .align_y(Center)
-            .spacing(20),
-    )
-    .padding(20)
-    .width(Length::Fill);
+    let header = container(text("Channels").size(24))
+        .padding(20)
+        .width(Length::Fill);
 
     let body: Element<Message> = if app.config.subscriptions.is_empty() {
         container(
             column![
-                text("No subscriptions yet").size(20),
-                text("Subscribe to channels to see them here").size(14)
+                text("No channels yet").size(20),
+                text("Subscribe to channels from search to see them here").size(14)
             ]
             .spacing(10)
             .align_x(Center),

@@ -9,7 +9,7 @@ license = "GPL-3.0"
 [dependencies]
 ytrs-lib = { path = "../ytrs-lib" }
 iced = { git = "https://github.com/iced-rs/iced", rev = "ea614387", features = ["tokio", "image", "lazy"] }
-iced_aw = { git = "https://github.com/iced-rs/iced_aw", branch = "main", default-features = false, features = ["wrap"] }
+iced_aw = { git = "https://github.com/iced-rs/iced_aw", branch = "main", default-features = false, features = ["wrap", "tabs"] }
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
 image = "0.25"

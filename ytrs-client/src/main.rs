@@ -14,7 +14,7 @@ use ytrs_lib::{
 };
 
 use config::{AppConfig, SerializableLanguageOption, YtrsConfig};
-use messages::{Message, View};
+use messages::{Message, TabId, View};
 use theme::AppTheme;
 
 /// Cached HashMap for O(1) language lookups by (hl, gl) tuple
@@ -60,6 +60,7 @@ pub struct App {
     pub subscription_thumbs: HashMap<String, iced::widget::image::Handle>, // Channel avatars for subscriptions
     pub current_view: View,
     pub previous_view: View, // Track which view to return to from config
+    pub active_tab: TabId,   // Current active tab in TabBar
     pub language_combo_state: combo_box::State<LanguageOption>,
     pub selected_language: Option<LanguageOption>, // User's manual language override (global)
     pub playing_video: Option<String>,             // Currently playing video ID
@@ -103,6 +104,7 @@ impl App {
                 subscription_thumbs: HashMap::new(),
                 current_view: View::Search,
                 previous_view: View::Search,
+                active_tab: TabId::Search,
                 language_combo_state: combo_box::State::new(get_all_languages().to_vec()),
                 selected_language: None,
                 playing_video: None,
@@ -353,6 +355,7 @@ impl App {
             Message::ViewChannel(channel_id) => {
                 self.loading_channel = true;
                 self.current_view = View::Channel;
+                self.active_tab = TabId::Channels;
                 self.banner = None;
                 // Don't clear search state! Only initialize channel state
                 self.channel_results.clear();
@@ -680,8 +683,9 @@ impl App {
                 }
                 Task::none()
             }
-            Message::BackToSearch => {
-                self.current_view = View::Search;
+            Message::BackToChannels => {
+                self.current_view = View::Channels;
+                self.active_tab = TabId::Channels;
                 // Clear only channel state, preserve search state!
                 self.current_channel = None;
                 self.channel_results.clear();
@@ -732,8 +736,8 @@ impl App {
                             Task::none()
                         }
                     }
-                    View::Subscriptions => {
-                        // No action needed for subscriptions view
+                    View::Channels => {
+                        // No action needed for channels view
                         Task::none()
                     }
                     View::Search => {
@@ -784,15 +788,6 @@ impl App {
                     }
                 }
             }
-            Message::OpenConfig => {
-                self.previous_view = self.current_view.clone();
-                self.current_view = View::Config;
-                Task::none()
-            }
-            Message::CloseConfig => {
-                self.current_view = self.previous_view.clone();
-                Task::none()
-            }
             Message::ConfigLoaded(result) => {
                 match result {
                     Ok(config) => {
@@ -841,34 +836,6 @@ impl App {
             Message::Resized(width, _height) => {
                 self.window_width = width;
                 Task::none()
-            }
-            Message::OpenSubscriptions => {
-                self.previous_view = self.current_view.clone();
-                self.current_view = View::Subscriptions;
-
-                // Load circular thumbnails for all subscriptions that aren't already loaded
-                let tasks: Vec<Task<Message>> = self
-                    .config
-                    .subscriptions
-                    .iter()
-                    .filter(|sub| !self.subscription_thumbs.contains_key(&sub.channel_id))
-                    .map(|sub| {
-                        let channel_id = sub.channel_id.clone();
-                        let url = sub.thumbnail_url.clone();
-                        Task::perform(
-                            async move {
-                                helpers::load_circular_thumb(&url, 80)
-                                    .await
-                                    .map_err(|e| e.to_string())
-                            },
-                            move |res| {
-                                Message::SubscriptionChannelThumbLoaded(channel_id.clone(), res)
-                            },
-                        )
-                    })
-                    .collect();
-
-                Task::batch(tasks)
             }
             Message::SubscribeToChannel => {
                 if let Some(ref channel) = self.current_channel {
@@ -940,17 +907,71 @@ impl App {
                 }
                 Task::none()
             }
+            Message::TabSelected(tab_id) => {
+                self.active_tab = tab_id;
+                match tab_id {
+                    TabId::Search => {
+                        self.current_view = View::Search;
+                        Task::none()
+                    }
+                    TabId::Channels => {
+                        self.current_view = View::Channels;
+                        // Load circular thumbnails for all subscriptions that aren't already loaded
+                        let tasks: Vec<Task<Message>> = self
+                            .config
+                            .subscriptions
+                            .iter()
+                            .filter(|sub| !self.subscription_thumbs.contains_key(&sub.channel_id))
+                            .map(|sub| {
+                                let channel_id = sub.channel_id.clone();
+                                let url = sub.thumbnail_url.clone();
+                                Task::perform(
+                                    async move {
+                                        helpers::load_circular_thumb(&url, 80)
+                                            .await
+                                            .map_err(|e| e.to_string())
+                                    },
+                                    move |res| {
+                                        Message::SubscriptionChannelThumbLoaded(
+                                            channel_id.clone(),
+                                            res,
+                                        )
+                                    },
+                                )
+                            })
+                            .collect();
+                        Task::batch(tasks)
+                    }
+                    TabId::Settings => {
+                        self.current_view = View::Config;
+                        Task::none()
+                    }
+                }
+            }
             Message::NoOp => Task::none(),
         }
     }
 
     fn view(&self) -> Element<'_, Message> {
-        match self.current_view {
+        use iced::Length;
+        use iced::widget::column;
+        use iced_aw::widget::tab_bar::{TabBar, tab_label::TabLabel};
+
+        let tab_bar = TabBar::new(Message::TabSelected)
+            .push(TabId::Search, TabLabel::Text("Search".to_string()))
+            .push(TabId::Channels, TabLabel::Text("Channels".to_string()))
+            .push(TabId::Settings, TabLabel::Text("Settings".to_string()))
+            .set_active_tab(&self.active_tab)
+            .width(Length::Fill);
+
+        let content = match self.current_view {
             View::Search => views::search::view(self),
             View::Channel => views::channel::view(self, get_language_by_locale),
             View::Config => views::config::view(self),
-            View::Subscriptions => views::subscriptions::view(self),
-        }
+            View::Channels => views::subscriptions::view(self),
+        };
+
+        column![tab_bar, content].into()
     }
 
     fn subscription(&self) -> Subscription<Message> {

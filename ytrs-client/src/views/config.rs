@@ -2,7 +2,7 @@
 
 use iced::{
     Alignment, Background, Color, Element, Length, Theme,
-    widget::{button, column, combo_box, container, pick_list, row, scrollable, text},
+    widget::{column, combo_box, container, pick_list, row, scrollable, text},
 };
 use strum::IntoEnumIterator;
 
@@ -110,11 +110,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
     ]
     .spacing(5);
 
-    // Back button
-    let back_button = button(text("← Back"))
-        .on_press(Message::CloseConfig)
-        .padding(10);
-
     let content = column![
         header,
         container(
@@ -122,8 +117,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 language_section,
                 iced::widget::space::vertical().height(30),
                 theme_section,
-                iced::widget::space::vertical().height(30),
-                back_button,
             ]
             .padding(20)
         )
