@@ -3,6 +3,6 @@ members = ["ytrs-lib", "ytrs-client"]
 resolver = "2"
 
 [patch.crates-io]
-iced_core = { git = "https://github.com/iced-rs/iced", branch = "master" }
-iced_widget = { git = "https://github.com/iced-rs/iced", branch = "master" }
-iced_renderer = { git = "https://github.com/iced-rs/iced", branch = "master" }
+iced_core = { git = "https://github.com/iced-rs/iced", rev = "ea614387" }
+iced_widget = { git = "https://github.com/iced-rs/iced", rev = "ea614387" }
+iced_renderer = { git = "https://github.com/iced-rs/iced", rev = "ea614387" }
