@@ -6,20 +6,25 @@ use crate::widgets::Wrap;
 use iced::{
     Alignment::Center,
     Element, Length,
+    widget::text::Shaping,
     widget::{Image, button, column, container, scrollable, text},
 };
 
 /// Render the channels (subscriptions) view
 pub fn view(app: &App) -> Element<'_, Message> {
-    let header = container(text("Channels").size(24))
+    let _start = std::time::Instant::now();
+
+    let header = container(text("Channels").size(24).shaping(Shaping::Advanced))
         .padding(20)
         .width(Length::Fill);
 
     let body: Element<Message> = if app.config.subscriptions.is_empty() {
         container(
             column![
-                text("No channels yet").size(20),
-                text("Subscribe to channels from search to see them here").size(14)
+                text("No channels yet").size(20).shaping(Shaping::Advanced),
+                text("Subscribe to channels from search to see them here")
+                    .size(14)
+                    .shaping(Shaping::Advanced)
             ]
             .spacing(10)
             .align_x(Center),
@@ -46,7 +51,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 // Avatar is already circular from load_circular_thumb
                 let avatar = Image::new(handle).width(80).height(80);
 
-                let channel_name_text = text(display_name).size(14).align_x(Center).width(120);
+                let channel_name_text = text(display_name)
+                    .size(14)
+                    .shaping(Shaping::Advanced)
+                    .align_x(Center)
+                    .width(120);
 
                 let card = button(
                     column![avatar, channel_name_text]
@@ -65,7 +74,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .spacing(15.0)
             .line_spacing(15.0);
 
-        scrollable(container(grid).padding(20).width(Length::Fill)).into()
+        let result = scrollable(container(grid).padding(20).width(Length::Fill)).into();
+
+        eprintln!("  Subscriptions view TOTAL: {:?}", _start.elapsed());
+        eprintln!(
+            "    - Total subscriptions: {}",
+            app.config.subscriptions.len()
+        );
+
+        result
     };
 
     column![header, body].into()

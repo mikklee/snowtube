@@ -14,6 +14,8 @@ use iced::{
 
 /// Render the search view
 pub fn view(app: &App) -> Element<'_, Message> {
+    let _start = std::time::Instant::now();
+
     let search_input: iced::widget::TextInput<'_, Message> =
         text_input("Search YouTube...", &app.query)
             .on_input(Message::InputChanged)
@@ -77,6 +79,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .into()
         }
     } else {
+        let iter_start = std::time::Instant::now();
+        eprintln!(
+            "  Search: starting iteration over {} results",
+            app.search_results.len()
+        );
+        eprintln!("  Search: thumbs HashMap has {} entries", app.thumbs.len());
+
         let cards: Vec<Element<Message>> = app
             .search_results
             .iter()
@@ -142,6 +151,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
             })
             .collect();
 
+        eprintln!(
+            "  Search: iteration + lazy creation took {:?}",
+            iter_start.elapsed()
+        );
+        eprintln!("    - Total cards: {}", cards.len());
+        eprintln!("    - Total results: {}", app.search_results.len());
+
+        let wrap_start = std::time::Instant::now();
         let mut search_content = column![
             container(Wrap::with_elements(cards).spacing(15.0).line_spacing(15.0))
                 .center_x(Length::Fill)
@@ -166,7 +183,16 @@ pub fn view(app: &App) -> Element<'_, Message> {
             search_content = search_content.push(load_more_btn);
         }
 
-        scrollable(container(search_content).padding(20).width(Length::Fill)).into()
+        eprintln!(
+            "  Search: wrap + column creation took {:?}",
+            wrap_start.elapsed()
+        );
+
+        let result = scrollable(container(search_content).padding(20).width(Length::Fill)).into();
+
+        eprintln!("  Search view TOTAL: {:?}", _start.elapsed());
+
+        result
     };
 
     column![search, body].into()

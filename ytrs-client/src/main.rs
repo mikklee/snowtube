@@ -7,8 +7,10 @@ mod widgets;
 
 use iced::widget::combo_box;
 use iced::{Element, Size, Subscription, Task, Theme, event};
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use ytrs_lib::{
     ChannelInfo, ChannelTab, InnerTube, LanguageOption, SearchResult, SortFilter, get_all_languages,
@@ -37,10 +39,10 @@ fn main() -> iced::Result {
         .title(cosmic_title)
         .theme(app_theme)
         .subscription(App::subscription)
-        .font(include_bytes!("../fonts/NotoSansCJK-VF.otf.ttc"))
-        .font(include_bytes!("../fonts/NotoSansSymbols.ttf"))
+        .font(include_bytes!("../fonts/Inter-Regular.ttf"))
+        .font(include_bytes!("../fonts/MPLUSRounded1c-Regular.ttf"))
         .default_font(iced::Font {
-            family: iced::font::Family::Name("Noto Sans CJK JP"),
+            family: iced::font::Family::Name("Rounded Mplus 1c"),
             ..iced::Font::DEFAULT
         })
         .run()
@@ -62,6 +64,7 @@ pub struct App {
     pub current_view: View,
     pub previous_view: View, // Track which view to return to from config
     pub active_tab: TabId,   // Current active tab in TabBar
+    pub last_view_for_timing: Cell<Option<View>>, // Track last view to detect tab switches
     pub language_combo_state: combo_box::State<LanguageOption>,
     pub selected_language: Option<LanguageOption>, // User's manual language override (global)
     pub playing_video: Option<String>,             // Currently playing video ID
@@ -70,6 +73,8 @@ pub struct App {
     pub config: AppConfig,                         // Persistent configuration
     pub window_width: f32,                         // Current window width for responsive layout
     pub current_theme: Theme,                      // Current theme
+    pub pending_thumb_updates: Vec<(String, Vec<u8>)>, // Batched thumbnail updates
+    pub last_thumb_update: Option<std::time::Instant>, // Last time we processed thumb updates
 
     // Search-specific state
     pub search_results: Vec<SearchResult>,
@@ -106,6 +111,7 @@ impl App {
                 current_view: View::Search,
                 previous_view: View::Search,
                 active_tab: TabId::Search,
+                last_view_for_timing: Cell::new(None),
                 language_combo_state: combo_box::State::new(get_all_languages().to_vec()),
                 selected_language: None,
                 playing_video: None,
@@ -114,6 +120,8 @@ impl App {
                 config: AppConfig::default(),
                 window_width: 800.0,
                 current_theme: AppTheme::default().to_iced_theme(),
+                pending_thumb_updates: Vec::new(),
+                last_thumb_update: None,
 
                 // Search-specific state
                 search_results: Vec::new(),
@@ -152,7 +160,14 @@ impl App {
     }
 
     fn update(&mut self, msg: Message) -> Task<Message> {
-        match msg {
+        let _update_start = std::time::Instant::now();
+        let msg_name = format!("{:?}", msg)
+            .split('(')
+            .next()
+            .unwrap_or("Unknown")
+            .to_string();
+
+        let result = match msg {
             Message::InputChanged(v) => {
                 self.query = v;
                 Task::none()
@@ -273,8 +288,29 @@ impl App {
             }
             Message::ThumbLoaded(id, res) => {
                 if let Ok(bytes) = res {
-                    self.thumbs
-                        .insert(id, iced::widget::image::Handle::from_bytes(bytes));
+                    // Batch thumbnail updates instead of updating immediately
+                    self.pending_thumb_updates.push((id, bytes));
+
+                    let now = std::time::Instant::now();
+                    let should_flush = match self.last_thumb_update {
+                        None => true,
+                        Some(last) => {
+                            // Flush if we have 10+ pending or 100ms has passed
+                            self.pending_thumb_updates.len() >= 10
+                                || now.duration_since(last).as_millis() >= 100
+                        }
+                    };
+
+                    if should_flush {
+                        // Process all pending updates at once
+                        for (thumb_id, thumb_bytes) in self.pending_thumb_updates.drain(..) {
+                            self.thumbs.insert(
+                                thumb_id,
+                                iced::widget::image::Handle::from_bytes(thumb_bytes),
+                            );
+                        }
+                        self.last_thumb_update = Some(now);
+                    }
                 }
                 Task::none()
             }
@@ -909,8 +945,16 @@ impl App {
                 Task::none()
             }
             Message::TabSelected(tab_id) => {
+                let _tab_switch_start = std::time::Instant::now();
+                eprintln!("\n╔═══════════════════════════════════════════════════");
+                eprintln!(
+                    "║ TabSelected: switching to {:?} at {:?}",
+                    tab_id, _tab_switch_start
+                );
+                eprintln!("╚═══════════════════════════════════════════════════");
+
                 self.active_tab = tab_id;
-                match tab_id {
+                let task = match tab_id {
                     TabId::Search => {
                         self.current_view = View::Search;
                         Task::none()
@@ -918,6 +962,7 @@ impl App {
                     TabId::Channels => {
                         self.current_view = View::Channels;
                         // Load circular thumbnails for all subscriptions that aren't already loaded
+                        let thumb_load_start = std::time::Instant::now();
                         let tasks: Vec<Task<Message>> = self
                             .config
                             .subscriptions
@@ -941,19 +986,116 @@ impl App {
                                 )
                             })
                             .collect();
+                        eprintln!(
+                            "    TabSelected: created {} thumbnail load tasks in {:?}",
+                            tasks.len(),
+                            thumb_load_start.elapsed()
+                        );
                         Task::batch(tasks)
                     }
                     TabId::Settings => {
                         self.current_view = View::Config;
                         Task::none()
                     }
-                }
+                };
+
+                eprintln!(
+                    "  TabSelected: update took {:?}",
+                    _tab_switch_start.elapsed()
+                );
+                task
             }
             Message::NoOp => Task::none(),
+            Message::ExportSearchResults => {
+                if !self.search_results.is_empty() {
+                    let mut content = String::new();
+                    content.push_str("=== YTRS Search Results Export ===\n\n");
+
+                    for (idx, result) in self.search_results.iter().enumerate() {
+                        content.push_str(&format!("{}. {}\n", idx + 1, result.title));
+                        if let Some(ref channel) = result.channel {
+                            content.push_str(&format!("   Channel: {}\n", channel.name));
+                        }
+                        if let Some(views) = result.view_count {
+                            content.push_str(&format!("   Views: {}\n", views));
+                        }
+                        if let Some(ref duration) = result.duration {
+                            content.push_str(&format!("   Duration: {}\n", duration));
+                        }
+                        if let Some(ref video_id) = result.video_id {
+                            content.push_str(&format!("   Video ID: {}\n", video_id));
+                        }
+                        content.push_str("\n");
+                    }
+
+                    let filename = format!(
+                        "ytrs-search-export-{}.txt",
+                        chrono::Utc::now().format("%Y%m%d-%H%M%S")
+                    );
+
+                    Task::perform(
+                        async move {
+                            tokio::fs::write(&filename, content)
+                                .await
+                                .map_err(|e| e.to_string())
+                                .map(|_| filename)
+                        },
+                        |result| match result {
+                            Ok(filename) => {
+                                eprintln!("Exported search results to: {}", filename);
+                                Message::NoOp
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to export: {}", e);
+                                Message::NoOp
+                            }
+                        },
+                    )
+                } else {
+                    eprintln!("No search results to export");
+                    Task::none()
+                }
+            }
+        };
+
+        let elapsed = _update_start.elapsed();
+        if elapsed.as_micros() > 100 {
+            eprintln!("  Update[{}]: took {:?}", msg_name, elapsed);
         }
+
+        result
     }
 
     fn view(&self) -> Element<'_, Message> {
+        // Track view call frequency
+        static VIEW_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
+        let call_num = VIEW_CALL_COUNT.fetch_add(1, Ordering::Relaxed);
+
+        // Detect tab switches for profiling using interior mutability
+        let last_view = self.last_view_for_timing.get();
+        let is_tab_switch = last_view.as_ref() != Some(&self.current_view);
+
+        eprintln!(
+            "  VIEW: call #{}, current view: {:?}, {} search results, {} thumbs loaded",
+            call_num,
+            self.current_view,
+            self.search_results.len(),
+            self.thumbs.len()
+        );
+        let _view_start = if is_tab_switch {
+            if let Some(last) = last_view {
+                eprintln!(
+                    "\n========== TAB SWITCH: {:?} -> {:?} ==========",
+                    last, self.current_view
+                );
+            }
+            self.last_view_for_timing
+                .set(Some(self.current_view.clone()));
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+
         use iced::Alignment;
         use iced::Length;
         use iced::widget::{button, column, container, row, text};
@@ -1006,16 +1148,29 @@ impl App {
             View::Channels => views::subscriptions::view(self),
         };
 
-        column![tab_bar, content].spacing(0).into()
+        let result = column![tab_bar, content].spacing(0).into();
+
+        if let Some(start) = _view_start {
+            eprintln!(
+                "========== TAB SWITCH TOTAL: {:?} ==========\n",
+                start.elapsed()
+            );
+        }
+
+        result
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        event::listen_with(|ev, _status, _id| {
-            if let iced::Event::Window(iced::window::Event::Resized(Size { width, height })) = ev {
+        event::listen_with(|ev, _status, _id| match ev {
+            iced::Event::Window(iced::window::Event::Resized(Size { width, height })) => {
                 Some(Message::Resized(width, height))
-            } else {
-                None
             }
+            iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                key: iced::keyboard::Key::Character(c),
+                modifiers,
+                ..
+            }) if modifiers.control() && c.as_ref() == "e" => Some(Message::ExportSearchResults),
+            _ => None,
         })
     }
 }

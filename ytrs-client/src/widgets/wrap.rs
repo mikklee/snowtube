@@ -101,15 +101,21 @@ where
         cursor: iced::mouse::Cursor,
         viewport: &Rectangle,
     ) {
+        // VIRTUAL SCROLLING: Only draw items that intersect with the viewport
         for ((child, tree), layout) in self
             .elements
             .iter()
             .zip(tree.children.iter())
             .zip(layout.children())
         {
-            child
-                .as_widget()
-                .draw(tree, renderer, theme, style, layout, cursor, viewport);
+            let bounds = layout.bounds();
+
+            // Check if this item is visible in the viewport
+            if bounds.y + bounds.height >= viewport.y && bounds.y <= viewport.y + viewport.height {
+                child
+                    .as_widget()
+                    .draw(tree, renderer, theme, style, layout, cursor, viewport);
+            }
         }
     }
 
@@ -149,14 +155,25 @@ where
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> iced::mouse::Interaction {
+        // VIRTUAL SCROLLING: Only process mouse interaction for visible items
         self.elements
             .iter()
             .zip(tree.children.iter())
             .zip(layout.children())
-            .map(|((child, state), layout)| {
-                child
-                    .as_widget()
-                    .mouse_interaction(state, layout, cursor, viewport, renderer)
+            .filter_map(|((child, state), layout)| {
+                let bounds = layout.bounds();
+                // Check if this item is visible in the viewport
+                if bounds.y + bounds.height >= viewport.y
+                    && bounds.y <= viewport.y + viewport.height
+                {
+                    Some(
+                        child
+                            .as_widget()
+                            .mouse_interaction(state, layout, cursor, viewport, renderer),
+                    )
+                } else {
+                    None
+                }
             })
             .max()
             .unwrap_or_default()
@@ -173,15 +190,20 @@ where
         shell: &mut iced::advanced::Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
+        // VIRTUAL SCROLLING: Only process events for visible items
         for ((child, state), layout) in self
             .elements
             .iter_mut()
             .zip(tree.children.iter_mut())
             .zip(layout.children())
         {
-            child.as_widget_mut().update(
-                state, event, layout, cursor, renderer, clipboard, shell, viewport,
-            );
+            let bounds = layout.bounds();
+            // Check if this item is visible in the viewport
+            if bounds.y + bounds.height >= viewport.y && bounds.y <= viewport.y + viewport.height {
+                child.as_widget_mut().update(
+                    state, event, layout, cursor, renderer, clipboard, shell, viewport,
+                );
+            }
         }
     }
 

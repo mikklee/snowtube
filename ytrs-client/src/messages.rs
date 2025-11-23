@@ -4,7 +4,7 @@ use crate::config::AppConfig;
 use crate::theme::AppTheme;
 use ytrs_lib::{ChannelInfo, ChannelTab, ChannelVideos, SearchResults};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum View {
     Search,
     Channel,
@@ -51,4 +51,6 @@ pub enum Message {
     NoOp,
     // Tab selection
     TabSelected(TabId),
+    // Export search results
+    ExportSearchResults,
 }
