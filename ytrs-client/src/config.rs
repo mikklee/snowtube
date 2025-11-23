@@ -195,6 +195,8 @@ impl YtrsConfig {
 
 #[cfg(test)]
 mod tests {
+    use ytrs_lib::ChannelSubscription;
+
     use super::*;
 
     #[test]
@@ -215,6 +217,14 @@ mod tests {
                     gl: "JP".to_string(),
                 }),
                 theme: AppTheme::TokyoNight,
+                subscriptions: [ChannelSubscription {
+                    channel_id: String::new(),
+                    channel_name: String::new(),
+                    channel_handle: None,
+                    thumbnail_url: String::new(),
+                    subscribed_at: String::new(),
+                }]
+                .to_vec(),
             },
         };
 
