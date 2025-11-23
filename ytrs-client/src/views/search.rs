@@ -34,7 +34,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     )
     .width(250);
 
-    let subscriptions_button = button(text("📺 Subscriptions"))
+    let subscriptions_button = button(text("★ Subscriptions"))
         .on_press(Message::OpenSubscriptions)
         .padding(10);
 

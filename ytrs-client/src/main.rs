@@ -37,6 +37,7 @@ fn main() -> iced::Result {
         .theme(app_theme)
         .subscription(App::subscription)
         .font(include_bytes!("../fonts/NotoSansCJK-VF.otf.ttc"))
+        .font(include_bytes!("../fonts/NotoSansSymbols.ttf"))
         .default_font(iced::Font {
             family: iced::font::Family::Name("Noto Sans CJK JP"),
             ..iced::Font::DEFAULT
