@@ -1,14 +1,13 @@
 //! Channels (subscriptions) view for the ytrs-client application
 
+use crate::App;
+use crate::messages::Message;
+use crate::widgets::Wrap;
 use iced::{
     Alignment::Center,
     Element, Length,
     widget::{Image, button, column, container, scrollable, text},
 };
-use iced_aw::Wrap;
-
-use crate::App;
-use crate::messages::Message;
 
 /// Render the channels (subscriptions) view
 pub fn view(app: &App) -> Element<'_, Message> {

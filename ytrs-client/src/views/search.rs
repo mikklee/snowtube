@@ -1,5 +1,9 @@
 //! Search view for the ytrs-client application
 
+use crate::App;
+use crate::helpers::{ChannelInfo, create_thumbnail, create_video_tile, fmt_num};
+use crate::messages::Message;
+use crate::widgets::Wrap;
 use iced::{
     Alignment::{self, Center},
     Element, Length,
@@ -7,11 +11,6 @@ use iced::{
         Image, button, column, combo_box, container, lazy, row, scrollable, text, text_input,
     },
 };
-use iced_aw::Wrap;
-
-use crate::App;
-use crate::helpers::{ChannelInfo, create_thumbnail, create_video_tile, fmt_num};
-use crate::messages::Message;
 
 /// Render the search view
 pub fn view(app: &App) -> Element<'_, Message> {

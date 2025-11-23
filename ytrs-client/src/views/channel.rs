@@ -6,12 +6,12 @@ use iced::{
     Element, Length, Theme,
     widget::{Image, button, column, combo_box, container, pick_list, row, scrollable, text},
 };
-use iced_aw::Wrap;
 use ytrs_lib::ChannelTab;
 
 use crate::App;
 use crate::helpers::{create_thumbnail, fmt_num, truncate_title};
 use crate::messages::Message;
+use crate::widgets::Wrap;
 
 /// Render the channel view
 pub fn view(

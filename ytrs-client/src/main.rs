@@ -3,6 +3,7 @@ mod helpers;
 mod messages;
 mod theme;
 mod views;
+mod widgets;
 
 use iced::widget::combo_box;
 use iced::{Element, Size, Subscription, Task, Theme, event};
@@ -953,15 +954,49 @@ impl App {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        use iced::Alignment;
         use iced::Length;
-        use iced::widget::column;
-        use iced_aw::widget::tab_bar::{TabBar, tab_label::TabLabel};
+        use iced::widget::{button, column, container, row, text};
 
-        let tab_bar = TabBar::new(Message::TabSelected)
-            .push(TabId::Search, TabLabel::Text("Search".to_string()))
-            .push(TabId::Channels, TabLabel::Text("Channels".to_string()))
-            .push(TabId::Settings, TabLabel::Text("Settings".to_string()))
-            .set_active_tab(&self.active_tab)
+        // Create custom tab bar using buttons
+        let search_tab = button(container(text("Search")).padding(10).center_x(Length::Fill))
+            .width(Length::FillPortion(1))
+            .style(if self.active_tab == TabId::Search {
+                button::primary
+            } else {
+                button::secondary
+            })
+            .on_press(Message::TabSelected(TabId::Search));
+
+        let channels_tab = button(
+            container(text("Channels"))
+                .padding(10)
+                .center_x(Length::Fill),
+        )
+        .width(Length::FillPortion(1))
+        .style(if self.active_tab == TabId::Channels {
+            button::primary
+        } else {
+            button::secondary
+        })
+        .on_press(Message::TabSelected(TabId::Channels));
+
+        let settings_tab = button(
+            container(text("Settings"))
+                .padding(10)
+                .center_x(Length::Fill),
+        )
+        .width(Length::FillPortion(1))
+        .style(if self.active_tab == TabId::Settings {
+            button::primary
+        } else {
+            button::secondary
+        })
+        .on_press(Message::TabSelected(TabId::Settings));
+
+        let tab_bar = row![search_tab, channels_tab, settings_tab]
+            .spacing(0)
+            .align_y(Alignment::Center)
             .width(Length::Fill);
 
         let content = match self.current_view {
@@ -971,7 +1006,7 @@ impl App {
             View::Channels => views::subscriptions::view(self),
         };
 
-        column![tab_bar, content].into()
+        column![tab_bar, content].spacing(0).into()
     }
 
     fn subscription(&self) -> Subscription<Message> {
