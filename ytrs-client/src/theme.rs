@@ -1,8 +1,12 @@
 //! Theme definitions and utilities for the ytrs-client application
 
-use iced::Theme;
+use iced::widget::{button, pick_list, text_input};
+use iced::{Border, Theme};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, EnumString};
+
+/// Default border radius for UI elements
+pub const BORDER_RADIUS: f32 = 8.0;
 
 /// Available application themes
 #[derive(
@@ -72,4 +76,44 @@ fn cyberpunk_palette() -> iced::theme::Palette {
         danger: iced::Color::from_rgb(0.9, 0.3, 0.4),
         warning: iced::Color::from_rgb(0.9, 0.7, 0.3),
     }
+}
+
+/// Rounded button style
+pub fn rounded_button_style(theme: &Theme, status: button::Status) -> button::Style {
+    let mut style = button::primary(theme, status);
+    style.border = Border {
+        radius: BORDER_RADIUS.into(),
+        ..style.border
+    };
+    style
+}
+
+/// Rounded text input style
+pub fn rounded_text_input_style(theme: &Theme, status: text_input::Status) -> text_input::Style {
+    let mut style = text_input::default(theme, status);
+    style.border = Border {
+        radius: BORDER_RADIUS.into(),
+        ..style.border
+    };
+    style
+}
+
+/// Rounded combo box style (combo_box uses text_input style)
+pub fn rounded_combo_box_style(theme: &Theme, status: text_input::Status) -> text_input::Style {
+    let mut style = text_input::default(theme, status);
+    style.border = Border {
+        radius: BORDER_RADIUS.into(),
+        ..style.border
+    };
+    style
+}
+
+/// Rounded pick list style
+pub fn rounded_pick_list_style(theme: &Theme, status: pick_list::Status) -> pick_list::Style {
+    let mut style = pick_list::default(theme, status);
+    style.border = Border {
+        radius: BORDER_RADIUS.into(),
+        ..style.border
+    };
+    style
 }

@@ -1,9 +1,10 @@
-//! iOS-style TabBar widget with rounded corners, transparency, and icons
+//! TabBar widget with rounded corners, transparency, and icons
 
 use iced::widget::{button, column, container, row, text};
 use iced::{Color, Element, Length, Padding, Theme};
 
 use crate::messages::{Message, TabId};
+use crate::theme::BORDER_RADIUS;
 
 /// Configuration for a tab bar item
 pub struct TabItem {
@@ -73,7 +74,7 @@ fn glass_container_style(theme: &Theme) -> container::Style {
                 a: 0.08,
             },
             width: 0.5,
-            radius: 0.0.into(), // No rounding
+            radius: BORDER_RADIUS.into(),
         },
         shadow: iced::Shadow {
             color: Color {
@@ -161,7 +162,7 @@ fn tab_button_style(theme: &Theme, status: button::Status, is_active: bool) -> b
         border: iced::Border {
             color: Color::TRANSPARENT,
             width: 0.0,
-            radius: 0.0.into(),
+            radius: BORDER_RADIUS.into(),
         },
         shadow: iced::Shadow::default(),
         snap: false,

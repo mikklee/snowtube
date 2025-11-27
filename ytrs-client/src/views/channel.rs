@@ -11,6 +11,7 @@ use ytrs_lib::ChannelTab;
 use crate::App;
 use crate::helpers::{create_thumbnail, fmt_num, truncate_title};
 use crate::messages::Message;
+use crate::theme::{rounded_button_style, rounded_combo_box_style, rounded_pick_list_style};
 use crate::widgets::{Wrap, bounceable_scrollable};
 
 /// Render the channel view
@@ -65,16 +66,19 @@ pub fn view(
             button(text("Unsubscribe"))
                 .on_press(Message::UnsubscribeFromChannel(channel.id.clone()))
                 .padding(10)
+                .style(rounded_button_style)
         } else {
             button(text("Subscribe"))
                 .on_press(Message::SubscribeToChannel)
                 .padding(10)
+                .style(rounded_button_style)
         };
 
         let header = row![
             button(text("← Back"))
                 .on_press(Message::BackToChannels)
-                .padding(10),
+                .padding(10)
+                .style(rounded_button_style),
             avatar,
             info_column.padding(10),
             subscribe_button,
@@ -86,13 +90,16 @@ pub fn view(
         let tabs = row![
             button(text("VIDEOS"))
                 .on_press(Message::ChangeChannelTab(ChannelTab::Videos))
-                .padding(10),
+                .padding(10)
+                .style(rounded_button_style),
             button(text("SHORTS"))
                 .on_press(Message::ChangeChannelTab(ChannelTab::Shorts))
-                .padding(10),
+                .padding(10)
+                .style(rounded_button_style),
             button(text("LIVE"))
                 .on_press(Message::ChangeChannelTab(ChannelTab::Streams))
-                .padding(10),
+                .padding(10)
+                .style(rounded_button_style),
         ]
         .spacing(10);
 
@@ -114,6 +121,7 @@ pub fn view(
                 Message::LanguageSelected,
             )
             .width(250)
+            .input_style(rounded_combo_box_style)
         ]
         .align_y(Center)
         .spacing(10);
@@ -135,6 +143,7 @@ pub fn view(
                         Message::ChangeSortFilter,
                     )
                     .padding(5)
+                    .style(rounded_pick_list_style)
                 ]
                 .spacing(10)
                 .padding(10)
@@ -267,7 +276,8 @@ pub fn view(
                 let load_more_btn = container(
                     button(text("Load More Videos"))
                         .on_press(Message::LoadMoreVideos)
-                        .padding(10),
+                        .padding(10)
+                        .style(rounded_button_style),
                 )
                 .padding(20)
                 .center_x(Length::Fill);

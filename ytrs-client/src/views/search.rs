@@ -3,6 +3,7 @@
 use crate::App;
 use crate::helpers::{ChannelInfo, create_thumbnail, create_video_tile, fmt_num};
 use crate::messages::Message;
+use crate::theme::{rounded_button_style, rounded_combo_box_style, rounded_text_input_style};
 use crate::widgets::{Wrap, bounceable_scrollable};
 use iced::{
     Alignment::{self, Center},
@@ -19,9 +20,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .on_input(Message::InputChanged)
             .on_submit(Message::Search)
             .padding(10)
-            .width(400);
+            .width(400)
+            .style(rounded_text_input_style);
 
-    let search_button = button(text("Search")).on_press(Message::Search).padding(10);
+    let search_button = button(text("Search"))
+        .on_press(Message::Search)
+        .padding(10)
+        .style(rounded_button_style);
 
     let language_label = text("Language:").size(14);
 
@@ -31,7 +36,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
         app.selected_language.as_ref(),
         Message::LanguageSelected,
     )
-    .width(250);
+    .width(250)
+    .input_style(rounded_combo_box_style);
 
     // Responsive layout: under 1000px width, stack controls in two rows
     let controls: Element<Message> = if app.window_width < 1000.0 {
@@ -174,7 +180,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
             let load_more_btn = container(
                 button(text("Load More Results"))
                     .on_press(Message::LoadMoreSearchResults)
-                    .padding(10),
+                    .padding(10)
+                    .style(rounded_button_style),
             )
             .padding(20)
             .center_x(Length::Fill);
