@@ -3,13 +3,11 @@
 use crate::App;
 use crate::helpers::{ChannelInfo, create_thumbnail, create_video_tile, fmt_num};
 use crate::messages::Message;
-use crate::widgets::Wrap;
+use crate::widgets::{Wrap, bounceable_scrollable};
 use iced::{
     Alignment::{self, Center},
     Element, Length,
-    widget::{
-        Image, button, column, combo_box, container, lazy, row, scrollable, text, text_input,
-    },
+    widget::{Image, button, column, combo_box, container, lazy, row, text, text_input},
 };
 
 /// Render the search view
@@ -188,7 +186,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
             wrap_start.elapsed()
         );
 
-        let result = scrollable(container(search_content).padding(20).width(Length::Fill)).into();
+        let result =
+            bounceable_scrollable(container(search_content).padding(20).width(Length::Fill)).into();
 
         eprintln!("  Search view TOTAL: {:?}", _start.elapsed());
 

@@ -1096,50 +1096,11 @@ impl App {
             None
         };
 
-        use iced::Alignment;
         use iced::Length;
-        use iced::widget::{button, column, container, row, text};
+        use iced::widget::{container, stack};
 
-        // Create custom tab bar using buttons
-        let search_tab = button(container(text("Search")).padding(10).center_x(Length::Fill))
-            .width(Length::FillPortion(1))
-            .style(if self.active_tab == TabId::Search {
-                button::primary
-            } else {
-                button::secondary
-            })
-            .on_press(Message::TabSelected(TabId::Search));
-
-        let channels_tab = button(
-            container(text("Channels"))
-                .padding(10)
-                .center_x(Length::Fill),
-        )
-        .width(Length::FillPortion(1))
-        .style(if self.active_tab == TabId::Channels {
-            button::primary
-        } else {
-            button::secondary
-        })
-        .on_press(Message::TabSelected(TabId::Channels));
-
-        let settings_tab = button(
-            container(text("Settings"))
-                .padding(10)
-                .center_x(Length::Fill),
-        )
-        .width(Length::FillPortion(1))
-        .style(if self.active_tab == TabId::Settings {
-            button::primary
-        } else {
-            button::secondary
-        })
-        .on_press(Message::TabSelected(TabId::Settings));
-
-        let tab_bar = row![search_tab, channels_tab, settings_tab]
-            .spacing(0)
-            .align_y(Alignment::Center)
-            .width(Length::Fill);
+        // Create iOS-style tab bar at the bottom
+        let tab_bar = widgets::tab_bar(self.active_tab, &widgets::default_tab_items());
 
         let content = match self.current_view {
             View::Search => views::search::view(self),
@@ -1148,7 +1109,26 @@ impl App {
             View::Channels => views::subscriptions::view(self),
         };
 
-        let result = column![tab_bar, content].spacing(0).into();
+        // Stack: content fills the screen, tab bar floats at bottom (overlapping)
+        // Add bottom padding to content so items don't hide under the tab bar
+        let result = stack![
+            container(content)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .padding(iced::Padding {
+                    top: 0.0,
+                    bottom: 80.0, // Space for tab bar
+                    left: 0.0,
+                    right: 0.0,
+                }),
+            container(tab_bar)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_y(iced::alignment::Vertical::Bottom)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into();
 
         if let Some(start) = _view_start {
             eprintln!(
