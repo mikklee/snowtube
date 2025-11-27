@@ -74,7 +74,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .spacing(15.0)
             .line_spacing(15.0);
 
-        let result = scrollable(container(grid).padding(20).width(Length::Fill)).into();
+        let result = scrollable(
+            container(grid)
+                .padding(iced::Padding {
+                    top: 20.0,
+                    bottom: 100.0, // Extra space for tab bar overlay
+                    left: 20.0,
+                    right: 20.0,
+                })
+                .width(Length::Fill),
+        )
+        .into();
 
         eprintln!("  Subscriptions view TOTAL: {:?}", _start.elapsed());
         eprintln!(

@@ -274,7 +274,13 @@ pub fn view(
                 video_content = video_content.push(load_more_btn);
             }
 
-            scrollable(container(video_content).padding(20)).into()
+            scrollable(container(video_content).padding(iced::Padding {
+                top: 20.0,
+                bottom: 100.0, // Extra space for tab bar overlay
+                left: 20.0,
+                right: 20.0,
+            }))
+            .into()
         };
 
         content = content.push(videos_section);

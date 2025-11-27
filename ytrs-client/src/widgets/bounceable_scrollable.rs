@@ -226,15 +226,6 @@ where
         state.content_height = content_height;
         state.viewport_height = viewport_height;
 
-        eprintln!(
-            "LAYOUT: node.size={:?}, num_children={}, content={}, viewport={}, max_scroll={}",
-            node.size(),
-            node.children().len(),
-            content_height,
-            viewport_height,
-            state.max_scroll()
-        );
-
         node
     }
 

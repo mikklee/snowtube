@@ -1110,17 +1110,9 @@ impl App {
         };
 
         // Stack: content fills the screen, tab bar floats at bottom (overlapping)
-        // Add bottom padding to content so items don't hide under the tab bar
+        // Bottom padding is now inside each view's scrollable content
         let result = stack![
-            container(content)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .padding(iced::Padding {
-                    top: 0.0,
-                    bottom: 80.0, // Space for tab bar
-                    left: 0.0,
-                    right: 0.0,
-                }),
+            container(content).width(Length::Fill).height(Length::Fill),
             container(tab_bar)
                 .width(Length::Fill)
                 .height(Length::Fill)

@@ -123,5 +123,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .width(Length::Fill)
     ];
 
-    scrollable(content).into()
+    scrollable(container(content).padding(iced::Padding {
+        top: 0.0,
+        bottom: 100.0, // Extra space for tab bar overlay
+        left: 0.0,
+        right: 0.0,
+    }))
+    .into()
 }

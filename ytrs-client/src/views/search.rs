@@ -186,8 +186,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
             wrap_start.elapsed()
         );
 
-        let result =
-            bounceable_scrollable(container(search_content).padding(20).width(Length::Fill)).into();
+        let result = bounceable_scrollable(
+            container(search_content)
+                .padding(iced::Padding {
+                    top: 20.0,
+                    bottom: 100.0, // Extra space for tab bar overlay
+                    left: 20.0,
+                    right: 20.0,
+                })
+                .width(Length::Fill),
+        )
+        .into();
 
         eprintln!("  Search view TOTAL: {:?}", _start.elapsed());
 
