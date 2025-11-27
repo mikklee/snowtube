@@ -4,14 +4,14 @@ use iced::{
     Alignment,
     Alignment::Center,
     Element, Length, Theme,
-    widget::{Image, button, column, combo_box, container, pick_list, row, scrollable, text},
+    widget::{Image, button, column, combo_box, container, pick_list, row, text},
 };
 use ytrs_lib::ChannelTab;
 
 use crate::App;
 use crate::helpers::{create_thumbnail, fmt_num, truncate_title};
 use crate::messages::Message;
-use crate::widgets::Wrap;
+use crate::widgets::{Wrap, bounceable_scrollable};
 
 /// Render the channel view
 pub fn view(
@@ -274,7 +274,7 @@ pub fn view(
                 video_content = video_content.push(load_more_btn);
             }
 
-            scrollable(container(video_content).padding(iced::Padding {
+            bounceable_scrollable(container(video_content).padding(iced::Padding {
                 top: 20.0,
                 bottom: 100.0, // Extra space for tab bar overlay
                 left: 20.0,

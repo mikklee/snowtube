@@ -2,12 +2,12 @@
 
 use crate::App;
 use crate::messages::Message;
-use crate::widgets::Wrap;
+use crate::widgets::{Wrap, bounceable_scrollable};
 use iced::{
     Alignment::Center,
     Element, Length,
     widget::text::Shaping,
-    widget::{Image, button, column, container, scrollable, text},
+    widget::{Image, button, column, container, lazy, text},
 };
 
 /// Render the channels (subscriptions) view
@@ -42,31 +42,39 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 let handle = app.subscription_thumbs.get(&channel_id)?.clone();
 
                 let name = sub.channel_name.clone();
-                let display_name = if let Some(ref h) = sub.channel_handle {
-                    format!("{}\n{}", name, h)
-                } else {
-                    name
-                };
+                let channel_handle = sub.channel_handle.clone();
 
-                // Avatar is already circular from load_circular_thumb
-                let avatar = Image::new(handle).width(80).height(80);
+                // Use lazy to cache the card rendering
+                Some(
+                    lazy(channel_id.clone(), move |_| {
+                        let display_name = if let Some(ref h) = channel_handle {
+                            format!("{}\n{}", name, h)
+                        } else {
+                            name.clone()
+                        };
 
-                let channel_name_text = text(display_name)
-                    .size(14)
-                    .shaping(Shaping::Advanced)
-                    .align_x(Center)
-                    .width(120);
+                        // Avatar is already circular from load_circular_thumb
+                        let avatar = Image::new(handle.clone()).width(80).height(80);
 
-                let card = button(
-                    column![avatar, channel_name_text]
-                        .align_x(Center)
-                        .spacing(10)
-                        .width(120),
+                        let channel_name_text = text(display_name)
+                            .size(14)
+                            .shaping(Shaping::Advanced)
+                            .align_x(Center)
+                            .width(120);
+
+                        let card = button(
+                            column![avatar, channel_name_text]
+                                .align_x(Center)
+                                .spacing(10)
+                                .width(120),
+                        )
+                        .on_press(Message::ViewChannel(channel_id.clone()))
+                        .padding(10);
+
+                        container(card)
+                    })
+                    .into(),
                 )
-                .on_press(Message::ViewChannel(channel_id))
-                .padding(10);
-
-                Some(container(card).into())
             })
             .collect();
 
@@ -74,7 +82,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .spacing(15.0)
             .line_spacing(15.0);
 
-        let result = scrollable(
+        let result = bounceable_scrollable(
             container(grid)
                 .padding(iced::Padding {
                     top: 20.0,

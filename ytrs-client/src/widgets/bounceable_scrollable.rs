@@ -112,8 +112,8 @@ impl State {
 
         // If at edge and scrolling further, apply bounce with rubber band effect
         // Resistance increases quadratically as we stretch further
-        const MAX_BOUNCE_TOP: f32 = 150.0;
-        const MAX_BOUNCE_BOTTOM: f32 = 600.0;
+        const MAX_BOUNCE_TOP: f32 = 100.0;
+        const MAX_BOUNCE_BOTTOM: f32 = 400.0;
         if self.at_top() && delta < 0.0 {
             // Overscroll at top - quadratic resistance
             let progress = self.bounce_offset.abs() / MAX_BOUNCE_TOP;
@@ -274,21 +274,31 @@ where
                 state.last_scrolled = Some(Instant::now());
                 state.animation = None;
 
+                // Request redraw so the bounce back check runs after delay
+                if state.bounce_offset.abs() > 0.5 {
+                    shell.request_redraw();
+                }
+
                 return; // Don't forward scroll events
             }
         }
 
-        // Check if we should start bounce back (after scroll stops for 150ms)
+        // Check if we should start bounce back
+        // Top: 30ms delay
+        // Bottom: 60ms delay for "stop" effect
         {
             let state = tree.state.downcast_mut::<State>();
             if let Some(last_scrolled) = state.last_scrolled {
-                if state.bounce_offset.abs() > 0.5
-                    && state.animation.is_none()
-                    && last_scrolled.elapsed() > std::time::Duration::from_millis(60)
-                {
-                    state.start_bounce_back(Instant::now());
-                    state.last_scrolled = None;
-                    shell.request_redraw();
+                if state.bounce_offset.abs() > 0.5 && state.animation.is_none() {
+                    let delay = if state.bounce_offset < 0.0 { 30 } else { 100 };
+                    if last_scrolled.elapsed() > std::time::Duration::from_millis(delay) {
+                        state.start_bounce_back(Instant::now());
+                        state.last_scrolled = None;
+                        shell.request_redraw();
+                    } else {
+                        // Not yet time to bounce back, request another redraw to check again
+                        shell.request_redraw();
+                    }
                 }
             }
         }
