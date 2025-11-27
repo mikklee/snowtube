@@ -280,6 +280,7 @@ pub fn view(
                 left: 20.0,
                 right: 20.0,
             }))
+            .id("channel")
             .into()
         };
 

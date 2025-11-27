@@ -2,8 +2,10 @@
 
 use iced::{
     Alignment, Background, Color, Element, Length, Theme,
-    widget::{column, combo_box, container, pick_list, row, scrollable, text},
+    widget::{column, combo_box, container, pick_list, row, text},
 };
+
+use crate::widgets::bounceable_scrollable;
 use strum::IntoEnumIterator;
 
 use crate::App;
@@ -123,11 +125,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .width(Length::Fill)
     ];
 
-    scrollable(container(content).padding(iced::Padding {
+    bounceable_scrollable(container(content).padding(iced::Padding {
         top: 0.0,
         bottom: 100.0, // Extra space for tab bar overlay
         left: 0.0,
         right: 0.0,
     }))
+    .id("config")
     .into()
 }

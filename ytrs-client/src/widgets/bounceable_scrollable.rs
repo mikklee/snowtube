@@ -14,6 +14,7 @@ pub struct BounceableScrollable<'a, Message, Theme = iced::Theme, Renderer = ice
 where
     Renderer: renderer::Renderer,
 {
+    id: Option<&'static str>,
     content: Element<'a, Message, Theme, Renderer>,
     width: Length,
     height: Length,
@@ -27,11 +28,19 @@ where
     /// Creates a new [`BounceableScrollable`] with the given content.
     pub fn new(content: impl Into<Element<'a, Message, Theme, Renderer>>) -> Self {
         Self {
+            id: None,
             content: content.into(),
             width: Length::Fill,
             height: Length::Fill,
             padding: Padding::ZERO,
         }
+    }
+
+    /// Sets the unique identifier for this scrollable.
+    /// Different IDs will have separate scroll states.
+    pub fn id(mut self, id: &'static str) -> Self {
+        self.id = Some(id);
+        self
     }
 
     /// Sets the width of the [`BounceableScrollable`].
@@ -56,6 +65,8 @@ where
 /// Internal state for the bounceable scrollable
 #[derive(Debug, Clone)]
 pub struct State {
+    /// Widget ID to detect view changes
+    id: Option<&'static str>,
     /// Current scroll offset (pixels from top)
     scroll_offset: f32,
     /// Bounce animation offset
@@ -73,6 +84,7 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
+            id: None,
             scroll_offset: 0.0,
             bounce_offset: 0.0,
             animation: None,
@@ -80,6 +92,15 @@ impl Default for State {
             viewport_height: 0.0,
             last_scrolled: None,
         }
+    }
+}
+
+impl State {
+    fn reset(&mut self) {
+        self.scroll_offset = 0.0;
+        self.bounce_offset = 0.0;
+        self.animation = None;
+        self.last_scrolled = None;
     }
 }
 
@@ -183,6 +204,12 @@ where
     }
 
     fn diff(&self, tree: &mut Tree) {
+        // Reset scroll state if ID changed (view switched)
+        let state = tree.state.downcast_mut::<State>();
+        if state.id != self.id {
+            state.reset();
+            state.id = self.id;
+        }
         tree.diff_children(std::slice::from_ref(&self.content));
     }
 
@@ -285,7 +312,7 @@ where
 
         // Check if we should start bounce back
         // Top: 30ms delay
-        // Bottom: 60ms delay for "stop" effect
+        // Bottom: 100ms delay for "stop" effect
         {
             let state = tree.state.downcast_mut::<State>();
             if let Some(last_scrolled) = state.last_scrolled {

@@ -196,6 +196,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 })
                 .width(Length::Fill),
         )
+        .id("search")
         .into();
 
         eprintln!("  Search view TOTAL: {:?}", _start.elapsed());

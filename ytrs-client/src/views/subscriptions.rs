@@ -92,6 +92,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 })
                 .width(Length::Fill),
         )
+        .id("subscriptions")
         .into();
 
         eprintln!("  Subscriptions view TOTAL: {:?}", _start.elapsed());
