@@ -66,6 +66,8 @@ pub struct State {
     content_height: f32,
     /// Viewport height (cached)
     viewport_height: f32,
+    /// Last scroll time (for delayed bounce back)
+    last_scrolled: Option<Instant>,
 }
 
 impl Default for State {
@@ -76,6 +78,7 @@ impl Default for State {
             animation: None,
             content_height: 0.0,
             viewport_height: 0.0,
+            last_scrolled: None,
         }
     }
 }
@@ -96,14 +99,32 @@ impl State {
     fn apply_scroll(&mut self, delta: f32) -> bool {
         let max = self.max_scroll();
 
-        // If at edge and scrolling further, apply bounce
+        // If we have bounce offset, scrolling opposite direction reduces it
+        if self.bounce_offset < 0.0 && delta > 0.0 {
+            // Bounced at top, scrolling down - reduce bounce
+            self.bounce_offset = (self.bounce_offset + delta * 10.0).min(0.0);
+            return true;
+        } else if self.bounce_offset > 0.0 && delta < 0.0 {
+            // Bounced at bottom, scrolling up - reduce bounce
+            self.bounce_offset = (self.bounce_offset + delta * 10.0).max(0.0);
+            return true;
+        }
+
+        // If at edge and scrolling further, apply bounce with rubber band effect
+        // Resistance increases quadratically as we stretch further
+        const MAX_BOUNCE_TOP: f32 = 150.0;
+        const MAX_BOUNCE_BOTTOM: f32 = 600.0;
         if self.at_top() && delta < 0.0 {
-            // Overscroll at top
-            self.bounce_offset = (self.bounce_offset + delta * 0.3).max(-80.0);
+            // Overscroll at top - quadratic resistance
+            let progress = self.bounce_offset.abs() / MAX_BOUNCE_TOP;
+            let resistance = (1.0 - progress).powi(3).max(0.02) * 1.5;
+            self.bounce_offset = (self.bounce_offset + delta * resistance).max(-MAX_BOUNCE_TOP);
             return true;
         } else if self.at_bottom() && delta > 0.0 {
-            // Overscroll at bottom
-            self.bounce_offset = (self.bounce_offset + delta * 0.3).min(80.0);
+            // Overscroll at bottom - quadratic resistance
+            let progress = self.bounce_offset.abs() / MAX_BOUNCE_BOTTOM;
+            let resistance = (1.0 - progress).powi(3).max(0.02) * 1.5;
+            self.bounce_offset = (self.bounce_offset + delta * resistance).min(MAX_BOUNCE_BOTTOM);
             return true;
         }
 
@@ -122,7 +143,7 @@ impl State {
             self.animation = Some((
                 Animation::new(false)
                     .easing(Easing::EaseOutElastic)
-                    .duration(std::time::Duration::from_millis(500))
+                    .duration(std::time::Duration::from_millis(1200))
                     .go(true, now),
                 start,
                 now,
@@ -234,7 +255,7 @@ where
         // Get scroll offset for cursor translation
         let translation = {
             let state = tree.state.downcast_ref::<State>();
-            Vector::new(0.0, state.scroll_offset - state.bounce_offset)
+            Vector::new(0.0, state.scroll_offset + state.bounce_offset)
         };
 
         // Handle animation ticks
@@ -258,12 +279,26 @@ where
                     shell.request_redraw();
                 }
 
-                // Start bounce back if overscrolled
-                if state.bounce_offset.abs() > 0.5 && state.animation.is_none() {
+                // Track last scroll time, cancel any ongoing animation
+                state.last_scrolled = Some(Instant::now());
+                state.animation = None;
+
+                return; // Don't forward scroll events
+            }
+        }
+
+        // Check if we should start bounce back (after scroll stops for 150ms)
+        {
+            let state = tree.state.downcast_mut::<State>();
+            if let Some(last_scrolled) = state.last_scrolled {
+                if state.bounce_offset.abs() > 0.5
+                    && state.animation.is_none()
+                    && last_scrolled.elapsed() > std::time::Duration::from_millis(60)
+                {
                     state.start_bounce_back(Instant::now());
+                    state.last_scrolled = None;
                     shell.request_redraw();
                 }
-                return; // Don't forward scroll events
             }
         }
 
@@ -315,7 +350,7 @@ where
         };
 
         // Calculate translation for scroll offset
-        let translation_y = state.scroll_offset - state.bounce_offset;
+        let translation_y = state.scroll_offset + state.bounce_offset;
 
         // Clip to visible bounds and apply translation
         renderer.with_layer(visible_bounds, |renderer| {
