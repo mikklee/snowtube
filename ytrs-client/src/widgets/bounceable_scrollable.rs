@@ -1,6 +1,7 @@
 //! A custom scrollable widget with iOS-style elastic bounce effect at edges
 
 use iced::advanced::layout::{self, Layout};
+use iced::advanced::overlay;
 use iced::advanced::renderer;
 use iced::advanced::widget::{self, Operation, Tree, Widget};
 use iced::advanced::{Clipboard, Shell};
@@ -435,6 +436,26 @@ where
             renderer,
             operation,
         );
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
+        let state = tree.state.downcast_ref::<State>();
+        let scroll_translation = Vector::new(0.0, -(state.scroll_offset + state.bounce_offset));
+
+        self.content.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout.children().next().unwrap(),
+            renderer,
+            viewport,
+            translation + scroll_translation,
+        )
     }
 }
 
