@@ -3,12 +3,12 @@
 use crate::App;
 use crate::helpers::{ChannelInfo, create_thumbnail, create_video_tile, fmt_num};
 use crate::messages::Message;
-use crate::theme::{rounded_button_style, rounded_combo_box_style, rounded_text_input_style};
-use crate::widgets::{Wrap, bounceable_scrollable};
+use crate::theme::{rounded_button_style, rounded_text_input_style};
+use crate::widgets::{Wrap, bounceable_scrollable, glass_container_style};
 use iced::{
     Alignment::{self, Center},
-    Element, Length,
-    widget::{Image, button, column, combo_box, container, lazy, row, text, text_input},
+    Element, Length, Padding,
+    widget::{Image, button, column, container, lazy, row, stack, text, text_input},
 };
 
 /// Render the search view
@@ -20,7 +20,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .on_input(Message::InputChanged)
             .on_submit(Message::Search)
             .padding(10)
-            .width(400)
+            .width(300)
             .style(rounded_text_input_style);
 
     let search_button = button(text("Search"))
@@ -28,43 +28,22 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .padding(10)
         .style(rounded_button_style);
 
-    let language_label = text("Language:").size(14);
+    // Floating search bar with glass style
+    let search_controls = row![search_input, search_button].spacing(10);
 
-    let language_selector = combo_box(
-        &app.language_combo_state,
-        "Auto-detect",
-        app.selected_language.as_ref(),
-        Message::LanguageSelected,
+    let floating_search = container(
+        container(search_controls)
+            .padding(Padding::new(12.0))
+            .style(glass_container_style),
     )
-    .width(250)
-    .input_style(rounded_combo_box_style);
-
-    // Responsive layout: under 1000px width, stack controls in two rows
-    let controls: Element<Message> = if app.window_width < 1000.0 {
-        column![
-            row![language_label, language_selector,]
-                .align_y(Center)
-                .spacing(10),
-            row![search_input, search_button].spacing(10),
-        ]
-        .align_x(Center)
-        .width(Length::Fill)
-        .spacing(10)
-        .into()
-    } else {
-        row![
-            search_input,
-            search_button,
-            iced::widget::space::horizontal().width(Length::Fill),
-            language_label,
-            language_selector,
-        ]
-        .align_y(Center)
-        .spacing(10)
-        .into()
-    };
-
-    let search = container(controls).padding(20).width(Length::Fill);
+    .padding(Padding {
+        top: 8.0,
+        bottom: 8.0,
+        left: 12.0,
+        right: 12.0,
+    })
+    .width(Length::Shrink)
+    .center_x(Length::Fill);
 
     let body: Element<Message> = if app.search_results.is_empty() {
         if app.searching {
@@ -193,23 +172,37 @@ pub fn view(app: &App) -> Element<'_, Message> {
             wrap_start.elapsed()
         );
 
-        let result = bounceable_scrollable(
+        eprintln!("  Search view TOTAL: {:?}", _start.elapsed());
+
+        bounceable_scrollable(
             container(search_content)
                 .padding(iced::Padding {
-                    top: 20.0,
-                    bottom: 100.0, // Extra space for tab bar overlay
+                    top: 80.0,     // Extra space for floating search bar
+                    bottom: 180.0, // Extra space for tab bar + floating search bar
                     left: 20.0,
                     right: 20.0,
                 })
                 .width(Length::Fill),
         )
         .id("search")
-        .into();
-
-        eprintln!("  Search view TOTAL: {:?}", _start.elapsed());
-
-        result
+        .into()
     };
 
-    column![search, body].into()
+    // Stack: body fills screen, floating search bar above tab bar (overlapping)
+    stack![
+        container(body).width(Length::Fill).height(Length::Fill),
+        container(floating_search)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(Padding {
+                top: 0.0,
+                bottom: 110.0, // Position above tab bar with spacing
+                left: 0.0,
+                right: 0.0,
+            })
+            .align_y(iced::alignment::Vertical::Bottom)
+    ]
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
 }

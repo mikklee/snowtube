@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, EnumString};
 
 /// Default border radius for UI elements
-pub const BORDER_RADIUS: f32 = 8.0;
+pub const BORDER_RADIUS: f32 = 48.0;
 
 /// Available application themes
 #[derive(
@@ -88,13 +88,14 @@ pub fn rounded_button_style(theme: &Theme, status: button::Status) -> button::St
     style
 }
 
-/// Rounded text input style
+/// Rounded text input style with transparent background
 pub fn rounded_text_input_style(theme: &Theme, status: text_input::Status) -> text_input::Style {
     let mut style = text_input::default(theme, status);
     style.border = Border {
         radius: BORDER_RADIUS.into(),
         ..style.border
     };
+    style.background = iced::Background::Color(iced::Color::TRANSPARENT);
     style
 }
 
