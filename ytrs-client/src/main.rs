@@ -41,6 +41,7 @@ fn main() -> iced::Result {
         .subscription(App::subscription)
         .font(include_bytes!("../fonts/Inter-Regular.ttf"))
         .font(include_bytes!("../fonts/MPLUSRounded1c-Regular.ttf"))
+        .font(include_bytes!("../fonts/JetBrainsMonoNerdFont-Regular.ttf"))
         .default_font(iced::Font {
             family: iced::font::Family::Name("Rounded Mplus 1c"),
             ..iced::Font::DEFAULT

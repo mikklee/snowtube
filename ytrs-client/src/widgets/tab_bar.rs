@@ -1,16 +1,22 @@
 //! TabBar widget with rounded corners, transparency, and icons
 
 use iced::widget::{button, column, container, row, text};
-use iced::{Color, Element, Length, Padding, Theme};
+use iced::{Color, Element, Font, Length, Padding, Theme};
 
 use crate::messages::{Message, TabId};
-use crate::theme::BORDER_RADIUS;
+
+/// Nerd Font for icons
+const NERD_FONT: Font = Font {
+    family: iced::font::Family::Name("JetBrainsMono Nerd Font"),
+    ..Font::DEFAULT
+};
 
 /// Configuration for a tab bar item
 pub struct TabItem {
     pub id: TabId,
     pub label: &'static str,
     pub icon: char,
+    pub icon_size: f32,
 }
 
 /// iOS-style tab bar with rounded corners and transparency
@@ -19,7 +25,7 @@ pub fn tab_bar<'a>(active_tab: TabId, items: &[TabItem]) -> Element<'a, Message>
         .iter()
         .map(|item| {
             let is_active = active_tab == item.id;
-            tab_button(item.id, item.label, item.icon, is_active)
+            tab_button(item.id, item.label, item.icon, item.icon_size, is_active)
         })
         .collect();
 
@@ -96,11 +102,19 @@ fn tab_button(
     id: TabId,
     label: &'static str,
     icon: char,
+    icon_size: f32,
     is_active: bool,
 ) -> Element<'static, Message> {
     let content = column![
-        text(icon.to_string()).size(28).width(Length::Fill).center(),
-        text(label).size(14).width(Length::Fill).center(),
+        text(icon.to_string())
+            .size(icon_size)
+            .font(NERD_FONT)
+            .width(Length::Fill)
+            .center(),
+        text(format!("  {}", label))
+            .size(14)
+            .width(Length::Fill)
+            .center(),
     ]
     .spacing(4)
     .align_x(iced::Alignment::Center)
@@ -175,17 +189,20 @@ pub fn default_tab_items() -> [TabItem; 3] {
         TabItem {
             id: TabId::Search,
             label: "Search",
-            icon: '🔍',
+            icon: '\u{f002}', // nf-fa-search
+            icon_size: 24.0,
         },
         TabItem {
             id: TabId::Channels,
             label: "Channels",
-            icon: '📺',
+            icon: '\u{f005}', // nf-fa-star
+            icon_size: 24.0,
         },
         TabItem {
             id: TabId::Settings,
             label: "Settings",
-            icon: '⚙',
+            icon: '\u{f013}', // nf-fa-cog
+            icon_size: 24.0,
         },
     ]
 }
