@@ -74,7 +74,7 @@ fn glass_container_style(theme: &Theme) -> container::Style {
                 a: 0.08,
             },
             width: 0.5,
-            radius: BORDER_RADIUS.into(),
+            radius: 48.0.into(),
         },
         shadow: iced::Shadow {
             color: Color {
@@ -162,7 +162,7 @@ fn tab_button_style(theme: &Theme, status: button::Status, is_active: bool) -> b
         border: iced::Border {
             color: Color::TRANSPARENT,
             width: 0.0,
-            radius: BORDER_RADIUS.into(),
+            radius: 48.0.into(),
         },
         shadow: iced::Shadow::default(),
         snap: false,
