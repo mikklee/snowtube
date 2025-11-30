@@ -39,5 +39,5 @@ mod parsers_tests;
 
 pub use client::InnerTube;
 pub use error::{Error, Result};
-pub use locale_map::{LanguageOption, get_all_languages};
+pub use locale_map::{LanguageOption, get_all_languages, get_language_by_locale};
 pub use models::*;

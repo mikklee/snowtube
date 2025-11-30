@@ -403,15 +403,31 @@ impl App {
                 self.channel_continuation = None;
                 self.channel_preload_count = 0;
                 self.channel_preloading = true;
-                // Keep selected_language if it exists (persist from search view)
 
                 let id = channel_id.clone();
 
-                // Use manual locale if selected, otherwise let channel load detect it
-                if let Some(ref language) = self.selected_language {
-                    let hl = language.hl.to_string();
-                    let gl = language.gl.to_string();
-                    self.channel_locale = (hl, gl);
+                // Determine channel language:
+                // 1. Use per-channel saved language if set
+                // 2. Otherwise use global default from config
+                // 3. Otherwise auto-detect
+                let channel_language = self
+                    .config
+                    .channels
+                    .iter()
+                    .find(|c| c.channel_id == channel_id)
+                    .and_then(|c| c.language.clone());
+
+                if let Some((hl, gl)) = channel_language {
+                    // This channel has a specific language set
+                    self.channel_locale = (hl.clone(), gl.clone());
+                    self.selected_language = ytrs_lib::get_language_by_locale(&hl, &gl).cloned();
+                } else if let Some(ref lang_config) = self.config.default_language {
+                    // Use global default language
+                    self.channel_locale = (lang_config.hl.clone(), lang_config.gl.clone());
+                    self.selected_language = lang_config.to_language_option();
+                } else {
+                    // No language set - will auto-detect
+                    self.selected_language = None;
                 }
 
                 // First load channel info, then use channel name for locale detection when loading videos
@@ -750,6 +766,45 @@ impl App {
                     View::Channel => {
                         // Re-fetch channel with this locale
                         if let Some(ref channel) = self.current_channel {
+                            // Save language preference for this channel
+                            let language_tuple = (hl.clone(), gl.clone());
+                            if let Some(channel_config) = self
+                                .config
+                                .channels
+                                .iter_mut()
+                                .find(|c| c.channel_id == channel.id)
+                            {
+                                // Update existing channel config
+                                channel_config.language = Some(language_tuple);
+                            } else {
+                                // Create new channel config with just language
+                                let thumbnail_url = channel
+                                    .thumbnails
+                                    .last()
+                                    .map(|t| t.url.clone())
+                                    .unwrap_or_default();
+
+                                self.config.channels.push(ytrs_lib::ChannelConfig {
+                                    channel_id: channel.id.clone(),
+                                    channel_name: channel.name.clone(),
+                                    channel_handle: channel.handle.clone(),
+                                    thumbnail_url,
+                                    subscribed: false,
+                                    subscribed_at: None,
+                                    language: Some((hl.clone(), gl.clone())),
+                                });
+                            }
+
+                            // Save config
+                            let new_config = YtrsConfig {
+                                config: self.config.clone(),
+                                ..Default::default()
+                            };
+                            let save_task = Task::perform(
+                                async move { new_config.save().await.map_err(|e| e.to_string()) },
+                                Message::ConfigSaved,
+                            );
+
                             self.channel_results.clear();
                             self.channel_continuation = None;
                             self.channel_preload_count = 0;
@@ -759,7 +814,7 @@ impl App {
                             let channel_id = channel.id.clone();
 
                             // Fetch channel info first
-                            Task::perform(
+                            let fetch_task = Task::perform(
                                 async move {
                                     let client =
                                         InnerTube::new().await.map_err(|e| e.to_string())?;
@@ -769,7 +824,9 @@ impl App {
                                         .map_err(|e| e.to_string())
                                 },
                                 Message::ChannelLoaded,
-                            )
+                            );
+
+                            Task::batch([save_task, fetch_task])
                         } else {
                             Task::none()
                         }
@@ -877,14 +934,20 @@ impl App {
             }
             Message::SubscribeToChannel => {
                 if let Some(ref channel) = self.current_channel {
-                    // Check if already subscribed
-                    let already_subscribed = self
+                    // Check if channel config already exists
+                    let existing_config = self
                         .config
-                        .subscriptions
-                        .iter()
-                        .any(|sub| sub.channel_id == channel.id);
+                        .channels
+                        .iter_mut()
+                        .find(|c| c.channel_id == channel.id);
 
-                    if !already_subscribed {
+                    if let Some(channel_config) = existing_config {
+                        // Channel config exists, just mark as subscribed
+                        if !channel_config.subscribed {
+                            channel_config.subscribed = true;
+                            channel_config.subscribed_at = Some(chrono::Utc::now().to_rfc3339());
+                        }
+                    } else {
                         // Get the best quality thumbnail
                         let thumbnail_url = channel
                             .thumbnails
@@ -892,37 +955,50 @@ impl App {
                             .map(|t| t.url.clone())
                             .unwrap_or_default();
 
-                        // Create subscription
-                        let subscription = ytrs_lib::ChannelSubscription {
+                        // Create new channel config
+                        let channel_config = ytrs_lib::ChannelConfig {
                             channel_id: channel.id.clone(),
                             channel_name: channel.name.clone(),
                             channel_handle: channel.handle.clone(),
                             thumbnail_url,
-                            subscribed_at: chrono::Utc::now().to_rfc3339(),
+                            subscribed: true,
+                            subscribed_at: Some(chrono::Utc::now().to_rfc3339()),
+                            language: None,
                         };
 
                         // Add to config
-                        self.config.subscriptions.push(subscription);
-
-                        // Save config
-                        let new_config = YtrsConfig {
-                            config: self.config.clone(),
-                            ..Default::default()
-                        };
-
-                        return Task::perform(
-                            async move { new_config.save().await.map_err(|e| e.to_string()) },
-                            Message::ConfigSaved,
-                        );
+                        self.config.channels.push(channel_config);
                     }
+
+                    // Save config
+                    let new_config = YtrsConfig {
+                        config: self.config.clone(),
+                        ..Default::default()
+                    };
+
+                    return Task::perform(
+                        async move { new_config.save().await.map_err(|e| e.to_string()) },
+                        Message::ConfigSaved,
+                    );
                 }
                 Task::none()
             }
             Message::UnsubscribeFromChannel(channel_id) => {
-                // Remove from subscriptions
-                self.config
-                    .subscriptions
-                    .retain(|sub| sub.channel_id != channel_id);
+                // Find the channel config
+                if let Some(channel_config) = self
+                    .config
+                    .channels
+                    .iter_mut()
+                    .find(|c| c.channel_id == channel_id)
+                {
+                    channel_config.subscribed = false;
+                    channel_config.subscribed_at = None;
+
+                    // If no language override, remove the entry entirely
+                    if channel_config.language.is_none() {
+                        self.config.channels.retain(|c| c.channel_id != channel_id);
+                    }
+                }
 
                 // Remove thumbnail from cache
                 self.subscription_thumbs.remove(&channel_id);
@@ -962,16 +1038,17 @@ impl App {
                     }
                     TabId::Channels => {
                         self.current_view = View::Channels;
-                        // Load circular thumbnails for all subscriptions that aren't already loaded
+                        // Load circular thumbnails for all subscribed channels that aren't already loaded
                         let thumb_load_start = std::time::Instant::now();
                         let tasks: Vec<Task<Message>> = self
                             .config
-                            .subscriptions
+                            .channels
                             .iter()
-                            .filter(|sub| !self.subscription_thumbs.contains_key(&sub.channel_id))
-                            .map(|sub| {
-                                let channel_id = sub.channel_id.clone();
-                                let url = sub.thumbnail_url.clone();
+                            .filter(|c| c.subscribed)
+                            .filter(|c| !self.subscription_thumbs.contains_key(&c.channel_id))
+                            .map(|c| {
+                                let channel_id = c.channel_id.clone();
+                                let url = c.thumbnail_url.clone();
                                 Task::perform(
                                     async move {
                                         helpers::load_circular_thumb(&url, 80)

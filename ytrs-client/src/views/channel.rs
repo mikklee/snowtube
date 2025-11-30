@@ -58,9 +58,9 @@ pub fn view(
         // Check if subscribed
         let is_subscribed = app
             .config
-            .subscriptions
+            .channels
             .iter()
-            .any(|sub| sub.channel_id == channel.id);
+            .any(|c| c.channel_id == channel.id && c.subscribed);
 
         let subscribe_button = if is_subscribed {
             button(text("Unsubscribe"))

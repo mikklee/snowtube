@@ -18,7 +18,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .padding(20)
         .width(Length::Fill);
 
-    let body: Element<Message> = if app.config.subscriptions.is_empty() {
+    let subscribed_channels: Vec<_> = app
+        .config
+        .channels
+        .iter()
+        .filter(|c| c.subscribed)
+        .collect();
+
+    let body: Element<Message> = if subscribed_channels.is_empty() {
         container(
             column![
                 text("No channels yet").size(20).shaping(Shaping::Advanced),
@@ -33,16 +40,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .center_x(Length::Fill)
         .into()
     } else {
-        let channel_cards: Vec<Element<Message>> = app
-            .config
-            .subscriptions
+        let channel_cards: Vec<Element<Message>> = subscribed_channels
             .iter()
-            .filter_map(|sub| {
-                let channel_id = sub.channel_id.clone();
+            .filter_map(|channel_config| {
+                let channel_id = channel_config.channel_id.clone();
                 let handle = app.subscription_thumbs.get(&channel_id)?.clone();
 
-                let name = sub.channel_name.clone();
-                let channel_handle = sub.channel_handle.clone();
+                let name = channel_config.channel_name.clone();
+                let channel_handle = channel_config.channel_handle.clone();
 
                 // Use lazy to cache the card rendering
                 Some(
@@ -96,10 +101,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .into();
 
         eprintln!("  Subscriptions view TOTAL: {:?}", _start.elapsed());
-        eprintln!(
-            "    - Total subscriptions: {}",
-            app.config.subscriptions.len()
-        );
+        eprintln!("    - Total subscriptions: {}", subscribed_channels.len());
 
         result
     };

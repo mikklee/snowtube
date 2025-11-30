@@ -420,3 +420,10 @@ pub fn get_all_languages() -> &'static [LanguageOption] {
         languages
     })
 }
+
+/// Find a language option by its locale codes (hl, gl)
+pub fn get_language_by_locale(hl: &str, gl: &str) -> Option<&'static LanguageOption> {
+    get_all_languages()
+        .iter()
+        .find(|lang| lang.hl == hl && lang.gl == gl)
+}

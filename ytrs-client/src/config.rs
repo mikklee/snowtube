@@ -83,6 +83,50 @@ impl SerializableLanguageOption {
     }
 }
 
+/// Subscription format from v0.1.x
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChannelSubscriptionV01 {
+    channel_id: String,
+    channel_name: String,
+    channel_handle: Option<String>,
+    thumbnail_url: String,
+    subscribed_at: String,
+}
+
+/// Config format from v0.1.x
+#[derive(Debug, Clone, Deserialize, Default)]
+struct AppConfigV01 {
+    #[serde(default)]
+    default_language: Option<SerializableLanguageOption>,
+    #[serde(default)]
+    theme: AppTheme,
+    #[serde(default)]
+    subscriptions: Vec<ChannelSubscriptionV01>,
+}
+
+impl From<AppConfigV01> for AppConfig {
+    fn from(old: AppConfigV01) -> Self {
+        Self {
+            default_language: old.default_language,
+            theme: old.theme,
+            channels: old
+                .subscriptions
+                .into_iter()
+                .map(|sub| ytrs_lib::ChannelConfig {
+                    channel_id: sub.channel_id,
+                    channel_name: sub.channel_name,
+                    channel_handle: sub.channel_handle,
+                    thumbnail_url: sub.thumbnail_url,
+                    subscribed: true,
+                    subscribed_at: Some(sub.subscribed_at),
+                    language: None,
+                })
+                .collect(),
+        }
+    }
+}
+
 /// Application configuration data
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AppConfig {
@@ -92,9 +136,9 @@ pub struct AppConfig {
     /// Selected theme
     #[serde(default)]
     pub theme: AppTheme,
-    /// Channel subscriptions
+    /// Saved channel configurations (subscriptions and/or language overrides)
     #[serde(default)]
-    pub subscriptions: Vec<ytrs_lib::ChannelSubscription>,
+    pub channels: Vec<ytrs_lib::ChannelConfig>,
 }
 
 /// Top-level configuration file with version for future migrations
@@ -139,37 +183,29 @@ impl YtrsConfig {
         let raw_ytrs_config: serde_json::Value =
             serde_json::from_str(&contents).context(ParseConfigSnafu)?;
 
-        match raw_ytrs_config.get(field_name!(YtrsConfig, config)) {
-            Some(c) => {
-                /* Future migration logic
-                let stored_version = raw_ytrs_config
-                    .get(field_name!(YtrsConfig, version))
-                    .and_then(|v| v.as_str())
-                    .and_then(|v| Version::parse(v).ok())
-                    .ok_or("Invalid or missing version in config file")?;
+        let Some(config_value) = raw_ytrs_config.get(field_name!(YtrsConfig, config)) else {
+            return Ok(Self::default());
+        };
 
-                let migration_handled_config = if stored_version != current_version() {
-                    if stored_version > current_version() {
-                        // Dowgrade code here
-                    } else {
-                        // Upgrade code here
-                    }
-                } else {
-                    serde_json::from_value(raw_ytrs_config)
-                        .map_err(|e| format!("Failed to deserialize config"))?
-                };
-                */
-                Ok(Self {
-                    config: serde_json::from_value(c.clone()).context(DeserializeConfigSnafu)?,
-                    ..Default::default()
-                })
-            }
-            None =>
-            // Config does not exist, so return default config
-            {
-                Ok(Self::default())
-            }
-        }
+        let stored_version = raw_ytrs_config
+            .get(field_name!(YtrsConfig, version))
+            .and_then(|v| v.as_str())
+            .and_then(|v| Version::parse(v).ok())
+            .unwrap_or_else(|| Version::new(0, 1, 0));
+
+        let config = if stored_version < Version::new(0, 3, 0) {
+            // Migrate from v0.1.x format with "subscriptions" to new "channels"
+            let old_config: AppConfigV01 =
+                serde_json::from_value(config_value.clone()).context(DeserializeConfigSnafu)?;
+            AppConfig::from(old_config)
+        } else {
+            serde_json::from_value(config_value.clone()).context(DeserializeConfigSnafu)?
+        };
+
+        Ok(Self {
+            config,
+            ..Default::default()
+        })
     }
 
     /// Save configuration to disk asynchronously
@@ -195,7 +231,7 @@ impl YtrsConfig {
 
 #[cfg(test)]
 mod tests {
-    use ytrs_lib::ChannelSubscription;
+    use ytrs_lib::ChannelConfig;
 
     use super::*;
 
@@ -217,12 +253,14 @@ mod tests {
                     gl: "JP".to_string(),
                 }),
                 theme: AppTheme::TokyoNight,
-                subscriptions: [ChannelSubscription {
+                channels: [ChannelConfig {
                     channel_id: String::new(),
                     channel_name: String::new(),
                     channel_handle: None,
                     thumbnail_url: String::new(),
-                    subscribed_at: String::new(),
+                    subscribed: true,
+                    subscribed_at: Some(String::new()),
+                    language: None,
                 }]
                 .to_vec(),
             },
@@ -281,5 +319,69 @@ mod tests {
         assert_eq!(deserialized.theme, AppTheme::Cyberpunk);
         assert!(deserialized.default_language.is_some());
         assert_eq!(deserialized.default_language.unwrap().hl, "en");
+    }
+
+    #[test]
+    fn test_migrate_v02_to_v03() {
+        // Test migrating from v0.2.x config with "subscriptions" to v0.2.x with "channels"
+        let v01_config_json = r#"{
+            "version": "0.2.0",
+            "config": {
+                "default_language": {
+                    "hl": "ja",
+                    "gl": "JP"
+                },
+                "theme": "TokyoNight",
+                "subscriptions": [
+                    {
+                        "channelId": "UC123",
+                        "channelName": "Test Channel",
+                        "channelHandle": "@testchannel",
+                        "thumbnailUrl": "https://example.com/thumb.jpg",
+                        "subscribedAt": "2024-01-15T12:00:00Z"
+                    },
+                    {
+                        "channelId": "UC456",
+                        "channelName": "Another Channel",
+                        "channelHandle": null,
+                        "thumbnailUrl": "https://example.com/thumb2.jpg",
+                        "subscribedAt": "2024-02-20T15:30:00Z"
+                    }
+                ]
+            }
+        }"#;
+
+        let raw_config: serde_json::Value =
+            serde_json::from_str(v01_config_json).expect("Failed to parse v0.1 config JSON");
+
+        let config_value = raw_config.get("config").expect("Expected config field");
+
+        // Parse as old config and convert
+        let old_config: AppConfigV01 =
+            serde_json::from_value(config_value.clone()).expect("Failed to parse as AppConfigV01");
+        let migrated: AppConfig = AppConfig::from(old_config);
+
+        // Verify migration
+        assert_eq!(migrated.default_language.as_ref().unwrap().hl, "ja");
+        assert_eq!(migrated.theme, AppTheme::TokyoNight);
+        assert_eq!(migrated.channels.len(), 2);
+
+        // Check first channel
+        let ch1 = &migrated.channels[0];
+        assert_eq!(ch1.channel_id, "UC123");
+        assert_eq!(ch1.channel_name, "Test Channel");
+        assert_eq!(ch1.channel_handle, Some("@testchannel".to_string()));
+        assert_eq!(ch1.thumbnail_url, "https://example.com/thumb.jpg");
+        assert!(ch1.subscribed);
+        assert_eq!(ch1.subscribed_at, Some("2024-01-15T12:00:00Z".to_string()));
+        assert!(ch1.language.is_none());
+
+        // Check second channel
+        let ch2 = &migrated.channels[1];
+        assert_eq!(ch2.channel_id, "UC456");
+        assert_eq!(ch2.channel_name, "Another Channel");
+        assert!(ch2.channel_handle.is_none());
+        assert!(ch2.subscribed);
+        assert!(ch2.language.is_none());
     }
 }
