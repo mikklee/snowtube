@@ -127,6 +127,75 @@ impl From<AppConfigV01> for AppConfig {
     }
 }
 
+/// Cached video data for a single channel in the subscription view
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedChannelVideos {
+    pub videos: Vec<ytrs_lib::SearchResult>,
+    pub fetched_at: i64, // unix timestamp
+}
+
+/// Cache for subscription videos
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SubscriptionVideoCache {
+    pub channels: std::collections::HashMap<String, CachedChannelVideos>,
+}
+
+impl SubscriptionVideoCache {
+    /// Get the path to the cache file
+    fn cache_path() -> Option<PathBuf> {
+        dirs::cache_dir().map(|mut path| {
+            path.push("ytrs");
+            path.push("subscription_videos.json");
+            path
+        })
+    }
+
+    /// Load cache from disk asynchronously
+    pub async fn load() -> Result<Self, ConfigError> {
+        let path = Self::cache_path().context(NoConfigDirectorySnafu)?;
+
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+
+        let contents = fs::read_to_string(&path).await.context(ReadConfigSnafu)?;
+        let cache: Self = serde_json::from_str(&contents).context(ParseConfigSnafu)?;
+        Ok(cache)
+    }
+
+    /// Save cache to disk asynchronously
+    pub async fn save(&self) -> Result<(), ConfigError> {
+        let path = Self::cache_path().context(NoConfigDirectorySnafu)?;
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .await
+                .context(CreateConfigDirectorySnafu)?;
+        }
+
+        let contents = serde_json::to_string_pretty(self).context(SerializeConfigSnafu)?;
+        fs::write(&path, contents).await.context(WriteConfigSnafu)?;
+
+        Ok(())
+    }
+
+    /// Check if a channel's videos are stale (older than 10 hours)
+    pub fn is_stale(&self, channel_id: &str) -> bool {
+        const TEN_HOURS_SECS: i64 = 10 * 60 * 60;
+
+        match self.channels.get(channel_id) {
+            Some(cached) => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as i64;
+                now - cached.fetched_at > TEN_HOURS_SECS
+            }
+            None => true,
+        }
+    }
+}
+
 /// Application configuration data
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AppConfig {

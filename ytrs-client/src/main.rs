@@ -62,6 +62,9 @@ pub struct App {
     pub query: String,
     pub thumbs: HashMap<String, iced::widget::image::Handle>,
     pub subscription_thumbs: HashMap<String, iced::widget::image::Handle>, // Channel avatars for subscriptions
+    pub subscription_videos: HashMap<String, Vec<SearchResult>>, // channel_id -> last 2 videos
+    pub subscription_videos_cache: config::SubscriptionVideoCache, // Persistent cache
+    pub subscription_videos_loading: std::collections::HashSet<String>, // Channels currently being fetched
     pub current_view: View,
     pub previous_view: View, // Track which view to return to from config
     pub active_tab: TabId,   // Current active tab in TabBar
@@ -109,6 +112,9 @@ impl App {
                 query: String::new(),
                 thumbs: HashMap::new(),
                 subscription_thumbs: HashMap::new(),
+                subscription_videos: HashMap::new(),
+                subscription_videos_cache: config::SubscriptionVideoCache::default(),
+                subscription_videos_loading: std::collections::HashSet::new(),
                 current_view: View::Search,
                 previous_view: View::Search,
                 active_tab: TabId::Search,
@@ -158,6 +164,69 @@ impl App {
                 Message::ConfigLoaded,
             ),
         )
+    }
+
+    /// Fetch videos for subscribed channels that are stale (>10h old or not cached)
+    fn fetch_stale_subscription_videos(&mut self) -> Task<Message> {
+        // Collect channels to fetch first to avoid borrow issues
+        let channels_to_fetch: Vec<_> = self
+            .config
+            .channels
+            .iter()
+            .filter(|c| c.subscribed)
+            .filter(|c| {
+                !self.subscription_videos_loading.contains(&c.channel_id)
+                    && self.subscription_videos_cache.is_stale(&c.channel_id)
+            })
+            .map(|c| {
+                let (hl, gl) = c
+                    .language
+                    .clone()
+                    .or_else(|| {
+                        self.config
+                            .default_language
+                            .as_ref()
+                            .map(|l| (l.hl.clone(), l.gl.clone()))
+                    })
+                    .unwrap_or_else(|| ("en".to_string(), "US".to_string()));
+                (c.channel_id.clone(), hl, gl)
+            })
+            .collect();
+
+        // Mark channels as loading
+        for (channel_id, _, _) in &channels_to_fetch {
+            self.subscription_videos_loading.insert(channel_id.clone());
+        }
+
+        let tasks: Vec<Task<Message>> = channels_to_fetch
+            .into_iter()
+            .map(|(channel_id, hl, gl)| {
+                let channel_id_for_msg = channel_id.clone();
+                Task::perform(
+                    async move {
+                        let client = ytrs_lib::InnerTube::new()
+                            .await
+                            .map_err(|e| e.to_string())?;
+                        client
+                            .get_channel_videos_with_explicit_locale(
+                                &channel_id,
+                                ytrs_lib::ChannelTab::Videos,
+                                &hl,
+                                &gl,
+                            )
+                            .await
+                            .map_err(|e| e.to_string())
+                    },
+                    move |res| Message::SubscriptionVideosLoaded(channel_id_for_msg, res),
+                )
+            })
+            .collect();
+
+        eprintln!(
+            "Fetching videos for {} stale subscription channels",
+            tasks.len()
+        );
+        Task::batch(tasks)
     }
 
     fn update(&mut self, msg: Message) -> Task<Message> {
@@ -1064,7 +1133,7 @@ impl App {
                         self.current_view = View::Channels;
                         // Load circular thumbnails for all subscribed channels that aren't already loaded
                         let thumb_load_start = std::time::Instant::now();
-                        let tasks: Vec<Task<Message>> = self
+                        let thumb_tasks: Vec<Task<Message>> = self
                             .config
                             .channels
                             .iter()
@@ -1090,10 +1159,26 @@ impl App {
                             .collect();
                         eprintln!(
                             "    TabSelected: created {} thumbnail load tasks in {:?}",
-                            tasks.len(),
+                            thumb_tasks.len(),
                             thumb_load_start.elapsed()
                         );
-                        Task::batch(tasks)
+
+                        // Load subscription video cache from disk if not already loaded
+                        let cache_task = if self.subscription_videos_cache.channels.is_empty() {
+                            Task::perform(
+                                async { config::SubscriptionVideoCache::load().await },
+                                |res| {
+                                    Message::SubscriptionVideosCacheLoaded(
+                                        res.map_err(|e| e.to_string()),
+                                    )
+                                },
+                            )
+                        } else {
+                            // Cache already loaded, fetch stale videos
+                            self.fetch_stale_subscription_videos()
+                        };
+
+                        Task::batch(thumb_tasks).chain(cache_task)
                     }
                     TabId::Settings => {
                         self.current_view = View::Config;
@@ -1108,6 +1193,68 @@ impl App {
                 task
             }
             Message::NoOp => Task::none(),
+            Message::SubscriptionVideosCacheLoaded(result) => {
+                match result {
+                    Ok(cache) => {
+                        // Populate subscription_videos from cache
+                        for (channel_id, cached) in &cache.channels {
+                            self.subscription_videos
+                                .insert(channel_id.clone(), cached.videos.clone());
+                        }
+                        self.subscription_videos_cache = cache;
+                        // Now fetch stale videos
+                        self.fetch_stale_subscription_videos()
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to load subscription video cache: {}", e);
+                        self.fetch_stale_subscription_videos()
+                    }
+                }
+            }
+            Message::SubscriptionVideosLoaded(channel_id, result) => {
+                self.subscription_videos_loading.remove(&channel_id);
+                match result {
+                    Ok(channel_videos) => {
+                        // Store full first page of videos
+                        let videos: Vec<SearchResult> = channel_videos.videos;
+
+                        // Load thumbnails for these videos
+                        let thumb_tasks = helpers::create_thumbnail_tasks(&videos);
+
+                        // Update cache
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs() as i64;
+                        self.subscription_videos_cache.channels.insert(
+                            channel_id.clone(),
+                            config::CachedChannelVideos {
+                                videos: videos.clone(),
+                                fetched_at: now,
+                            },
+                        );
+
+                        // Save cache to disk
+                        let cache = self.subscription_videos_cache.clone();
+                        let save_task =
+                            Task::perform(async move { cache.save().await }, |_| Message::NoOp);
+
+                        self.subscription_videos.insert(channel_id, videos);
+
+                        Task::batch(thumb_tasks).chain(save_task)
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to load videos for channel {}: {}", channel_id, e);
+                        Task::none()
+                    }
+                }
+            }
+            Message::RefreshSubscriptionVideos => {
+                // Clear cache timestamps to force refetch
+                self.subscription_videos_cache.channels.clear();
+                self.subscription_videos.clear();
+                self.fetch_stale_subscription_videos()
+            }
             Message::ExportSearchResults => {
                 if !self.search_results.is_empty() {
                     let mut content = String::new();
