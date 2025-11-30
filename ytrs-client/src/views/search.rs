@@ -5,6 +5,7 @@ use crate::helpers::{ChannelInfo, create_thumbnail, create_video_tile, fmt_num};
 use crate::messages::Message;
 use crate::theme::{rounded_button_style, rounded_text_input_style};
 use crate::widgets::{Wrap, bounceable_scrollable, glass_container_style};
+use iced::widget::space::horizontal;
 use iced::{
     Alignment::{self, Center},
     Element, Length, Padding,
@@ -142,9 +143,24 @@ pub fn view(app: &App) -> Element<'_, Message> {
         eprintln!("    - Total results: {}", app.search_results.len());
 
         let wrap_start = std::time::Instant::now();
+
+        // Calculate horizontal padding to center the grid of cards
+        const CARD_WIDTH: f32 = 240.0;
+        const CARD_SPACING: f32 = 15.0;
+        const MIN_PADDING: f32 = 20.0;
+
+        let available_width = app.window_width - (MIN_PADDING * 2.0);
+        let cards_per_row =
+            ((available_width + CARD_SPACING) / (CARD_WIDTH + CARD_SPACING)).floor() as u32;
+        let cards_per_row = cards_per_row.max(1);
+        let content_width =
+            (cards_per_row as f32 * CARD_WIDTH) + ((cards_per_row - 1) as f32 * CARD_SPACING);
+        let side_padding = ((app.window_width - content_width) / 2.0).max(MIN_PADDING);
+
         let mut search_content = column![
-            container(Wrap::with_elements(cards).spacing(15.0).line_spacing(15.0))
-                .center_x(Length::Fill)
+            Wrap::with_elements(cards)
+                .spacing(CARD_SPACING)
+                .line_spacing(CARD_SPACING)
         ]
         .align_x(Alignment::Center);
 
@@ -174,16 +190,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
         eprintln!("  Search view TOTAL: {:?}", _start.elapsed());
 
-        bounceable_scrollable(
-            container(search_content)
-                .padding(iced::Padding {
-                    top: 80.0,     // Extra space for floating search bar
-                    bottom: 180.0, // Extra space for tab bar + floating search bar
-                    left: 20.0,
-                    right: 20.0,
-                })
-                .width(Length::Fill),
-        )
+        bounceable_scrollable(container(search_content).padding(iced::Padding {
+            top: 20.0,
+            bottom: 180.0, // Extra space for tab bar + floating search bar
+            left: side_padding,
+            right: side_padding,
+        }))
         .id("search")
         .into()
     };
