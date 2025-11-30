@@ -1,14 +1,14 @@
 //! Search view for the ytrs-client application
 
 use crate::App;
-use crate::helpers::{ChannelInfo, create_thumbnail, create_video_tile, fmt_num};
+use crate::helpers::{
+    ChannelInfo, centered_grid_padding, create_thumbnail, create_video_tile, fmt_num,
+};
 use crate::messages::Message;
 use crate::theme::{rounded_button_style, rounded_text_input_style};
 use crate::widgets::{Wrap, bounceable_scrollable, glass_container_style};
-use iced::widget::space::horizontal;
 use iced::{
-    Alignment::{self, Center},
-    Element, Length, Padding,
+    Alignment, Element, Length, Padding,
     widget::{Image, button, column, container, lazy, row, stack, text, text_input},
 };
 
@@ -144,18 +144,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
         let wrap_start = std::time::Instant::now();
 
-        // Calculate horizontal padding to center the grid of cards
         const CARD_WIDTH: f32 = 240.0;
         const CARD_SPACING: f32 = 15.0;
-        const MIN_PADDING: f32 = 20.0;
 
-        let available_width = app.window_width - (MIN_PADDING * 2.0);
-        let cards_per_row =
-            ((available_width + CARD_SPACING) / (CARD_WIDTH + CARD_SPACING)).floor() as u32;
-        let cards_per_row = cards_per_row.max(1);
-        let content_width =
-            (cards_per_row as f32 * CARD_WIDTH) + ((cards_per_row - 1) as f32 * CARD_SPACING);
-        let side_padding = ((app.window_width - content_width) / 2.0).max(MIN_PADDING);
+        let grid_padding = centered_grid_padding(
+            app.window_width,
+            CARD_WIDTH,
+            CARD_SPACING,
+            20.0,  // min_padding
+            20.0,  // top
+            180.0, // bottom - extra space for tab bar + floating search bar
+        );
 
         let mut search_content = column![
             Wrap::with_elements(cards)
@@ -190,14 +189,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
         eprintln!("  Search view TOTAL: {:?}", _start.elapsed());
 
-        bounceable_scrollable(container(search_content).padding(iced::Padding {
-            top: 20.0,
-            bottom: 180.0, // Extra space for tab bar + floating search bar
-            left: side_padding,
-            right: side_padding,
-        }))
-        .id("search")
-        .into()
+        bounceable_scrollable(container(search_content).padding(grid_padding))
+            .id("search")
+            .into()
     };
 
     // Stack: body fills screen, floating search bar above tab bar (overlapping)

@@ -9,7 +9,7 @@ use iced::{
 use ytrs_lib::ChannelTab;
 
 use crate::App;
-use crate::helpers::{create_thumbnail, fmt_num, truncate_title};
+use crate::helpers::{centered_grid_padding, create_thumbnail, fmt_num, truncate_title};
 use crate::messages::Message;
 use crate::theme::{rounded_button_style, rounded_combo_box_style, rounded_pick_list_style};
 use crate::widgets::{Wrap, bounceable_scrollable};
@@ -248,14 +248,22 @@ pub fn view(
                     .into()
             }
         } else {
+            const CARD_WIDTH: f32 = 240.0;
+            const CARD_SPACING: f32 = 15.0;
+
+            let grid_padding = centered_grid_padding(
+                app.window_width,
+                CARD_WIDTH,
+                CARD_SPACING,
+                20.0,  // min_padding
+                20.0,  // top
+                100.0, // bottom - extra space for tab bar overlay
+            );
+
             let mut video_content = column![
-                container(
-                    Wrap::with_elements(video_cards)
-                        .spacing(15.0)
-                        .line_spacing(15.0),
-                )
-                .center_x(Length::Fill)
-                .align_x(Alignment::Center)
+                Wrap::with_elements(video_cards)
+                    .spacing(CARD_SPACING)
+                    .line_spacing(CARD_SPACING)
             ];
 
             // Show "Load More" button or loading indicator
@@ -284,14 +292,9 @@ pub fn view(
                 video_content = video_content.push(load_more_btn);
             }
 
-            bounceable_scrollable(container(video_content).padding(iced::Padding {
-                top: 20.0,
-                bottom: 100.0, // Extra space for tab bar overlay
-                left: 20.0,
-                right: 20.0,
-            }))
-            .id("channel")
-            .into()
+            bounceable_scrollable(container(video_content).padding(grid_padding))
+                .id("channel")
+                .into()
         };
 
         content = content.push(videos_section);

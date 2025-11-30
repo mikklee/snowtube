@@ -1,6 +1,7 @@
 //! Channels (subscriptions) view for the ytrs-client application
 
 use crate::App;
+use crate::helpers::centered_grid_padding;
 use crate::messages::Message;
 use crate::widgets::{Wrap, bounceable_scrollable};
 use iced::{
@@ -83,22 +84,26 @@ pub fn view(app: &App) -> Element<'_, Message> {
             })
             .collect();
 
-        let grid = Wrap::with_elements(channel_cards)
-            .spacing(15.0)
-            .line_spacing(15.0);
+        // Channel card is 120px content + 10px button padding on each side = 140px
+        const CARD_WIDTH: f32 = 140.0;
+        const CARD_SPACING: f32 = 15.0;
 
-        let result = bounceable_scrollable(
-            container(grid)
-                .padding(iced::Padding {
-                    top: 20.0,
-                    bottom: 100.0, // Extra space for tab bar overlay
-                    left: 20.0,
-                    right: 20.0,
-                })
-                .width(Length::Fill),
-        )
-        .id("subscriptions")
-        .into();
+        let grid_padding = centered_grid_padding(
+            app.window_width,
+            CARD_WIDTH,
+            CARD_SPACING,
+            20.0,  // min_padding
+            20.0,  // top
+            100.0, // bottom - extra space for tab bar overlay
+        );
+
+        let grid = Wrap::with_elements(channel_cards)
+            .spacing(CARD_SPACING)
+            .line_spacing(CARD_SPACING);
+
+        let result = bounceable_scrollable(container(grid).padding(grid_padding))
+            .id("subscriptions")
+            .into();
 
         eprintln!("  Subscriptions view TOTAL: {:?}", _start.elapsed());
         eprintln!("    - Total subscriptions: {}", subscribed_channels.len());

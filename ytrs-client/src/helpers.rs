@@ -1,5 +1,6 @@
 //! Helper functions for the ytrs-client UI
 
+use iced::Padding;
 use iced::{
     Alignment, Color, Element, Task, Theme,
     widget::{Image, column, container, stack, text},
@@ -118,6 +119,34 @@ pub async fn load_circular_thumb(
     }
 
     Ok(buf)
+}
+
+/// Calculate horizontal padding to center a grid of items.
+///
+/// Given the window width, item width, and spacing between items,
+/// calculates the left/right padding needed to center the grid.
+/// This achieves a CSS `margin: 0 auto` effect for wrapped grids.
+pub fn centered_grid_padding(
+    window_width: f32,
+    item_width: f32,
+    spacing: f32,
+    min_padding: f32,
+    top: f32,
+    bottom: f32,
+) -> Padding {
+    let available_width = window_width - (min_padding * 2.0);
+    let items_per_row = ((available_width + spacing) / (item_width + spacing)).floor() as u32;
+    let items_per_row = items_per_row.max(1);
+    let content_width =
+        (items_per_row as f32 * item_width) + ((items_per_row - 1) as f32 * spacing);
+    let side_padding = ((window_width - content_width) / 2.0).max(min_padding);
+
+    Padding {
+        top,
+        bottom,
+        left: side_padding,
+        right: side_padding,
+    }
 }
 
 /// Helper function to truncate title text with ellipsis
