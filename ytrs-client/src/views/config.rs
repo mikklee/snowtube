@@ -42,10 +42,6 @@ fn create_theme_preview() -> Element<'static, Message> {
 
 /// Render the configuration view
 pub fn view(app: &App) -> Element<'_, Message> {
-    let title = text("Configuration").size(32);
-
-    let header = container(title).padding(20).width(Length::Fill);
-
     // Language Section
     let language_section_title = text("Default Language").size(20);
 
@@ -116,7 +112,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .spacing(5);
 
     let content = column![
-        header,
         container(
             column![
                 language_section,

@@ -194,7 +194,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .into()
     };
 
-    // Stack: body fills screen, floating search bar above tab bar (overlapping)
     stack![
         container(body).width(Length::Fill).height(Length::Fill),
         container(floating_search)

@@ -15,16 +15,17 @@ use iced::{
 pub fn view(app: &App) -> Element<'_, Message> {
     let _start = std::time::Instant::now();
 
-    let header = container(text("Channels").size(24).shaping(Shaping::Advanced))
-        .padding(20)
-        .width(Length::Fill);
-
-    let subscribed_channels: Vec<_> = app
+    let mut subscribed_channels: Vec<_> = app
         .config
         .channels
         .iter()
         .filter(|c| c.subscribed)
         .collect();
+    subscribed_channels.sort_by(|a, b| {
+        a.channel_name
+            .to_lowercase()
+            .cmp(&b.channel_name.to_lowercase())
+    });
 
     let body: Element<Message> = if subscribed_channels.is_empty() {
         container(
@@ -48,21 +49,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 let handle = app.subscription_thumbs.get(&channel_id)?.clone();
 
                 let name = channel_config.channel_name.clone();
-                let channel_handle = channel_config.channel_handle.clone();
 
                 // Use lazy to cache the card rendering
                 Some(
                     lazy(channel_id.clone(), move |_| {
-                        let display_name = if let Some(ref h) = channel_handle {
-                            format!("{}\n{}", name, h)
-                        } else {
-                            name.clone()
-                        };
-
                         // Avatar is already circular from load_circular_thumb
                         let avatar = Image::new(handle.clone()).width(80).height(80);
 
-                        let channel_name_text = text(display_name)
+                        let channel_name_text = text(name.clone())
                             .size(14)
                             .shaping(Shaping::Advanced)
                             .align_x(Center)
@@ -75,7 +69,26 @@ pub fn view(app: &App) -> Element<'_, Message> {
                                 .width(120),
                         )
                         .on_press(Message::ViewChannel(channel_id.clone()))
-                        .padding(10);
+                        .padding(10)
+                        .style(|theme: &iced::Theme, status| {
+                            let palette = theme.palette();
+                            let border_color = match status {
+                                button::Status::Hovered | button::Status::Pressed => {
+                                    palette.primary
+                                }
+                                _ => iced::Color::TRANSPARENT,
+                            };
+                            button::Style {
+                                text_color: palette.text,
+                                background: None,
+                                border: iced::Border {
+                                    radius: 12.0.into(),
+                                    width: 2.0,
+                                    color: border_color,
+                                },
+                                ..Default::default()
+                            }
+                        });
 
                         container(card)
                     })
@@ -111,5 +124,5 @@ pub fn view(app: &App) -> Element<'_, Message> {
         result
     };
 
-    column![header, body].into()
+    body
 }
