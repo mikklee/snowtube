@@ -193,8 +193,20 @@ impl YtrsConfig {
             .and_then(|v| Version::parse(v).ok())
             .unwrap_or_else(|| Version::new(0, 1, 0));
 
+        let needs_migration = stored_version < *current_version();
+
+        // Create backup before migration
+        if needs_migration {
+            let backup_path = path.with_extension(format!("v{}.json.bak", stored_version));
+            if let Err(e) = fs::copy(&path, &backup_path).await {
+                eprintln!("Warning: failed to create config backup: {}", e);
+            } else {
+                eprintln!("Created config backup: {:?}", backup_path);
+            }
+        }
+
         let config = if stored_version < Version::new(0, 3, 0) {
-            // Migrate from v0.1.x format with "subscriptions" to new "channels"
+            // Migrate from v0.1.x/v0.2.x format with "subscriptions" to new "channels"
             let old_config: AppConfigV01 =
                 serde_json::from_value(config_value.clone()).context(DeserializeConfigSnafu)?;
             AppConfig::from(old_config)
