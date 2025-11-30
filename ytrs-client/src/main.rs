@@ -751,7 +751,31 @@ impl App {
                 self.channel_preloading = false;
                 self.loading_channel = false;
                 self.channel_loading_more = false;
-                Task::none()
+
+                // Load thumbnails for any newly subscribed channels
+                let tasks: Vec<Task<Message>> = self
+                    .config
+                    .channels
+                    .iter()
+                    .filter(|c| c.subscribed)
+                    .filter(|c| !self.subscription_thumbs.contains_key(&c.channel_id))
+                    .map(|c| {
+                        let channel_id = c.channel_id.clone();
+                        let url = c.thumbnail_url.clone();
+                        Task::perform(
+                            async move {
+                                helpers::load_circular_thumb(&url, 80)
+                                    .await
+                                    .map_err(|e| e.to_string())
+                            },
+                            move |res| {
+                                Message::SubscriptionChannelThumbLoaded(channel_id.clone(), res)
+                            },
+                        )
+                    })
+                    .collect();
+
+                Task::batch(tasks)
             }
             Message::LanguageSelected(language) => {
                 self.selected_language = Some(language.clone());
