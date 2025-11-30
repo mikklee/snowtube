@@ -78,8 +78,8 @@ pub struct State {
     content_height: f32,
     /// Viewport height (cached)
     viewport_height: f32,
-    /// Last scroll time (for delayed bounce back)
-    last_scrolled: Option<Instant>,
+    /// Scheduled time to start bounce-back animation
+    bounce_back_at: Option<Instant>,
 }
 
 impl Default for State {
@@ -91,7 +91,7 @@ impl Default for State {
             animation: None,
             content_height: 0.0,
             viewport_height: 0.0,
-            last_scrolled: None,
+            bounce_back_at: None,
         }
     }
 }
@@ -101,7 +101,7 @@ impl State {
         self.scroll_offset = 0.0;
         self.bounce_offset = 0.0;
         self.animation = None;
-        self.last_scrolled = None;
+        self.bounce_back_at = None;
     }
 }
 
@@ -174,6 +174,14 @@ impl State {
     }
 
     fn tick(&mut self, now: Instant) -> bool {
+        // Check if it's time to start bounce-back
+        if let Some(bounce_at) = self.bounce_back_at {
+            if now >= bounce_at && self.animation.is_none() && self.bounce_offset.abs() > 0.5 {
+                self.start_bounce_back(now);
+                self.bounce_back_at = None;
+            }
+        }
+
         if let Some((ref anim, start, _)) = self.animation {
             self.bounce_offset = anim.interpolate(start, 0.0, now);
 
@@ -183,7 +191,9 @@ impl State {
             }
             return true;
         }
-        false
+
+        // Keep requesting redraws if we have a pending bounce-back
+        self.bounce_back_at.is_some()
     }
 }
 
@@ -298,36 +308,20 @@ where
                     shell.request_redraw();
                 }
 
-                // Track last scroll time, cancel any ongoing animation
-                state.last_scrolled = Some(Instant::now());
+                // Cancel any ongoing animation
                 state.animation = None;
 
-                // Request redraw so the bounce back check runs after delay
+                // Schedule bounce-back at a specific instant
                 if state.bounce_offset.abs() > 0.5 {
+                    let delay = if state.bounce_offset < 0.0 { 30 } else { 100 };
+                    state.bounce_back_at =
+                        Some(Instant::now() + std::time::Duration::from_millis(delay));
                     shell.request_redraw();
+                } else {
+                    state.bounce_back_at = None;
                 }
 
                 return; // Don't forward scroll events
-            }
-        }
-
-        // Check if we should start bounce back
-        // Top: 30ms delay
-        // Bottom: 100ms delay for "stop" effect
-        {
-            let state = tree.state.downcast_mut::<State>();
-            if let Some(last_scrolled) = state.last_scrolled {
-                if state.bounce_offset.abs() > 0.5 && state.animation.is_none() {
-                    let delay = if state.bounce_offset < 0.0 { 30 } else { 100 };
-                    if last_scrolled.elapsed() > std::time::Duration::from_millis(delay) {
-                        state.start_bounce_back(Instant::now());
-                        state.last_scrolled = None;
-                        shell.request_redraw();
-                    } else {
-                        // Not yet time to bounce back, request another redraw to check again
-                        shell.request_redraw();
-                    }
-                }
             }
         }
 
