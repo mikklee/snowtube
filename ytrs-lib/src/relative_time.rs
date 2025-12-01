@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 /// Time unit multipliers (in minutes)
+const SECONDS: u64 = 0; // rounds to 0 for sorting (very recent)
 const MINUTES: u64 = 1;
 const HOURS: u64 = 60;
 const DAYS: u64 = 60 * 24;
@@ -98,8 +99,8 @@ fn get_trie() -> &'static TrieNode {
         }
 
         // English
-        word!("second", MINUTES); // rounds to 1 min
-        word!("seconds", MINUTES);
+        word!("second", SECONDS);
+        word!("seconds", SECONDS);
         word!("minute", MINUTES);
         word!("minutes", MINUTES);
         word!("hour", HOURS);
@@ -114,7 +115,7 @@ fn get_trie() -> &'static TrieNode {
         word!("years", YEARS);
 
         // Afrikaans
-        word!("sekonde", MINUTES);
+        word!("sekonde", SECONDS);
         word!("uur", HOURS);
         word!("dag", DAYS);
         word!("dae", DAYS);
@@ -124,7 +125,7 @@ fn get_trie() -> &'static TrieNode {
         word!("jaar", YEARS);
 
         // Azerbaijani - "il" needs next word "öncə" to disambiguate from French "il y a"
-        word!("saniyə", MINUTES);
+        word!("saniyə", SECONDS);
         word!("dəqiqə", MINUTES);
         word!("saat", HOURS);
         word!("gün", DAYS);
@@ -145,8 +146,8 @@ fn get_trie() -> &'static TrieNode {
         word!("minit", MINUTES);
 
         // Bosnian/Croatian/Serbian Latin
-        word!("sekundi", MINUTES);
-        word!("sekunde", MINUTES);
+        word!("sekundi", SECONDS);
+        word!("sekunde", SECONDS);
         word!("minuta", MINUTES);
         word!("sata", HOURS);
         word!("sati", HOURS);
@@ -164,8 +165,8 @@ fn get_trie() -> &'static TrieNode {
         word!("godina", YEARS);
 
         // Catalan
-        word!("segons", MINUTES);
-        word!("segon", MINUTES);
+        word!("segons", SECONDS);
+        word!("segon", SECONDS);
         word!("minuts", MINUTES);
         word!("minut", MINUTES);
         word!("hores", HOURS);
@@ -180,8 +181,8 @@ fn get_trie() -> &'static TrieNode {
         word!("any", YEARS);
 
         // Danish
-        word!("sekunder", MINUTES);
-        word!("sekund", MINUTES);
+        word!("sekunder", SECONDS);
+        word!("sekund", SECONDS);
         word!("minutter", MINUTES);
         word!("timer", HOURS);
         word!("time", HOURS);
@@ -194,8 +195,8 @@ fn get_trie() -> &'static TrieNode {
         word!("år", YEARS);
 
         // German
-        word!("sekunden", MINUTES);
-        word!("sekunde", MINUTES);
+        word!("sekunden", SECONDS);
+        word!("sekunde", SECONDS);
         word!("minuten", MINUTES);
         word!("minute", MINUTES);
         word!("stunden", HOURS);
@@ -210,8 +211,8 @@ fn get_trie() -> &'static TrieNode {
         word!("jahr", YEARS);
 
         // Estonian
-        word!("sekundi", MINUTES);
-        word!("sekundit", MINUTES);
+        word!("sekundi", SECONDS);
+        word!("sekundit", SECONDS);
         word!("minuti", MINUTES);
         word!("minutit", MINUTES);
         word!("tunni", HOURS);
@@ -223,8 +224,8 @@ fn get_trie() -> &'static TrieNode {
         word!("aasta", YEARS);
 
         // Spanish
-        word!("segundos", MINUTES);
-        word!("segundo", MINUTES);
+        word!("segundos", SECONDS);
+        word!("segundo", SECONDS);
         word!("minutos", MINUTES);
         word!("minuto", MINUTES);
         word!("horas", HOURS);
@@ -245,8 +246,8 @@ fn get_trie() -> &'static TrieNode {
         word!("urte", YEARS);
 
         // French
-        word!("secondes", MINUTES);
-        word!("seconde", MINUTES);
+        word!("secondes", SECONDS);
+        word!("seconde", SECONDS);
         word!("heures", HOURS);
         word!("heure", HOURS);
         word!("jours", DAYS);
@@ -258,7 +259,7 @@ fn get_trie() -> &'static TrieNode {
         word!("an", YEARS);
 
         // Italian
-        word!("secondi", MINUTES);
+        word!("secondi", SECONDS);
         word!("ore", HOURS);
         word!("ora", HOURS);
         word!("giorni", DAYS);
@@ -281,8 +282,8 @@ fn get_trie() -> &'static TrieNode {
         word!("miaka", YEARS);
 
         // Latvian
-        word!("sekundēm", MINUTES);
-        word!("sekundes", MINUTES);
+        word!("sekundēm", SECONDS);
+        word!("sekundes", SECONDS);
         word!("minūtēm", MINUTES);
         word!("minūtes", MINUTES);
         word!("stundām", HOURS);
@@ -296,7 +297,7 @@ fn get_trie() -> &'static TrieNode {
         word!("gada", YEARS);
 
         // Lithuanian
-        word!("sekundžių", MINUTES);
+        word!("sekundžių", SECONDS);
         word!("minučių", MINUTES);
         word!("valandų", HOURS);
         word!("valandas", HOURS);
@@ -311,8 +312,8 @@ fn get_trie() -> &'static TrieNode {
         word!("metų", YEARS);
 
         // Hungarian
-        word!("másodperce", MINUTES);
-        word!("másodperccel", MINUTES);
+        word!("másodperce", SECONDS);
+        word!("másodperccel", SECONDS);
         word!("perce", MINUTES);
         word!("perccel", MINUTES);
         word!("órája", HOURS);
@@ -327,7 +328,7 @@ fn get_trie() -> &'static TrieNode {
         word!("éve", YEARS);
 
         // Dutch
-        word!("seconden", MINUTES);
+        word!("seconden", SECONDS);
         word!("minuut", MINUTES);
         word!("dagen", DAYS);
         word!("weken", WEEKS);
@@ -340,8 +341,8 @@ fn get_trie() -> &'static TrieNode {
         word!("uke", WEEKS);
 
         // Polish
-        word!("sekund", MINUTES);
-        word!("sekundy", MINUTES);
+        word!("sekund", SECONDS);
+        word!("sekundy", SECONDS);
         word!("minut", MINUTES);
         word!("minuty", MINUTES);
         word!("godzin", HOURS);
@@ -364,7 +365,7 @@ fn get_trie() -> &'static TrieNode {
         word!("ano", YEARS);
 
         // Romanian
-        word!("secundă", MINUTES);
+        word!("secundă", SECONDS);
         word!("oră", HOURS);
         word!("zile", DAYS);
         word!("zi", DAYS);
@@ -375,8 +376,8 @@ fn get_trie() -> &'static TrieNode {
         word!("ani", YEARS);
 
         // Slovak
-        word!("sekundami", MINUTES);
-        word!("sekundu", MINUTES);
+        word!("sekundami", SECONDS);
+        word!("sekundu", SECONDS);
         word!("minútami", MINUTES);
         word!("minútu", MINUTES);
         word!("hodinami", HOURS);
@@ -391,7 +392,7 @@ fn get_trie() -> &'static TrieNode {
         word!("rokom", YEARS);
 
         // Slovene
-        word!("sekundo", MINUTES);
+        word!("sekundo", SECONDS);
         word!("minutami", MINUTES);
         word!("urami", HOURS);
         word!("uro", HOURS);
@@ -406,8 +407,8 @@ fn get_trie() -> &'static TrieNode {
         word!("letom", YEARS);
 
         // Finnish
-        word!("sekuntia", MINUTES);
-        word!("sekunti", MINUTES);
+        word!("sekuntia", SECONDS);
+        word!("sekunti", SECONDS);
         word!("minuuttia", MINUTES);
         word!("minuutti", MINUTES);
         word!("tuntia", HOURS);
@@ -439,7 +440,7 @@ fn get_trie() -> &'static TrieNode {
         word!("taon", YEARS);
 
         // Vietnamese
-        word!("giây", MINUTES);
+        word!("giây", SECONDS);
         word!("phút", MINUTES);
         word!("giờ", HOURS);
         word!("ngày", DAYS);
@@ -448,13 +449,13 @@ fn get_trie() -> &'static TrieNode {
         word!("năm", YEARS);
 
         // Turkish
-        word!("saniye", MINUTES);
+        word!("saniye", SECONDS);
         word!("hafta", WEEKS);
         word!("yıl", YEARS);
 
         // Icelandic
-        word!("sekúndum", MINUTES);
-        word!("sekúndu", MINUTES);
+        word!("sekúndum", SECONDS);
+        word!("sekúndu", SECONDS);
         word!("mínútum", MINUTES);
         word!("mínútu", MINUTES);
         word!("klukkustundum", HOURS);
@@ -469,7 +470,7 @@ fn get_trie() -> &'static TrieNode {
         word!("ári", YEARS);
 
         // Czech
-        word!("sekundou", MINUTES);
+        word!("sekundou", SECONDS);
         word!("minutou", MINUTES);
         word!("hodinou", HOURS);
         word!("dny", DAYS);
@@ -482,8 +483,8 @@ fn get_trie() -> &'static TrieNode {
         word!("lety", YEARS);
 
         // Greek
-        word!("δευτερόλεπτα", MINUTES);
-        word!("δευτερόλεπτο", MINUTES);
+        word!("δευτερόλεπτα", SECONDS);
+        word!("δευτερόλεπτο", SECONDS);
         word!("λεπτά", MINUTES);
         word!("λεπτό", MINUTES);
         word!("ώρες", HOURS);
@@ -500,8 +501,8 @@ fn get_trie() -> &'static TrieNode {
         word!("χρόνο", YEARS);
 
         // Belarusian
-        word!("секунд", MINUTES);
-        word!("секунды", MINUTES);
+        word!("секунд", SECONDS);
+        word!("секунды", SECONDS);
         word!("хвілін", MINUTES);
         word!("хвіліны", MINUTES);
         word!("гадзін", HOURS);
@@ -518,8 +519,8 @@ fn get_trie() -> &'static TrieNode {
         word!("гадоў", YEARS);
 
         // Bulgarian
-        word!("секунди", MINUTES);
-        word!("секунда", MINUTES);
+        word!("секунди", SECONDS);
+        word!("секунда", SECONDS);
         word!("минути", MINUTES);
         word!("минута", MINUTES);
         word!("часа", HOURS);
@@ -538,7 +539,7 @@ fn get_trie() -> &'static TrieNode {
         word!("месеци", MONTHS);
 
         // Mongolian
-        word!("секундын", MINUTES);
+        word!("секундын", SECONDS);
         word!("минутын", MINUTES);
         word!("цаг", HOURS);
         word!("цагийн", HOURS);
@@ -552,7 +553,7 @@ fn get_trie() -> &'static TrieNode {
         word!("жил", YEARS);
 
         // Russian
-        word!("секунду", MINUTES);
+        word!("секунду", SECONDS);
         word!("минут", MINUTES);
         word!("минуты", MINUTES);
         word!("минуту", MINUTES);
@@ -570,7 +571,7 @@ fn get_trie() -> &'static TrieNode {
         word!("года", YEARS);
 
         // Serbian Cyrillic
-        word!("секунде", MINUTES);
+        word!("секунде", SECONDS);
         word!("мину|те", MINUTES);
         word!("сата", HOURS);
         word!("сати", HOURS);
@@ -585,7 +586,7 @@ fn get_trie() -> &'static TrieNode {
         word!("година", YEARS);
 
         // Ukrainian
-        word!("секунди", MINUTES);
+        word!("секунди", SECONDS);
         word!("хвилин", MINUTES);
         word!("хвилини", MINUTES);
         word!("хвилину", MINUTES);
@@ -617,8 +618,8 @@ fn get_trie() -> &'static TrieNode {
         word!("տարի", YEARS);
 
         // Hebrew
-        word!("שניות", MINUTES);
-        word!("שנייה", MINUTES);
+        word!("שניות", SECONDS);
+        word!("שנייה", SECONDS);
         word!("דקות", MINUTES);
         word!("דקה", MINUTES);
         word!("שעות", HOURS);
@@ -634,7 +635,7 @@ fn get_trie() -> &'static TrieNode {
         word!("שנה", YEARS);
 
         // Urdu
-        word!("سیکنڈ", MINUTES);
+        word!("سیکنڈ", SECONDS);
         word!("منٹ", MINUTES);
         word!("گھنٹے", HOURS);
         word!("گھنٹہ", HOURS);
@@ -647,8 +648,8 @@ fn get_trie() -> &'static TrieNode {
         word!("سال", YEARS);
 
         // Arabic
-        word!("ثانية", MINUTES);
-        word!("ثوان", MINUTES);
+        word!("ثانية", SECONDS);
+        word!("ثوان", SECONDS);
         word!("دقيقة", MINUTES);
         word!("دقائق", MINUTES);
         word!("ساعة", HOURS);
@@ -666,7 +667,7 @@ fn get_trie() -> &'static TrieNode {
         word!("سنتين", YEARS);
 
         // Marathi
-        word!("सेकंद", MINUTES);
+        word!("सेकंद", SECONDS);
         word!("मिनिटे", MINUTES);
         word!("मिनिट", MINUTES);
         word!("तास", HOURS);
@@ -682,7 +683,7 @@ fn get_trie() -> &'static TrieNode {
         word!("वर्ष", YEARS);
 
         // Hindi
-        word!("सेकंड", MINUTES);
+        word!("सेकंड", SECONDS);
         word!("मिनट", MINUTES);
         word!("घंटे", HOURS);
         word!("घंटा", HOURS);
@@ -696,7 +697,7 @@ fn get_trie() -> &'static TrieNode {
         word!("वर्ष", YEARS);
 
         // Bengali
-        word!("সেকেন্ড", MINUTES);
+        word!("সেকেন্ড", SECONDS);
         word!("মিনিট", MINUTES);
         word!("ঘন্টা", HOURS);
         word!("ঘণ্টা", HOURS);
@@ -706,7 +707,7 @@ fn get_trie() -> &'static TrieNode {
         word!("বছর", YEARS);
 
         // Punjabi
-        word!("ਸਕਿੰਟ", MINUTES);
+        word!("ਸਕਿੰਟ", SECONDS);
         word!("ਮਿੰਟ", MINUTES);
         word!("ਘੰਟੇ", HOURS);
         word!("ਘੰਟਾ", HOURS);
@@ -718,7 +719,7 @@ fn get_trie() -> &'static TrieNode {
         word!("ਸਾਲ", YEARS);
 
         // Gujarati
-        word!("સેકંડ", MINUTES);
+        word!("સેકંડ", SECONDS);
         word!("કલાક", HOURS);
         word!("દિવસ", DAYS);
         word!("અઠવાડિયા", WEEKS);
@@ -728,8 +729,8 @@ fn get_trie() -> &'static TrieNode {
         word!("વર્ષ", YEARS);
 
         // Tamil
-        word!("வினாடிகளுக்கு", MINUTES);
-        word!("வினாடி", MINUTES);
+        word!("வினாடிகளுக்கு", SECONDS);
+        word!("வினாடி", SECONDS);
         word!("நிமிடங்களுக்கு", MINUTES);
         word!("நிமிடம்", MINUTES);
         word!("மணிநேரத்துக்கு", HOURS);
@@ -746,8 +747,8 @@ fn get_trie() -> &'static TrieNode {
         word!("ஆண்டு", YEARS);
 
         // Telugu
-        word!("సెకన్ల", MINUTES);
-        word!("సెకను", MINUTES);
+        word!("సెకన్ల", SECONDS);
+        word!("సెకను", SECONDS);
         word!("నిమిషాల", MINUTES);
         word!("నిమిషం", MINUTES);
         word!("గంటల", HOURS);
@@ -762,7 +763,7 @@ fn get_trie() -> &'static TrieNode {
         word!("సంవత్సరం", YEARS);
 
         // Thai
-        word!("วินาที", MINUTES);
+        word!("วินาที", SECONDS);
         word!("นาที", MINUTES);
         word!("ชั่วโมง", HOURS);
         word!("วัน", DAYS);
@@ -775,8 +776,8 @@ fn get_trie() -> &'static TrieNode {
         word!("ปีที่แล้ว", YEARS);
 
         // Georgian
-        word!("წამის", MINUTES);
-        word!("წამი", MINUTES);
+        word!("წამის", SECONDS);
+        word!("წამი", SECONDS);
         word!("წუთის", MINUTES);
         word!("წუთი", MINUTES);
         word!("საათის", HOURS);
@@ -821,14 +822,14 @@ fn get_cjk_keywords() -> &'static Vec<(&'static str, u64)> {
             ("시간", HOURS),
             ("개월", MONTHS),
             // Single chars (shorter, checked last)
-            ("秒", MINUTES),
+            ("秒", SECONDS),
             ("分", MINUTES),
             ("天", DAYS),
             ("日", DAYS),
             ("周", WEEKS),
             ("週", WEEKS),
             ("年", YEARS),
-            ("초", MINUTES),
+            ("초", SECONDS),
             ("일", DAYS),
             ("주", WEEKS),
             ("년", YEARS),
@@ -1460,6 +1461,4 @@ mod tests {
         assert_eq!(parse_relative_time(Some("1개월 전")), 43200);
         assert_eq!(parse_relative_time(Some("1년 전")), 525600);
     }
-
-
 }
