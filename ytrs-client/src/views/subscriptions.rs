@@ -11,7 +11,7 @@ use iced::{
     widget::text::Shaping,
     widget::{Image, button, column, container, row, text},
 };
-use ytrs_lib::parse_relative_time;
+use ytrs_lib::{format_relative_time, parse_relative_time};
 
 /// Render the channels (subscriptions) view
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -146,14 +146,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 let thumb_with_overlay = create_thumbnail(thumb, is_playing, app.countdown_value);
 
                 let display_title = truncate_title(&video.title, 28);
+                let seconds = parse_relative_time(video.published_text.as_deref());
+                let time_ago = format_relative_time(seconds);
 
                 let card = column![
                     thumb_with_overlay,
                     container(text(display_title).size(12))
                         .padding(4)
-                        .width(240)
+                        .width(240),
+                    text(time_ago).size(12).shaping(Shaping::Advanced)
                 ]
-                .spacing(4)
+                .spacing(2)
                 .width(240);
 
                 Some(
