@@ -1,92 +1,6 @@
 //! Channels (subscriptions) view for the ytrs-client application
 
 use crate::App;
-
-/// Parse relative time text like "2 days ago" into minutes for sorting.
-/// Returns u64::MAX for unparseable strings (sorts to end).
-fn parse_published_text(text: Option<&str>) -> u64 {
-    let text = match text {
-        Some(t) => t.to_lowercase(),
-        None => return u64::MAX,
-    };
-
-    // Extract number and unit
-    let parts: Vec<&str> = text.split_whitespace().collect();
-    if parts.len() < 2 {
-        return u64::MAX;
-    }
-
-    let num: u64 = match parts[0].parse() {
-        Ok(n) => n,
-        Err(_) => return u64::MAX,
-    };
-
-    let unit = parts[1];
-
-    // Convert to minutes
-    if unit.starts_with("second") {
-        num / 60 // round down to 0 for < 60 seconds
-    } else if unit.starts_with("minute") {
-        num
-    } else if unit.starts_with("hour") {
-        num * 60
-    } else if unit.starts_with("day") {
-        num * 60 * 24
-    } else if unit.starts_with("week") {
-        num * 60 * 24 * 7
-    } else if unit.starts_with("month") {
-        num * 60 * 24 * 30
-    } else if unit.starts_with("year") {
-        num * 60 * 24 * 365
-    } else {
-        u64::MAX
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_published_text() {
-        assert_eq!(parse_published_text(Some("30 seconds ago")), 0);
-        assert_eq!(parse_published_text(Some("5 minutes ago")), 5);
-        assert_eq!(parse_published_text(Some("1 minute ago")), 1);
-        assert_eq!(parse_published_text(Some("2 hours ago")), 120);
-        assert_eq!(parse_published_text(Some("1 hour ago")), 60);
-        assert_eq!(parse_published_text(Some("3 days ago")), 3 * 60 * 24);
-        assert_eq!(parse_published_text(Some("1 day ago")), 60 * 24);
-        assert_eq!(parse_published_text(Some("2 weeks ago")), 2 * 60 * 24 * 7);
-        assert_eq!(parse_published_text(Some("1 week ago")), 60 * 24 * 7);
-        assert_eq!(parse_published_text(Some("6 months ago")), 6 * 60 * 24 * 30);
-        assert_eq!(parse_published_text(Some("1 month ago")), 60 * 24 * 30);
-        assert_eq!(parse_published_text(Some("2 years ago")), 2 * 60 * 24 * 365);
-        assert_eq!(parse_published_text(Some("1 year ago")), 60 * 24 * 365);
-    }
-
-    #[test]
-    fn test_parse_published_text_invalid() {
-        assert_eq!(parse_published_text(None), u64::MAX);
-        assert_eq!(parse_published_text(Some("")), u64::MAX);
-        assert_eq!(parse_published_text(Some("invalid")), u64::MAX);
-        assert_eq!(parse_published_text(Some("abc days ago")), u64::MAX);
-    }
-
-    #[test]
-    fn test_parse_published_text_sorting() {
-        let mut times = vec![
-            parse_published_text(Some("1 year ago")),
-            parse_published_text(Some("5 minutes ago")),
-            parse_published_text(Some("2 days ago")),
-            parse_published_text(Some("1 hour ago")),
-        ];
-        times.sort();
-        assert_eq!(times[0], 5); // 5 minutes
-        assert_eq!(times[1], 60); // 1 hour
-        assert_eq!(times[2], 2 * 60 * 24); // 2 days
-        assert_eq!(times[3], 60 * 24 * 365); // 1 year
-    }
-}
 use crate::helpers::{centered_grid_padding, create_thumbnail, truncate_title};
 use crate::messages::Message;
 use crate::theme::rounded_button_style;
@@ -97,6 +11,7 @@ use iced::{
     widget::text::Shaping,
     widget::{Image, button, column, container, row, text},
 };
+use ytrs_lib::parse_relative_time;
 
 /// Render the channels (subscriptions) view
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -215,8 +130,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
         // Sort by published_text (parse relative time)
         all_videos.sort_by(|a, b| {
-            let a_mins = parse_published_text(a.published_text.as_deref());
-            let b_mins = parse_published_text(b.published_text.as_deref());
+            let a_mins = parse_relative_time(a.published_text.as_deref());
+            let b_mins = parse_relative_time(b.published_text.as_deref());
             a_mins.cmp(&b_mins) // smaller = more recent
         });
 
