@@ -1,18 +1,18 @@
 //! Multi-language relative time parsing for YouTube published_text fields
 //!
-//! Uses a word-based trie to parse strings like "2 days ago", "vor 3 Tagen", "1 il öncə" into minutes.
+//! Uses a word-based trie to parse strings like "2 days ago", "vor 3 Tagen", "1 il öncə" into seconds.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-/// Time unit multipliers (in minutes)
-const SECONDS: u64 = 0; // rounds to 0 for sorting (very recent)
-const MINUTES: u64 = 1;
-const HOURS: u64 = 60;
-const DAYS: u64 = 60 * 24;
-const WEEKS: u64 = 60 * 24 * 7;
-const MONTHS: u64 = 60 * 24 * 30;
-const YEARS: u64 = 60 * 24 * 365;
+/// Time unit multipliers (in seconds)
+const SECONDS: u64 = 1;
+const MINUTES: u64 = 60;
+const HOURS: u64 = 60 * 60;
+const DAYS: u64 = 60 * 60 * 24;
+const WEEKS: u64 = 60 * 60 * 24 * 7;
+const MONTHS: u64 = 60 * 60 * 24 * 30;
+const YEARS: u64 = 60 * 60 * 24 * 365;
 
 /// A node in the word-based trie
 #[derive(Default)]
@@ -134,7 +134,7 @@ fn get_trie() -> &'static TrieNode {
         words!(YEARS, "il", "öncə"); // "1 il öncə" = 1 year ago
 
         // Indonesian
-        word!("detik", MINUTES);
+        word!("detik", SECONDS);
         word!("menit", MINUTES);
         word!("jam", HOURS);
         word!("hari", DAYS);
@@ -142,7 +142,9 @@ fn get_trie() -> &'static TrieNode {
         word!("bulan", MONTHS);
         word!("tahun", YEARS);
 
-        // Malay
+        // Malay - "saat" means seconds in Malay but hours in Azerbaijani/Turkish
+        // Use context word "lalu" to disambiguate
+        words!(SECONDS, "saat", "lalu");
         word!("minit", MINUTES);
 
         // Bosnian/Croatian/Serbian Latin
@@ -366,7 +368,11 @@ fn get_trie() -> &'static TrieNode {
 
         // Romanian
         word!("secundă", SECONDS);
+        word!("secunde", SECONDS);
+        word!("minute", MINUTES);
+        word!("minut", MINUTES);
         word!("oră", HOURS);
+        word!("ore", HOURS);
         word!("zile", DAYS);
         word!("zi", DAYS);
         word!("săptămâni", WEEKS);
@@ -450,7 +456,11 @@ fn get_trie() -> &'static TrieNode {
 
         // Turkish
         word!("saniye", SECONDS);
+        word!("dakika", MINUTES);
+        word!("saat", HOURS);
+        word!("gün", DAYS);
         word!("hafta", WEEKS);
+        word!("ay", MONTHS);
         word!("yıl", YEARS);
 
         // Icelandic
@@ -573,6 +583,7 @@ fn get_trie() -> &'static TrieNode {
         // Serbian Cyrillic
         word!("секунде", SECONDS);
         word!("мину|те", MINUTES);
+        word!("минута", MINUTES);
         word!("сата", HOURS);
         word!("сати", HOURS);
         word!("сат", HOURS);
@@ -605,6 +616,8 @@ fn get_trie() -> &'static TrieNode {
         word!("рік", YEARS);
 
         // Kazakh
+        word!("секунд", SECONDS);
+        word!("минут", MINUTES);
         word!("сағат", HOURS);
         word!("күн", DAYS);
         word!("апта", WEEKS);
@@ -612,6 +625,9 @@ fn get_trie() -> &'static TrieNode {
         word!("жыл", YEARS);
 
         // Armenian
+        word!("վայրկան", SECONDS);
+        word!("րոպե", MINUTES);
+        word!("ժամ", HOURS);
         word!("օր", DAYS);
         word!("շաբաթ", WEEKS);
         word!("ամիս", MONTHS);
@@ -720,6 +736,7 @@ fn get_trie() -> &'static TrieNode {
 
         // Gujarati
         word!("સેકંડ", SECONDS);
+        word!("મિનિટ", MINUTES);
         word!("કલાક", HOURS);
         word!("દિવસ", DAYS);
         word!("અઠવાડિયા", WEEKS);
@@ -830,6 +847,7 @@ fn get_cjk_keywords() -> &'static Vec<(&'static str, u64)> {
             ("週", WEEKS),
             ("年", YEARS),
             ("초", SECONDS),
+            ("분", MINUTES), // Korean minutes
             ("일", DAYS),
             ("주", WEEKS),
             ("년", YEARS),
@@ -875,7 +893,7 @@ fn extract_number(text: &str) -> u64 {
     num_str.parse().unwrap_or(0)
 }
 
-/// Parse relative time text in any supported language into minutes for sorting.
+/// Parse relative time text in any supported language into seconds for sorting.
 /// Returns u64::MAX for unparseable strings (sorts to end).
 pub fn parse_relative_time(text: Option<&str>) -> u64 {
     let text = match text {
@@ -922,543 +940,651 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_english() {
-        assert_eq!(parse_relative_time(Some("5 minutes ago")), 5);
-        assert_eq!(parse_relative_time(Some("2 hours ago")), 120);
-        assert_eq!(parse_relative_time(Some("3 days ago")), 3 * 60 * 24);
-        assert_eq!(parse_relative_time(Some("1 week ago")), 60 * 24 * 7);
-        assert_eq!(parse_relative_time(Some("1 month ago")), 60 * 24 * 30);
-        assert_eq!(parse_relative_time(Some("1 year ago")), 60 * 24 * 365);
-    }
-
-    #[test]
-    fn test_german() {
-        assert_eq!(parse_relative_time(Some("vor 9 Tagen")), 9 * 60 * 24);
-        assert_eq!(parse_relative_time(Some("vor 3 Wochen")), 3 * 60 * 24 * 7);
-        assert_eq!(parse_relative_time(Some("vor 1 Monat")), 60 * 24 * 30);
-        assert_eq!(parse_relative_time(Some("vor 1 Jahr")), 60 * 24 * 365);
-    }
-
-    #[test]
-    fn test_french() {
-        assert_eq!(parse_relative_time(Some("il y a 9 jours")), 9 * 60 * 24);
-        assert_eq!(
-            parse_relative_time(Some("il y a 3 semaines")),
-            3 * 60 * 24 * 7
-        );
-        assert_eq!(parse_relative_time(Some("il y a 1 mois")), 60 * 24 * 30);
-        assert_eq!(parse_relative_time(Some("il y a 1 an")), 60 * 24 * 365);
-    }
-
-    #[test]
-    fn test_azerbaijani() {
-        assert_eq!(parse_relative_time(Some("9 gün öncə")), 9 * 60 * 24);
-        assert_eq!(parse_relative_time(Some("1 il öncə")), 60 * 24 * 365);
-    }
-
-    #[test]
-    fn test_japanese() {
-        assert_eq!(parse_relative_time(Some("9 日前")), 9 * 60 * 24);
-        assert_eq!(parse_relative_time(Some("3 週間前")), 3 * 60 * 24 * 7);
-        assert_eq!(parse_relative_time(Some("1 か月前")), 60 * 24 * 30);
-        assert_eq!(parse_relative_time(Some("1 年前")), 60 * 24 * 365);
-    }
-
-    #[test]
-    fn test_chinese() {
-        assert_eq!(parse_relative_time(Some("9天前")), 9 * 60 * 24);
-        assert_eq!(parse_relative_time(Some("3周前")), 3 * 60 * 24 * 7);
-        assert_eq!(parse_relative_time(Some("1个月前")), 60 * 24 * 30);
-        assert_eq!(parse_relative_time(Some("1年前")), 60 * 24 * 365);
-    }
-
-    #[test]
-    fn test_korean() {
-        assert_eq!(parse_relative_time(Some("9일 전")), 9 * 60 * 24);
-        assert_eq!(parse_relative_time(Some("3주 전")), 3 * 60 * 24 * 7);
-        assert_eq!(parse_relative_time(Some("1개월 전")), 60 * 24 * 30);
-        assert_eq!(parse_relative_time(Some("1년 전")), 60 * 24 * 365);
-    }
-
-    #[test]
-    fn test_russian() {
-        assert_eq!(parse_relative_time(Some("9 дней назад")), 9 * 60 * 24);
-        assert_eq!(parse_relative_time(Some("3 недели назад")), 3 * 60 * 24 * 7);
-        assert_eq!(parse_relative_time(Some("1 месяц назад")), 60 * 24 * 30);
-        assert_eq!(parse_relative_time(Some("1 год назад")), 60 * 24 * 365);
-    }
-
-    #[test]
     fn test_invalid() {
         assert_eq!(parse_relative_time(None), u64::MAX);
         assert_eq!(parse_relative_time(Some("")), u64::MAX);
         assert_eq!(parse_relative_time(Some("invalid")), u64::MAX);
     }
+
     // ==========================================
-    // All YouTube locale tests (auto-generated)
+    // All YouTube locale tests
     // ==========================================
 
     #[test]
     fn test_youtube_afrikaans() {
-        assert_eq!(parse_relative_time(Some("9 dae gelede")), 12960);
-        assert_eq!(parse_relative_time(Some("3 weke gelede")), 30240);
-        assert_eq!(parse_relative_time(Some("1 maand gelede")), 43200);
-        assert_eq!(parse_relative_time(Some("1 jaar gelede")), 525600);
+        assert_eq!(parse_relative_time(Some("30 sekonde gelede")), 30);
+        assert_eq!(parse_relative_time(Some("5 minute gelede")), 300);
+        assert_eq!(parse_relative_time(Some("2 uur gelede")), 7200);
+        assert_eq!(parse_relative_time(Some("9 dae gelede")), 777600);
+        assert_eq!(parse_relative_time(Some("3 weke gelede")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 maand gelede")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 jaar gelede")), 31536000);
     }
 
     #[test]
     fn test_youtube_azerbaijani() {
-        assert_eq!(parse_relative_time(Some("9 gün öncə")), 12960);
-        assert_eq!(parse_relative_time(Some("3 həftə öncə")), 30240);
-        assert_eq!(parse_relative_time(Some("1 ay öncə")), 43200);
-        assert_eq!(parse_relative_time(Some("1 il öncə")), 525600);
+        assert_eq!(parse_relative_time(Some("30 saniyə öncə")), 30);
+        assert_eq!(parse_relative_time(Some("5 dəqiqə öncə")), 300);
+        assert_eq!(parse_relative_time(Some("2 saat öncə")), 7200);
+        assert_eq!(parse_relative_time(Some("9 gün öncə")), 777600);
+        assert_eq!(parse_relative_time(Some("3 həftə öncə")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 ay öncə")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 il öncə")), 31536000);
     }
 
     #[test]
     fn test_youtube_indonesian() {
-        assert_eq!(parse_relative_time(Some("9 hari yang lalu")), 12960);
-        assert_eq!(parse_relative_time(Some("3 minggu yang lalu")), 30240);
-        assert_eq!(parse_relative_time(Some("1 bulan yang lalu")), 43200);
-        assert_eq!(parse_relative_time(Some("1 tahun yang lalu")), 525600);
+        assert_eq!(parse_relative_time(Some("30 detik yang lalu")), 30);
+        assert_eq!(parse_relative_time(Some("5 menit yang lalu")), 300);
+        assert_eq!(parse_relative_time(Some("2 jam yang lalu")), 7200);
+        assert_eq!(parse_relative_time(Some("9 hari yang lalu")), 777600);
+        assert_eq!(parse_relative_time(Some("3 minggu yang lalu")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 bulan yang lalu")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 tahun yang lalu")), 31536000);
     }
 
     #[test]
     fn test_youtube_malay() {
-        assert_eq!(parse_relative_time(Some("9 hari lalu")), 12960);
-        assert_eq!(parse_relative_time(Some("3 minggu lalu")), 30240);
-        assert_eq!(parse_relative_time(Some("1 bulan lalu")), 43200);
-        assert_eq!(parse_relative_time(Some("1 tahun lalu")), 525600);
+        assert_eq!(parse_relative_time(Some("30 saat lalu")), 30);
+        assert_eq!(parse_relative_time(Some("5 minit lalu")), 300);
+        assert_eq!(parse_relative_time(Some("2 jam lalu")), 7200);
+        assert_eq!(parse_relative_time(Some("9 hari lalu")), 777600);
+        assert_eq!(parse_relative_time(Some("3 minggu lalu")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 bulan lalu")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 tahun lalu")), 31536000);
     }
 
     #[test]
     fn test_youtube_bosnian() {
-        assert_eq!(parse_relative_time(Some("prije 9 dana")), 12960);
-        assert_eq!(parse_relative_time(Some("prije 3 sedmice")), 30240);
-        assert_eq!(parse_relative_time(Some("prije 1 mjesec")), 43200);
-        assert_eq!(parse_relative_time(Some("prije 1 godinu")), 525600);
+        assert_eq!(parse_relative_time(Some("prije 30 sekundi")), 30);
+        assert_eq!(parse_relative_time(Some("prije 5 minuta")), 300);
+        assert_eq!(parse_relative_time(Some("prije 2 sata")), 7200);
+        assert_eq!(parse_relative_time(Some("prije 9 dana")), 777600);
+        assert_eq!(parse_relative_time(Some("prije 3 sedmice")), 1814400);
+        assert_eq!(parse_relative_time(Some("prije 1 mjesec")), 2592000);
+        assert_eq!(parse_relative_time(Some("prije 1 godinu")), 31536000);
     }
 
     #[test]
     fn test_youtube_catalan() {
-        assert_eq!(parse_relative_time(Some("fa 9 dies")), 12960);
-        assert_eq!(parse_relative_time(Some("fa 3 setmanes")), 30240);
-        assert_eq!(parse_relative_time(Some("fa 1 mes")), 43200);
-        assert_eq!(parse_relative_time(Some("fa 1 any")), 525600);
+        assert_eq!(parse_relative_time(Some("fa 30 segons")), 30);
+        assert_eq!(parse_relative_time(Some("fa 5 minuts")), 300);
+        assert_eq!(parse_relative_time(Some("fa 2 hores")), 7200);
+        assert_eq!(parse_relative_time(Some("fa 9 dies")), 777600);
+        assert_eq!(parse_relative_time(Some("fa 3 setmanes")), 1814400);
+        assert_eq!(parse_relative_time(Some("fa 1 mes")), 2592000);
+        assert_eq!(parse_relative_time(Some("fa 1 any")), 31536000);
     }
 
     #[test]
     fn test_youtube_danish() {
-        assert_eq!(parse_relative_time(Some("for 9 dage siden")), 12960);
-        assert_eq!(parse_relative_time(Some("for 3 uger siden")), 30240);
-        assert_eq!(parse_relative_time(Some("for 1 måned siden")), 43200);
-        assert_eq!(parse_relative_time(Some("for 1 år siden")), 525600);
+        assert_eq!(parse_relative_time(Some("for 30 sekunder siden")), 30);
+        assert_eq!(parse_relative_time(Some("for 5 minutter siden")), 300);
+        assert_eq!(parse_relative_time(Some("for 2 timer siden")), 7200);
+        assert_eq!(parse_relative_time(Some("for 9 dage siden")), 777600);
+        assert_eq!(parse_relative_time(Some("for 3 uger siden")), 1814400);
+        assert_eq!(parse_relative_time(Some("for 1 måned siden")), 2592000);
+        assert_eq!(parse_relative_time(Some("for 1 år siden")), 31536000);
     }
 
     #[test]
     fn test_youtube_german() {
-        assert_eq!(parse_relative_time(Some("vor 9 Tagen")), 12960);
-        assert_eq!(parse_relative_time(Some("vor 3 Wochen")), 30240);
-        assert_eq!(parse_relative_time(Some("vor 1 Monat")), 43200);
-        assert_eq!(parse_relative_time(Some("vor 1 Jahr")), 525600);
+        assert_eq!(parse_relative_time(Some("vor 30 Sekunden")), 30);
+        assert_eq!(parse_relative_time(Some("vor 5 Minuten")), 300);
+        assert_eq!(parse_relative_time(Some("vor 2 Stunden")), 7200);
+        assert_eq!(parse_relative_time(Some("vor 9 Tagen")), 777600);
+        assert_eq!(parse_relative_time(Some("vor 3 Wochen")), 1814400);
+        assert_eq!(parse_relative_time(Some("vor 1 Monat")), 2592000);
+        assert_eq!(parse_relative_time(Some("vor 1 Jahr")), 31536000);
     }
 
     #[test]
     fn test_youtube_estonian() {
-        assert_eq!(parse_relative_time(Some("9 päeva eest")), 12960);
-        assert_eq!(parse_relative_time(Some("3 nädala eest")), 30240);
-        assert_eq!(parse_relative_time(Some("1 kuu eest")), 43200);
-        assert_eq!(parse_relative_time(Some("1 aasta eest")), 525600);
+        assert_eq!(parse_relative_time(Some("30 sekundit eest")), 30);
+        assert_eq!(parse_relative_time(Some("5 minutit eest")), 300);
+        assert_eq!(parse_relative_time(Some("2 tundi eest")), 7200);
+        assert_eq!(parse_relative_time(Some("9 päeva eest")), 777600);
+        assert_eq!(parse_relative_time(Some("3 nädala eest")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 kuu eest")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 aasta eest")), 31536000);
     }
 
     #[test]
     fn test_youtube_english() {
-        assert_eq!(parse_relative_time(Some("9 days ago")), 12960);
-        assert_eq!(parse_relative_time(Some("3 weeks ago")), 30240);
-        assert_eq!(parse_relative_time(Some("1 month ago")), 43200);
-        assert_eq!(parse_relative_time(Some("1 year ago")), 525600);
+        assert_eq!(parse_relative_time(Some("30 seconds ago")), 30);
+        assert_eq!(parse_relative_time(Some("5 minutes ago")), 300);
+        assert_eq!(parse_relative_time(Some("2 hours ago")), 7200);
+        assert_eq!(parse_relative_time(Some("9 days ago")), 777600);
+        assert_eq!(parse_relative_time(Some("3 weeks ago")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 month ago")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 year ago")), 31536000);
     }
 
     #[test]
     fn test_youtube_spanish() {
-        assert_eq!(parse_relative_time(Some("hace 9 días")), 12960);
-        assert_eq!(parse_relative_time(Some("hace 3 semanas")), 30240);
-        assert_eq!(parse_relative_time(Some("hace 1 mes")), 43200);
-        assert_eq!(parse_relative_time(Some("hace 1 año")), 525600);
+        assert_eq!(parse_relative_time(Some("hace 30 segundos")), 30);
+        assert_eq!(parse_relative_time(Some("hace 5 minutos")), 300);
+        assert_eq!(parse_relative_time(Some("hace 2 horas")), 7200);
+        assert_eq!(parse_relative_time(Some("hace 9 días")), 777600);
+        assert_eq!(parse_relative_time(Some("hace 3 semanas")), 1814400);
+        assert_eq!(parse_relative_time(Some("hace 1 mes")), 2592000);
+        assert_eq!(parse_relative_time(Some("hace 1 año")), 31536000);
     }
 
     #[test]
     fn test_youtube_basque() {
-        assert_eq!(parse_relative_time(Some("duela 9 egun")), 12960);
-        assert_eq!(parse_relative_time(Some("duela 3 aste")), 30240);
-        assert_eq!(parse_relative_time(Some("duela 1 hilabete")), 43200);
-        assert_eq!(parse_relative_time(Some("duela 1 urte")), 525600);
+        assert_eq!(parse_relative_time(Some("duela 30 segundo")), 30);
+        assert_eq!(parse_relative_time(Some("duela 5 minutu")), 300);
+        assert_eq!(parse_relative_time(Some("duela 2 ordu")), 7200);
+        assert_eq!(parse_relative_time(Some("duela 9 egun")), 777600);
+        assert_eq!(parse_relative_time(Some("duela 3 aste")), 1814400);
+        assert_eq!(parse_relative_time(Some("duela 1 hilabete")), 2592000);
+        assert_eq!(parse_relative_time(Some("duela 1 urte")), 31536000);
     }
 
     #[test]
     fn test_youtube_french() {
-        assert_eq!(parse_relative_time(Some("il y a 9 jours")), 12960);
-        assert_eq!(parse_relative_time(Some("il y a 3 semaines")), 30240);
-        assert_eq!(parse_relative_time(Some("il y a 1 mois")), 43200);
-        assert_eq!(parse_relative_time(Some("il y a 1 an")), 525600);
+        assert_eq!(parse_relative_time(Some("il y a 30 secondes")), 30);
+        assert_eq!(parse_relative_time(Some("il y a 5 minutes")), 300);
+        assert_eq!(parse_relative_time(Some("il y a 2 heures")), 7200);
+        assert_eq!(parse_relative_time(Some("il y a 9 jours")), 777600);
+        assert_eq!(parse_relative_time(Some("il y a 3 semaines")), 1814400);
+        assert_eq!(parse_relative_time(Some("il y a 1 mois")), 2592000);
+        assert_eq!(parse_relative_time(Some("il y a 1 an")), 31536000);
     }
 
     #[test]
     fn test_youtube_croatian() {
-        assert_eq!(parse_relative_time(Some("prije 9 dana")), 12960);
-        assert_eq!(parse_relative_time(Some("prije 3 tjedna")), 30240);
-        assert_eq!(parse_relative_time(Some("prije 1 mjesec")), 43200);
-        assert_eq!(parse_relative_time(Some("prije 1 godinu")), 525600);
+        assert_eq!(parse_relative_time(Some("prije 30 sekundi")), 30);
+        assert_eq!(parse_relative_time(Some("prije 5 minuta")), 300);
+        assert_eq!(parse_relative_time(Some("prije 2 sata")), 7200);
+        assert_eq!(parse_relative_time(Some("prije 9 dana")), 777600);
+        assert_eq!(parse_relative_time(Some("prije 3 tjedna")), 1814400);
+        assert_eq!(parse_relative_time(Some("prije 1 mjesec")), 2592000);
+        assert_eq!(parse_relative_time(Some("prije 1 godinu")), 31536000);
     }
 
     #[test]
     fn test_youtube_italian() {
-        assert_eq!(parse_relative_time(Some("9 giorni fa")), 12960);
-        assert_eq!(parse_relative_time(Some("3 settimane fa")), 30240);
-        assert_eq!(parse_relative_time(Some("1 mese fa")), 43200);
-        assert_eq!(parse_relative_time(Some("1 anno fa")), 525600);
+        assert_eq!(parse_relative_time(Some("30 secondi fa")), 30);
+        assert_eq!(parse_relative_time(Some("5 minuti fa")), 300);
+        assert_eq!(parse_relative_time(Some("2 ore fa")), 7200);
+        assert_eq!(parse_relative_time(Some("9 giorni fa")), 777600);
+        assert_eq!(parse_relative_time(Some("3 settimane fa")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 mese fa")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 anno fa")), 31536000);
     }
 
     #[test]
     fn test_youtube_swahili() {
-        assert_eq!(parse_relative_time(Some("siku 9 zilizopita")), 12960);
-        assert_eq!(parse_relative_time(Some("wiki 3 zilizopita")), 30240);
-        assert_eq!(parse_relative_time(Some("mwezi 1 uliopita")), 43200);
-        assert_eq!(parse_relative_time(Some("mwaka 1 uliopita")), 525600);
+        assert_eq!(parse_relative_time(Some("sekunde 30 zilizopita")), 30);
+        assert_eq!(parse_relative_time(Some("dakika 5 zilizopita")), 300);
+        assert_eq!(parse_relative_time(Some("saa 2 zilizopita")), 7200);
+        assert_eq!(parse_relative_time(Some("siku 9 zilizopita")), 777600);
+        assert_eq!(parse_relative_time(Some("wiki 3 zilizopita")), 1814400);
+        assert_eq!(parse_relative_time(Some("mwezi 1 uliopita")), 2592000);
+        assert_eq!(parse_relative_time(Some("mwaka 1 uliopita")), 31536000);
     }
 
     #[test]
     fn test_youtube_latvian() {
-        assert_eq!(parse_relative_time(Some("pirms 9 dienām")), 12960);
-        assert_eq!(parse_relative_time(Some("pirms 3 nedēļām")), 30240);
-        assert_eq!(parse_relative_time(Some("pirms 1 mēneša")), 43200);
-        assert_eq!(parse_relative_time(Some("pirms 1 gada")), 525600);
+        assert_eq!(parse_relative_time(Some("pirms 30 sekundēm")), 30);
+        assert_eq!(parse_relative_time(Some("pirms 5 minūtēm")), 300);
+        assert_eq!(parse_relative_time(Some("pirms 2 stundām")), 7200);
+        assert_eq!(parse_relative_time(Some("pirms 9 dienām")), 777600);
+        assert_eq!(parse_relative_time(Some("pirms 3 nedēļām")), 1814400);
+        assert_eq!(parse_relative_time(Some("pirms 1 mēneša")), 2592000);
+        assert_eq!(parse_relative_time(Some("pirms 1 gada")), 31536000);
     }
 
     #[test]
     fn test_youtube_lithuanian() {
-        assert_eq!(parse_relative_time(Some("prieš 9 dienas")), 12960);
-        assert_eq!(parse_relative_time(Some("prieš 3 savaites")), 30240);
-        assert_eq!(parse_relative_time(Some("prieš 1 mėnesį")), 43200);
-        assert_eq!(parse_relative_time(Some("prieš 1 metus")), 525600);
+        assert_eq!(parse_relative_time(Some("prieš 30 sekundžių")), 30);
+        assert_eq!(parse_relative_time(Some("prieš 5 minutes")), 300);
+        assert_eq!(parse_relative_time(Some("prieš 2 valandas")), 7200);
+        assert_eq!(parse_relative_time(Some("prieš 9 dienas")), 777600);
+        assert_eq!(parse_relative_time(Some("prieš 3 savaites")), 1814400);
+        assert_eq!(parse_relative_time(Some("prieš 1 mėnesį")), 2592000);
+        assert_eq!(parse_relative_time(Some("prieš 1 metus")), 31536000);
     }
 
     #[test]
     fn test_youtube_hungarian() {
-        assert_eq!(parse_relative_time(Some("9 nappal ezelőtt")), 12960);
-        assert_eq!(parse_relative_time(Some("3 héttel ezelőtt")), 30240);
-        assert_eq!(parse_relative_time(Some("1 hónappal ezelőtt")), 43200);
-        assert_eq!(parse_relative_time(Some("1 évvel ezelőtt")), 525600);
+        assert_eq!(parse_relative_time(Some("30 másodperccel ezelőtt")), 30);
+        assert_eq!(parse_relative_time(Some("5 perccel ezelőtt")), 300);
+        assert_eq!(parse_relative_time(Some("2 órával ezelőtt")), 7200);
+        assert_eq!(parse_relative_time(Some("9 nappal ezelőtt")), 777600);
+        assert_eq!(parse_relative_time(Some("3 héttel ezelőtt")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 hónappal ezelőtt")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 évvel ezelőtt")), 31536000);
     }
 
     #[test]
     fn test_youtube_dutch() {
-        assert_eq!(parse_relative_time(Some("9 dagen geleden")), 12960);
-        assert_eq!(parse_relative_time(Some("3 weken geleden")), 30240);
-        assert_eq!(parse_relative_time(Some("1 maand geleden")), 43200);
-        assert_eq!(parse_relative_time(Some("1 jaar geleden")), 525600);
+        assert_eq!(parse_relative_time(Some("30 seconden geleden")), 30);
+        assert_eq!(parse_relative_time(Some("5 minuten geleden")), 300);
+        assert_eq!(parse_relative_time(Some("2 uur geleden")), 7200);
+        assert_eq!(parse_relative_time(Some("9 dagen geleden")), 777600);
+        assert_eq!(parse_relative_time(Some("3 weken geleden")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 maand geleden")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 jaar geleden")), 31536000);
     }
 
     #[test]
     fn test_youtube_norwegian() {
-        assert_eq!(parse_relative_time(Some("for 9 døgn siden")), 12960);
-        assert_eq!(parse_relative_time(Some("for 3 uker siden")), 30240);
-        assert_eq!(parse_relative_time(Some("for 1 måned siden")), 43200);
-        assert_eq!(parse_relative_time(Some("for 1 år siden")), 525600);
+        assert_eq!(parse_relative_time(Some("for 30 sekunder siden")), 30);
+        assert_eq!(parse_relative_time(Some("for 5 minutter siden")), 300);
+        assert_eq!(parse_relative_time(Some("for 2 timer siden")), 7200);
+        assert_eq!(parse_relative_time(Some("for 9 døgn siden")), 777600);
+        assert_eq!(parse_relative_time(Some("for 3 uker siden")), 1814400);
+        assert_eq!(parse_relative_time(Some("for 1 måned siden")), 2592000);
+        assert_eq!(parse_relative_time(Some("for 1 år siden")), 31536000);
     }
 
     #[test]
     fn test_youtube_polish() {
-        assert_eq!(parse_relative_time(Some("9 dni temu")), 12960);
-        assert_eq!(parse_relative_time(Some("3 tygodnie temu")), 30240);
-        assert_eq!(parse_relative_time(Some("1 miesiąc temu")), 43200);
-        assert_eq!(parse_relative_time(Some("1 rok temu")), 525600);
+        assert_eq!(parse_relative_time(Some("30 sekund temu")), 30);
+        assert_eq!(parse_relative_time(Some("5 minut temu")), 300);
+        assert_eq!(parse_relative_time(Some("2 godziny temu")), 7200);
+        assert_eq!(parse_relative_time(Some("9 dni temu")), 777600);
+        assert_eq!(parse_relative_time(Some("3 tygodnie temu")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 miesiąc temu")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 rok temu")), 31536000);
     }
 
     #[test]
     fn test_youtube_portuguese() {
-        assert_eq!(parse_relative_time(Some("há 9 dias")), 12960);
-        assert_eq!(parse_relative_time(Some("há 3 semanas")), 30240);
-        assert_eq!(parse_relative_time(Some("há 1 mês")), 43200);
-        assert_eq!(parse_relative_time(Some("há 1 ano")), 525600);
+        assert_eq!(parse_relative_time(Some("há 30 segundos")), 30);
+        assert_eq!(parse_relative_time(Some("há 5 minutos")), 300);
+        assert_eq!(parse_relative_time(Some("há 2 horas")), 7200);
+        assert_eq!(parse_relative_time(Some("há 9 dias")), 777600);
+        assert_eq!(parse_relative_time(Some("há 3 semanas")), 1814400);
+        assert_eq!(parse_relative_time(Some("há 1 mês")), 2592000);
+        assert_eq!(parse_relative_time(Some("há 1 ano")), 31536000);
     }
 
     #[test]
     fn test_youtube_romanian() {
-        assert_eq!(parse_relative_time(Some("acum 9 zile")), 12960);
-        assert_eq!(parse_relative_time(Some("acum 3 săptămâni")), 30240);
-        assert_eq!(parse_relative_time(Some("acum 1 lună")), 43200);
-        assert_eq!(parse_relative_time(Some("acum 1 an")), 525600);
+        assert_eq!(parse_relative_time(Some("acum 30 secunde")), 30);
+        assert_eq!(parse_relative_time(Some("acum 5 minute")), 300);
+        assert_eq!(parse_relative_time(Some("acum 2 ore")), 7200);
+        assert_eq!(parse_relative_time(Some("acum 9 zile")), 777600);
+        assert_eq!(parse_relative_time(Some("acum 3 săptămâni")), 1814400);
+        assert_eq!(parse_relative_time(Some("acum 1 lună")), 2592000);
+        assert_eq!(parse_relative_time(Some("acum 1 an")), 31536000);
     }
 
     #[test]
     fn test_youtube_slovak() {
-        assert_eq!(parse_relative_time(Some("pred 9 dňami")), 12960);
-        assert_eq!(parse_relative_time(Some("pred 3 týždňami")), 30240);
-        assert_eq!(parse_relative_time(Some("pred 1 mesiacom")), 43200);
-        assert_eq!(parse_relative_time(Some("pred 1 rokom")), 525600);
+        assert_eq!(parse_relative_time(Some("pred 30 sekundami")), 30);
+        assert_eq!(parse_relative_time(Some("pred 5 minútami")), 300);
+        assert_eq!(parse_relative_time(Some("pred 2 hodinami")), 7200);
+        assert_eq!(parse_relative_time(Some("pred 9 dňami")), 777600);
+        assert_eq!(parse_relative_time(Some("pred 3 týždňami")), 1814400);
+        assert_eq!(parse_relative_time(Some("pred 1 mesiacom")), 2592000);
+        assert_eq!(parse_relative_time(Some("pred 1 rokom")), 31536000);
     }
 
     #[test]
     fn test_youtube_slovene() {
-        assert_eq!(parse_relative_time(Some("pred 4 dnevi")), 5760);
-        assert_eq!(parse_relative_time(Some("pred 3 tedni")), 30240);
-        assert_eq!(parse_relative_time(Some("pred 1 mesecem")), 43200);
-        assert_eq!(parse_relative_time(Some("pred 1 letom")), 525600);
+        assert_eq!(parse_relative_time(Some("pred 30 sekundami")), 30);
+        assert_eq!(parse_relative_time(Some("pred 5 minutami")), 300);
+        assert_eq!(parse_relative_time(Some("pred 2 urami")), 7200);
+        assert_eq!(parse_relative_time(Some("pred 4 dnevi")), 345600);
+        assert_eq!(parse_relative_time(Some("pred 3 tedni")), 1814400);
+        assert_eq!(parse_relative_time(Some("pred 1 mesecem")), 2592000);
+        assert_eq!(parse_relative_time(Some("pred 1 letom")), 31536000);
     }
 
     #[test]
     fn test_youtube_finnish() {
-        assert_eq!(parse_relative_time(Some("9 päivää sitten")), 12960);
-        assert_eq!(parse_relative_time(Some("3 viikkoa sitten")), 30240);
-        assert_eq!(parse_relative_time(Some("1 kuukausi sitten")), 43200);
-        assert_eq!(parse_relative_time(Some("1 vuosi sitten")), 525600);
+        assert_eq!(parse_relative_time(Some("30 sekuntia sitten")), 30);
+        assert_eq!(parse_relative_time(Some("5 minuuttia sitten")), 300);
+        assert_eq!(parse_relative_time(Some("2 tuntia sitten")), 7200);
+        assert_eq!(parse_relative_time(Some("9 päivää sitten")), 777600);
+        assert_eq!(parse_relative_time(Some("3 viikkoa sitten")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 kuukausi sitten")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 vuosi sitten")), 31536000);
     }
 
     #[test]
     fn test_youtube_swedish() {
-        assert_eq!(parse_relative_time(Some("för 9 dagar sedan")), 12960);
-        assert_eq!(parse_relative_time(Some("för 3 veckor sedan")), 30240);
-        assert_eq!(parse_relative_time(Some("för 1 månad sedan")), 43200);
-        assert_eq!(parse_relative_time(Some("för 1 år sedan")), 525600);
+        assert_eq!(parse_relative_time(Some("för 30 sekunder sedan")), 30);
+        assert_eq!(parse_relative_time(Some("för 5 minuter sedan")), 300);
+        assert_eq!(parse_relative_time(Some("för 2 timmar sedan")), 7200);
+        assert_eq!(parse_relative_time(Some("för 9 dagar sedan")), 777600);
+        assert_eq!(parse_relative_time(Some("för 3 veckor sedan")), 1814400);
+        assert_eq!(parse_relative_time(Some("för 1 månad sedan")), 2592000);
+        assert_eq!(parse_relative_time(Some("för 1 år sedan")), 31536000);
     }
 
     #[test]
     fn test_youtube_tagalog() {
-        assert_eq!(parse_relative_time(Some("9 araw ang nakalipas")), 12960);
-        assert_eq!(parse_relative_time(Some("3 linggo ang nakalipas")), 30240);
-        assert_eq!(parse_relative_time(Some("1 buwan ang nakalipas")), 43200);
-        assert_eq!(parse_relative_time(Some("1 taon ang nakalipas")), 525600);
+        assert_eq!(parse_relative_time(Some("30 segundo ang nakalipas")), 30);
+        assert_eq!(parse_relative_time(Some("5 minuto ang nakalipas")), 300);
+        assert_eq!(parse_relative_time(Some("2 oras ang nakalipas")), 7200);
+        assert_eq!(parse_relative_time(Some("9 araw ang nakalipas")), 777600);
+        assert_eq!(parse_relative_time(Some("3 linggo ang nakalipas")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 buwan ang nakalipas")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 taon ang nakalipas")), 31536000);
     }
 
     #[test]
     fn test_youtube_vietnamese() {
-        assert_eq!(parse_relative_time(Some("9 ngày trước")), 12960);
-        assert_eq!(parse_relative_time(Some("3 tuần trước")), 30240);
-        assert_eq!(parse_relative_time(Some("1 tháng trước")), 43200);
-        assert_eq!(parse_relative_time(Some("1 năm trước")), 525600);
+        assert_eq!(parse_relative_time(Some("30 giây trước")), 30);
+        assert_eq!(parse_relative_time(Some("5 phút trước")), 300);
+        assert_eq!(parse_relative_time(Some("2 giờ trước")), 7200);
+        assert_eq!(parse_relative_time(Some("9 ngày trước")), 777600);
+        assert_eq!(parse_relative_time(Some("3 tuần trước")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 tháng trước")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 năm trước")), 31536000);
     }
 
     #[test]
     fn test_youtube_turkish() {
-        assert_eq!(parse_relative_time(Some("9 gün önce")), 12960);
-        assert_eq!(parse_relative_time(Some("3 hafta önce")), 30240);
-        assert_eq!(parse_relative_time(Some("1 ay önce")), 43200);
-        assert_eq!(parse_relative_time(Some("1 yıl önce")), 525600);
+        assert_eq!(parse_relative_time(Some("30 saniye önce")), 30);
+        assert_eq!(parse_relative_time(Some("5 dakika önce")), 300);
+        assert_eq!(parse_relative_time(Some("2 saat önce")), 7200);
+        assert_eq!(parse_relative_time(Some("9 gün önce")), 777600);
+        assert_eq!(parse_relative_time(Some("3 hafta önce")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 ay önce")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 yıl önce")), 31536000);
     }
 
     #[test]
     fn test_youtube_icelandic() {
-        assert_eq!(parse_relative_time(Some("fyrir 9 dögum")), 12960);
-        assert_eq!(parse_relative_time(Some("fyrir 3 vikum")), 30240);
-        assert_eq!(parse_relative_time(Some("fyrir 1 mánuði")), 43200);
-        assert_eq!(parse_relative_time(Some("fyrir 1 ári")), 525600);
+        assert_eq!(parse_relative_time(Some("fyrir 30 sekúndum")), 30);
+        assert_eq!(parse_relative_time(Some("fyrir 5 mínútum")), 300);
+        assert_eq!(parse_relative_time(Some("fyrir 2 klukkustundum")), 7200);
+        assert_eq!(parse_relative_time(Some("fyrir 9 dögum")), 777600);
+        assert_eq!(parse_relative_time(Some("fyrir 3 vikum")), 1814400);
+        assert_eq!(parse_relative_time(Some("fyrir 1 mánuði")), 2592000);
+        assert_eq!(parse_relative_time(Some("fyrir 1 ári")), 31536000);
     }
 
     #[test]
     fn test_youtube_czech() {
-        assert_eq!(parse_relative_time(Some("před 9 dny")), 12960);
-        assert_eq!(parse_relative_time(Some("před 3 týdny")), 30240);
-        assert_eq!(parse_relative_time(Some("před 1 měsícem")), 43200);
-        assert_eq!(parse_relative_time(Some("před 1 rokem")), 525600);
+        assert_eq!(parse_relative_time(Some("před 30 sekundami")), 30);
+        assert_eq!(parse_relative_time(Some("před 5 minutami")), 300);
+        assert_eq!(parse_relative_time(Some("před 2 hodinami")), 7200);
+        assert_eq!(parse_relative_time(Some("před 9 dny")), 777600);
+        assert_eq!(parse_relative_time(Some("před 3 týdny")), 1814400);
+        assert_eq!(parse_relative_time(Some("před 1 měsícem")), 2592000);
+        assert_eq!(parse_relative_time(Some("před 1 rokem")), 31536000);
     }
 
     #[test]
     fn test_youtube_greek() {
-        assert_eq!(parse_relative_time(Some("πριν από 9 ημέρες")), 12960);
-        assert_eq!(parse_relative_time(Some("πριν από 3 εβδομάδες")), 30240);
-        assert_eq!(parse_relative_time(Some("πριν από 1 μήνα")), 43200);
-        assert_eq!(parse_relative_time(Some("πριν από 1 έτος")), 525600);
+        assert_eq!(parse_relative_time(Some("πριν από 30 δευτερόλεπτα")), 30);
+        assert_eq!(parse_relative_time(Some("πριν από 5 λεπτά")), 300);
+        assert_eq!(parse_relative_time(Some("πριν από 2 ώρες")), 7200);
+        assert_eq!(parse_relative_time(Some("πριν από 9 ημέρες")), 777600);
+        assert_eq!(parse_relative_time(Some("πριν από 3 εβδομάδες")), 1814400);
+        assert_eq!(parse_relative_time(Some("πριν από 1 μήνα")), 2592000);
+        assert_eq!(parse_relative_time(Some("πριν από 1 έτος")), 31536000);
     }
 
     #[test]
     fn test_youtube_belarusian() {
-        assert_eq!(parse_relative_time(Some("9 дзён таму")), 12960);
-        assert_eq!(parse_relative_time(Some("3 тыдні таму")), 30240);
-        assert_eq!(parse_relative_time(Some("1 месяц таму")), 43200);
-        assert_eq!(parse_relative_time(Some("1 год таму")), 525600);
+        assert_eq!(parse_relative_time(Some("30 секунд таму")), 30);
+        assert_eq!(parse_relative_time(Some("5 хвілін таму")), 300);
+        assert_eq!(parse_relative_time(Some("2 гадзіны таму")), 7200);
+        assert_eq!(parse_relative_time(Some("9 дзён таму")), 777600);
+        assert_eq!(parse_relative_time(Some("3 тыдні таму")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 месяц таму")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 год таму")), 31536000);
     }
 
     #[test]
     fn test_youtube_bulgarian() {
-        assert_eq!(parse_relative_time(Some("преди 9 дни")), 12960);
-        assert_eq!(parse_relative_time(Some("преди 3 седмици")), 30240);
-        assert_eq!(parse_relative_time(Some("преди 1 месец")), 43200);
-        assert_eq!(parse_relative_time(Some("преди 1 година")), 525600);
+        assert_eq!(parse_relative_time(Some("преди 30 секунди")), 30);
+        assert_eq!(parse_relative_time(Some("преди 5 минути")), 300);
+        assert_eq!(parse_relative_time(Some("преди 2 часа")), 7200);
+        assert_eq!(parse_relative_time(Some("преди 9 дни")), 777600);
+        assert_eq!(parse_relative_time(Some("преди 3 седмици")), 1814400);
+        assert_eq!(parse_relative_time(Some("преди 1 месец")), 2592000);
+        assert_eq!(parse_relative_time(Some("преди 1 година")), 31536000);
     }
 
     #[test]
     fn test_youtube_macedonian() {
-        assert_eq!(parse_relative_time(Some("пред 9 дена")), 12960);
-        assert_eq!(parse_relative_time(Some("пред 3 седмици")), 30240);
-        assert_eq!(parse_relative_time(Some("пред 1 месец")), 43200);
-        assert_eq!(parse_relative_time(Some("пред 1 година")), 525600);
+        assert_eq!(parse_relative_time(Some("пред 30 секунди")), 30);
+        assert_eq!(parse_relative_time(Some("пред 5 минути")), 300);
+        assert_eq!(parse_relative_time(Some("пред 2 часа")), 7200);
+        assert_eq!(parse_relative_time(Some("пред 9 дена")), 777600);
+        assert_eq!(parse_relative_time(Some("пред 3 седмици")), 1814400);
+        assert_eq!(parse_relative_time(Some("пред 1 месец")), 2592000);
+        assert_eq!(parse_relative_time(Some("пред 1 година")), 31536000);
     }
 
     #[test]
     fn test_youtube_mongolian() {
-        assert_eq!(parse_relative_time(Some("9 өдрийн өмнө")), 12960);
-        assert_eq!(parse_relative_time(Some("3 долоо хоногийн өмнө")), 30240);
-        assert_eq!(parse_relative_time(Some("1 сарын өмнө")), 43200);
-        assert_eq!(parse_relative_time(Some("1 жилийн өмнө")), 525600);
+        assert_eq!(parse_relative_time(Some("30 секундын өмнө")), 30);
+        assert_eq!(parse_relative_time(Some("5 минутын өмнө")), 300);
+        assert_eq!(parse_relative_time(Some("2 цагийн өмнө")), 7200);
+        assert_eq!(parse_relative_time(Some("9 өдрийн өмнө")), 777600);
+        assert_eq!(parse_relative_time(Some("3 долоо хоногийн өмнө")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 сарын өмнө")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 жилийн өмнө")), 31536000);
     }
 
     #[test]
     fn test_youtube_russian() {
-        assert_eq!(parse_relative_time(Some("9 дней назад")), 12960);
-        assert_eq!(parse_relative_time(Some("3 недели назад")), 30240);
-        assert_eq!(parse_relative_time(Some("1 месяц назад")), 43200);
-        assert_eq!(parse_relative_time(Some("1 год назад")), 525600);
+        assert_eq!(parse_relative_time(Some("30 секунду назад")), 30);
+        assert_eq!(parse_relative_time(Some("5 минут назад")), 300);
+        assert_eq!(parse_relative_time(Some("2 часа назад")), 7200);
+        assert_eq!(parse_relative_time(Some("9 дней назад")), 777600);
+        assert_eq!(parse_relative_time(Some("3 недели назад")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 месяц назад")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 год назад")), 31536000);
     }
 
     #[test]
     fn test_youtube_serbian() {
-        assert_eq!(parse_relative_time(Some("пре 9 дана")), 12960);
-        assert_eq!(parse_relative_time(Some("пре 3 недеље")), 30240);
-        assert_eq!(parse_relative_time(Some("пре 1 месеца")), 43200);
-        assert_eq!(parse_relative_time(Some("пре 1 године")), 525600);
+        assert_eq!(parse_relative_time(Some("пре 30 секунде")), 30);
+        assert_eq!(parse_relative_time(Some("пре 5 минута")), 300);
+        assert_eq!(parse_relative_time(Some("пре 2 сата")), 7200);
+        assert_eq!(parse_relative_time(Some("пре 9 дана")), 777600);
+        assert_eq!(parse_relative_time(Some("пре 3 недеље")), 1814400);
+        assert_eq!(parse_relative_time(Some("пре 1 месеца")), 2592000);
+        assert_eq!(parse_relative_time(Some("пре 1 године")), 31536000);
     }
 
     #[test]
     fn test_youtube_ukrainian() {
-        assert_eq!(parse_relative_time(Some("9 днів тому")), 12960);
-        assert_eq!(parse_relative_time(Some("3 тижні тому")), 30240);
-        assert_eq!(parse_relative_time(Some("1 місяць тому")), 43200);
-        assert_eq!(parse_relative_time(Some("1 рік тому")), 525600);
+        assert_eq!(parse_relative_time(Some("30 секунди тому")), 30);
+        assert_eq!(parse_relative_time(Some("5 хвилин тому")), 300);
+        assert_eq!(parse_relative_time(Some("2 годин тому")), 7200);
+        assert_eq!(parse_relative_time(Some("9 днів тому")), 777600);
+        assert_eq!(parse_relative_time(Some("3 тижні тому")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 місяць тому")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 рік тому")), 31536000);
     }
 
     #[test]
     fn test_youtube_kazakh() {
-        assert_eq!(parse_relative_time(Some("9 күн бұрын")), 12960);
-        assert_eq!(parse_relative_time(Some("3 апта бұрын")), 30240);
-        assert_eq!(parse_relative_time(Some("1 ай бұрын")), 43200);
-        assert_eq!(parse_relative_time(Some("1 жыл бұрын")), 525600);
+        assert_eq!(parse_relative_time(Some("30 секунд бұрын")), 30);
+        assert_eq!(parse_relative_time(Some("5 минут бұрын")), 300);
+        assert_eq!(parse_relative_time(Some("2 сағат бұрын")), 7200);
+        assert_eq!(parse_relative_time(Some("9 күн бұрын")), 777600);
+        assert_eq!(parse_relative_time(Some("3 апта бұрын")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 ай бұрын")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 жыл бұрын")), 31536000);
     }
 
     #[test]
     fn test_youtube_armenian() {
-        assert_eq!(parse_relative_time(Some("9 օր առաջ")), 12960);
-        assert_eq!(parse_relative_time(Some("3 շաբաթ առաջ")), 30240);
-        assert_eq!(parse_relative_time(Some("1 ամիս առաջ")), 43200);
-        assert_eq!(parse_relative_time(Some("1 տարի առաջ")), 525600);
+        assert_eq!(parse_relative_time(Some("30 վայրկան առաջ")), 30);
+        assert_eq!(parse_relative_time(Some("5 րոպե առաջ")), 300);
+        assert_eq!(parse_relative_time(Some("2 ժամ առաջ")), 7200);
+        assert_eq!(parse_relative_time(Some("9 օր առաջ")), 777600);
+        assert_eq!(parse_relative_time(Some("3 շաբաթ առաջ")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 ամիս առաջ")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 տարի առաջ")), 31536000);
     }
 
     #[test]
     fn test_youtube_hebrew() {
-        assert_eq!(parse_relative_time(Some("לפני 9 ימים")), 12960);
-        assert_eq!(parse_relative_time(Some("לפני 3 שבועות")), 30240);
-        assert_eq!(parse_relative_time(Some("לפני חודש (1)")), 43200);
-        assert_eq!(parse_relative_time(Some("לפני שנה")), 525600);
+        assert_eq!(parse_relative_time(Some("לפני 30 שניות")), 30);
+        assert_eq!(parse_relative_time(Some("לפני 5 דקות")), 300);
+        assert_eq!(parse_relative_time(Some("לפני 2 שעות")), 7200);
+        assert_eq!(parse_relative_time(Some("לפני 9 ימים")), 777600);
+        assert_eq!(parse_relative_time(Some("לפני 3 שבועות")), 1814400);
+        assert_eq!(parse_relative_time(Some("לפני חודש (1)")), 2592000);
+        assert_eq!(parse_relative_time(Some("לפני שנה")), 31536000);
     }
 
     #[test]
     fn test_youtube_urdu() {
-        assert_eq!(parse_relative_time(Some("9 دنوں پہلے")), 12960);
-        assert_eq!(parse_relative_time(Some("3 ہفتے پہلے")), 30240);
-        assert_eq!(parse_relative_time(Some("1 مہینہ پہلے")), 43200);
-        assert_eq!(parse_relative_time(Some("1 سال پہلے")), 525600);
+        assert_eq!(parse_relative_time(Some("30 سیکنڈ پہلے")), 30);
+        assert_eq!(parse_relative_time(Some("5 منٹ پہلے")), 300);
+        assert_eq!(parse_relative_time(Some("2 گھنٹے پہلے")), 7200);
+        assert_eq!(parse_relative_time(Some("9 دنوں پہلے")), 777600);
+        assert_eq!(parse_relative_time(Some("3 ہفتے پہلے")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 مہینہ پہلے")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 سال پہلے")), 31536000);
     }
 
     #[test]
     fn test_youtube_arabic() {
-        assert_eq!(parse_relative_time(Some("قبل 9 أيام")), 12960);
-        assert_eq!(parse_relative_time(Some("قبل 3 أسابيع")), 30240);
-        assert_eq!(parse_relative_time(Some("قبل شهر واحد")), 43200);
-        assert_eq!(parse_relative_time(Some("قبل سنة واحدة")), 525600);
+        assert_eq!(parse_relative_time(Some("قبل 30 ثانية")), 30);
+        assert_eq!(parse_relative_time(Some("قبل 5 دقائق")), 300);
+        assert_eq!(parse_relative_time(Some("قبل 2 ساعات")), 7200);
+        assert_eq!(parse_relative_time(Some("قبل 9 أيام")), 777600);
+        assert_eq!(parse_relative_time(Some("قبل 3 أسابيع")), 1814400);
+        assert_eq!(parse_relative_time(Some("قبل شهر واحد")), 2592000);
+        assert_eq!(parse_relative_time(Some("قبل سنة واحدة")), 31536000);
     }
 
     #[test]
     fn test_youtube_marathi() {
-        assert_eq!(parse_relative_time(Some("9 दिवसांपूर्वी")), 12960);
-        assert_eq!(parse_relative_time(Some("3 आठवड्यांपूर्वी")), 30240);
-        assert_eq!(parse_relative_time(Some("1 महिन्यापूर्वी")), 43200);
-        assert_eq!(parse_relative_time(Some("1 वर्षापूर्वी")), 525600);
+        assert_eq!(parse_relative_time(Some("30 सेकंद पूर्वी")), 30);
+        assert_eq!(parse_relative_time(Some("5 मिनिटे पूर्वी")), 300);
+        assert_eq!(parse_relative_time(Some("2 तास पूर्वी")), 7200);
+        assert_eq!(parse_relative_time(Some("9 दिवसांपूर्वी")), 777600);
+        assert_eq!(parse_relative_time(Some("3 आठवड्यांपूर्वी")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 महिन्यापूर्वी")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 वर्षापूर्वी")), 31536000);
     }
 
     #[test]
     fn test_youtube_hindi() {
-        assert_eq!(parse_relative_time(Some("9 दिन पहले")), 12960);
-        assert_eq!(parse_relative_time(Some("3 सप्ताह पहले")), 30240);
-        assert_eq!(parse_relative_time(Some("1 माह पहले")), 43200);
-        assert_eq!(parse_relative_time(Some("1 वर्ष पहले")), 525600);
+        assert_eq!(parse_relative_time(Some("30 सेकंड पहले")), 30);
+        assert_eq!(parse_relative_time(Some("5 मिनट पहले")), 300);
+        assert_eq!(parse_relative_time(Some("2 घंटे पहले")), 7200);
+        assert_eq!(parse_relative_time(Some("9 दिन पहले")), 777600);
+        assert_eq!(parse_relative_time(Some("3 सप्ताह पहले")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 माह पहले")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 वर्ष पहले")), 31536000);
     }
 
     #[test]
     fn test_youtube_bengali() {
-        assert_eq!(parse_relative_time(Some("9 দিন আগে")), 12960);
-        assert_eq!(parse_relative_time(Some("3 সপ্তাহ আগে")), 30240);
-        assert_eq!(parse_relative_time(Some("1 মাস আগে")), 43200);
-        assert_eq!(parse_relative_time(Some("1 বছর পূর্বে")), 525600);
+        assert_eq!(parse_relative_time(Some("30 সেকেন্ড আগে")), 30);
+        assert_eq!(parse_relative_time(Some("5 মিনিট আগে")), 300);
+        assert_eq!(parse_relative_time(Some("2 ঘন্টা আগে")), 7200);
+        assert_eq!(parse_relative_time(Some("9 দিন আগে")), 777600);
+        assert_eq!(parse_relative_time(Some("3 সপ্তাহ আগে")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 মাস আগে")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 বছর পূর্বে")), 31536000);
     }
 
     #[test]
     fn test_youtube_punjabi() {
-        assert_eq!(parse_relative_time(Some("9 ਦਿਨ ਪਹਿਲਾਂ")), 12960);
-        assert_eq!(parse_relative_time(Some("3 ਹਫ਼ਤੇ ਪਹਿਲਾਂ")), 30240);
-        assert_eq!(parse_relative_time(Some("1 ਮਹੀਨਾ ਪਹਿਲਾਂ")), 43200);
-        assert_eq!(parse_relative_time(Some("1 ਸਾਲ ਪਹਿਲਾਂ")), 525600);
+        assert_eq!(parse_relative_time(Some("30 ਸਕਿੰਟ ਪਹਿਲਾਂ")), 30);
+        assert_eq!(parse_relative_time(Some("5 ਮਿੰਟ ਪਹਿਲਾਂ")), 300);
+        assert_eq!(parse_relative_time(Some("2 ਘੰਟੇ ਪਹਿਲਾਂ")), 7200);
+        assert_eq!(parse_relative_time(Some("9 ਦਿਨ ਪਹਿਲਾਂ")), 777600);
+        assert_eq!(parse_relative_time(Some("3 ਹਫ਼ਤੇ ਪਹਿਲਾਂ")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 ਮਹੀਨਾ ਪਹਿਲਾਂ")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 ਸਾਲ ਪਹਿਲਾਂ")), 31536000);
     }
 
     #[test]
     fn test_youtube_gujarati() {
-        assert_eq!(parse_relative_time(Some("9 દિવસ પહેલાં")), 12960);
-        assert_eq!(parse_relative_time(Some("3 અઠવાડિયા પહેલાં")), 30240);
-        assert_eq!(parse_relative_time(Some("1 મહિના પહેલાં")), 43200);
-        assert_eq!(parse_relative_time(Some("1 વર્ષ પહેલાં")), 525600);
+        assert_eq!(parse_relative_time(Some("30 સેકંડ પહેલાં")), 30);
+        assert_eq!(parse_relative_time(Some("5 મિનિટ પહેલાં")), 300);
+        assert_eq!(parse_relative_time(Some("2 કલાક પહેલાં")), 7200);
+        assert_eq!(parse_relative_time(Some("9 દિવસ પહેલાં")), 777600);
+        assert_eq!(parse_relative_time(Some("3 અઠવાડિયા પહેલાં")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 મહિના પહેલાં")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 વર્ષ પહેલાં")), 31536000);
     }
 
     #[test]
     fn test_youtube_tamil() {
-        assert_eq!(parse_relative_time(Some("9 நாட்களுக்கு முன்")), 12960);
-        assert_eq!(parse_relative_time(Some("3 வாரங்களுக்கு முன்")), 30240);
-        assert_eq!(parse_relative_time(Some("1 மாதத்துக்கு முன்")), 43200);
-        assert_eq!(parse_relative_time(Some("1 ஆண்டிற்கு முன்")), 525600);
+        assert_eq!(parse_relative_time(Some("30 வினாடி முன்")), 30);
+        assert_eq!(parse_relative_time(Some("5 நிமிடம் முன்")), 300);
+        assert_eq!(parse_relative_time(Some("2 மணிநேரம் முன்")), 7200);
+        assert_eq!(parse_relative_time(Some("9 நாட்களுக்கு முன்")), 777600);
+        assert_eq!(parse_relative_time(Some("3 வாரங்களுக்கு முன்")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 மாதத்துக்கு முன்")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 ஆண்டிற்கு முன்")), 31536000);
     }
 
     #[test]
     fn test_youtube_telugu() {
-        assert_eq!(parse_relative_time(Some("9 రోజుల క్రితం")), 12960);
-        assert_eq!(parse_relative_time(Some("3 వారాల క్రితం")), 30240);
-        assert_eq!(parse_relative_time(Some("1 నెల క్రితం")), 43200);
-        assert_eq!(parse_relative_time(Some("1 సంవత్సరం క్రితం")), 525600);
+        assert_eq!(parse_relative_time(Some("30 సెకను క్రితం")), 30);
+        assert_eq!(parse_relative_time(Some("5 నిమిషం క్రితం")), 300);
+        assert_eq!(parse_relative_time(Some("2 గంట క్రితం")), 7200);
+        assert_eq!(parse_relative_time(Some("9 రోజుల క్రితం")), 777600);
+        assert_eq!(parse_relative_time(Some("3 వారాల క్రితం")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 నెల క్రితం")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 సంవత్సరం క్రితం")), 31536000);
     }
 
     #[test]
     fn test_youtube_thai() {
-        assert_eq!(parse_relative_time(Some("9 วันที่ผ่านมา")), 12960);
-        assert_eq!(parse_relative_time(Some("3 สัปดาห์ที่ผ่านมา")), 30240);
-        assert_eq!(parse_relative_time(Some("1 เดือนที่ผ่านมา")), 43200);
-        assert_eq!(parse_relative_time(Some("1 ปีที่แล้ว")), 525600);
+        assert_eq!(parse_relative_time(Some("30 วินาที ที่แล้ว")), 30);
+        assert_eq!(parse_relative_time(Some("5 นาที ที่แล้ว")), 300);
+        assert_eq!(parse_relative_time(Some("2 ชั่วโมง ที่แล้ว")), 7200);
+        assert_eq!(parse_relative_time(Some("9 วันที่ผ่านมา")), 777600);
+        assert_eq!(parse_relative_time(Some("3 สัปดาห์ที่ผ่านมา")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 เดือนที่ผ่านมา")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 ปีที่แล้ว")), 31536000);
     }
 
     #[test]
     fn test_youtube_georgian() {
-        assert_eq!(parse_relative_time(Some("9 დღის წინ")), 12960);
-        assert_eq!(parse_relative_time(Some("3 კვირის წინ")), 30240);
-        assert_eq!(parse_relative_time(Some("1 თვის წინ")), 43200);
-        assert_eq!(parse_relative_time(Some("1 წლის წინ")), 525600);
+        assert_eq!(parse_relative_time(Some("30 წამის წინ")), 30);
+        assert_eq!(parse_relative_time(Some("5 წუთის წინ")), 300);
+        assert_eq!(parse_relative_time(Some("2 საათის წინ")), 7200);
+        assert_eq!(parse_relative_time(Some("9 დღის წინ")), 777600);
+        assert_eq!(parse_relative_time(Some("3 კვირის წინ")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 თვის წინ")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 წლის წინ")), 31536000);
     }
 
     #[test]
     fn test_youtube_chinese() {
-        assert_eq!(parse_relative_time(Some("9天前")), 12960);
-        assert_eq!(parse_relative_time(Some("3周前")), 30240);
-        assert_eq!(parse_relative_time(Some("1个月前")), 43200);
-        assert_eq!(parse_relative_time(Some("1年前")), 525600);
+        assert_eq!(parse_relative_time(Some("30秒前")), 30);
+        assert_eq!(parse_relative_time(Some("5分钟前")), 300);
+        assert_eq!(parse_relative_time(Some("2小时前")), 7200);
+        assert_eq!(parse_relative_time(Some("9天前")), 777600);
+        assert_eq!(parse_relative_time(Some("3周前")), 1814400);
+        assert_eq!(parse_relative_time(Some("1个月前")), 2592000);
+        assert_eq!(parse_relative_time(Some("1年前")), 31536000);
     }
 
     #[test]
     fn test_youtube_japanese() {
-        assert_eq!(parse_relative_time(Some("9 日前")), 12960);
-        assert_eq!(parse_relative_time(Some("3 週間前")), 30240);
-        assert_eq!(parse_relative_time(Some("1 か月前")), 43200);
-        assert_eq!(parse_relative_time(Some("1 年前")), 525600);
+        assert_eq!(parse_relative_time(Some("30 秒前")), 30);
+        assert_eq!(parse_relative_time(Some("5 分前")), 300);
+        assert_eq!(parse_relative_time(Some("2 時間前")), 7200);
+        assert_eq!(parse_relative_time(Some("9 日前")), 777600);
+        assert_eq!(parse_relative_time(Some("3 週間前")), 1814400);
+        assert_eq!(parse_relative_time(Some("1 か月前")), 2592000);
+        assert_eq!(parse_relative_time(Some("1 年前")), 31536000);
     }
 
     #[test]
     fn test_youtube_korean() {
-        assert_eq!(parse_relative_time(Some("9일 전")), 12960);
-        assert_eq!(parse_relative_time(Some("3주 전")), 30240);
-        assert_eq!(parse_relative_time(Some("1개월 전")), 43200);
-        assert_eq!(parse_relative_time(Some("1년 전")), 525600);
+        assert_eq!(parse_relative_time(Some("30초 전")), 30);
+        assert_eq!(parse_relative_time(Some("5분 전")), 300);
+        assert_eq!(parse_relative_time(Some("2시간 전")), 7200);
+        assert_eq!(parse_relative_time(Some("9일 전")), 777600);
+        assert_eq!(parse_relative_time(Some("3주 전")), 1814400);
+        assert_eq!(parse_relative_time(Some("1개월 전")), 2592000);
+        assert_eq!(parse_relative_time(Some("1년 전")), 31536000);
     }
 }
