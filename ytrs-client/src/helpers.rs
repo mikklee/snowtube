@@ -161,6 +161,16 @@ pub fn truncate_title(title: &str, max_chars: usize) -> String {
     }
 }
 
+/// Truncate title with different limits for CJK vs non-CJK text
+pub fn truncate_title_smart(title: &str, cjk_limit: usize, non_cjk_limit: usize) -> String {
+    let limit = if ytrs_lib::contains_asian_characters(title) {
+        cjk_limit
+    } else {
+        non_cjk_limit
+    };
+    truncate_title(title, limit)
+}
+
 /// Helper function to create a thumbnail element.
 /// If a video has been clicked, displays a 5-second countdown overlay
 /// with a gray background and "Waiting for required preload time" message.

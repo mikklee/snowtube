@@ -1,7 +1,7 @@
 //! Channels (subscriptions) view for the ytrs-client application
 
 use crate::App;
-use crate::helpers::{centered_grid_padding, create_thumbnail, truncate_title};
+use crate::helpers::{centered_grid_padding, create_thumbnail, fmt_num, truncate_title_smart};
 use crate::messages::Message;
 use crate::theme::rounded_button_style;
 use crate::widgets::{Wrap, bounceable_scrollable};
@@ -9,7 +9,7 @@ use iced::{
     Alignment::Center,
     Element, Length,
     widget::text::Shaping,
-    widget::{Image, button, column, container, row, text},
+    widget::{Image, button, column, container, row, text, tooltip},
 };
 use ytrs_lib::{format_relative_time, parse_relative_time};
 
@@ -145,18 +145,42 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 let is_playing = app.playing_video.as_ref() == Some(vid);
                 let thumb_with_overlay = create_thumbnail(thumb, is_playing, app.countdown_value);
 
-                let display_title = truncate_title(&video.title, 28);
+                let display_title = truncate_title_smart(&video.title, 70, 110);
+
+                // Build metadata line same as channel view
+                let mut meta = vec![];
+                if let Some(v) = video.view_count {
+                    meta.push(format!("{} views", fmt_num(v)));
+                }
+                if let Some(d) = &video.duration {
+                    meta.push(d.clone());
+                }
                 let seconds = parse_relative_time(video.published_text.as_deref());
                 let time_ago = format_relative_time(seconds);
+                meta.push(time_ago);
+
+                let title_widget = tooltip(
+                    text(display_title).size(14).shaping(Shaping::Advanced),
+                    container(text(&video.title).shaping(Shaping::Advanced))
+                        .style(container::dark)
+                        .padding(10),
+                    tooltip::Position::FollowCursor,
+                );
+
+                let info = column![
+                    title_widget,
+                    text(meta.join(" • ")).size(12).shaping(Shaping::Advanced)
+                ]
+                .spacing(4);
 
                 let card = column![
                     thumb_with_overlay,
-                    container(text(display_title).size(12))
-                        .padding(4)
-                        .width(240),
-                    text(time_ago).size(12).shaping(Shaping::Advanced)
+                    container(info)
+                        .padding(8)
+                        .width(240)
+                        .height(Length::Fixed(120.0))
                 ]
-                .spacing(2)
+                .spacing(0)
                 .width(240);
 
                 Some(

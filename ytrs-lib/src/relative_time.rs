@@ -858,17 +858,7 @@ fn get_cjk_keywords() -> &'static Vec<(&'static str, u64)> {
     })
 }
 
-/// Check if text contains CJK characters
-fn has_cjk(text: &str) -> bool {
-    text.chars().any(|c| {
-        matches!(c,
-            '\u{4E00}'..='\u{9FFF}' |   // CJK Unified Ideographs
-            '\u{3040}'..='\u{309F}' |   // Hiragana
-            '\u{30A0}'..='\u{30FF}' |   // Katakana
-            '\u{AC00}'..='\u{D7AF}'     // Hangul
-        )
-    })
-}
+use crate::utils::contains_asian_characters;
 
 /// Extract a number from text
 fn extract_number(text: &str) -> u64 {
@@ -932,7 +922,7 @@ pub fn parse_relative_time(text: Option<&str>) -> u64 {
     let num = if num == 0 { 1 } else { num };
 
     // Handle CJK with contains-based matching (longest match wins)
-    if has_cjk(text) {
+    if contains_asian_characters(text) {
         for (keyword, multiplier) in get_cjk_keywords() {
             if text.contains(keyword) {
                 return num * multiplier;

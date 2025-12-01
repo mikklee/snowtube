@@ -11,6 +11,7 @@ use iced::{
     Alignment, Element, Length, Padding,
     widget::{Image, button, column, container, lazy, row, stack, text, text_input},
 };
+use ytrs_lib::{format_relative_time, parse_relative_time};
 
 /// Render the search view
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -86,6 +87,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 // Clone all data for lazy closure (must be owned)
                 let view_count = r.view_count;
                 let duration = r.duration.clone();
+                let published_text = r.published_text.clone();
                 let title = r.title.clone();
                 let channel = r.channel.clone();
                 let is_playing = app.playing_video.as_ref() == Some(&vid);
@@ -105,6 +107,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
                         if let Some(ref d) = duration {
                             meta_parts.push(d.clone());
                         }
+                        let seconds = parse_relative_time(published_text.as_deref());
+                        let time_ago = format_relative_time(seconds);
+                        meta_parts.push(time_ago);
                         let metadata_text = if !meta_parts.is_empty() {
                             Some(meta_parts.join(" • "))
                         } else {
