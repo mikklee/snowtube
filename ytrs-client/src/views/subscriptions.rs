@@ -9,7 +9,7 @@ use iced::{
     Alignment::Center,
     Element, Length,
     widget::text::Shaping,
-    widget::{Image, button, column, container, row, text, tooltip},
+    widget::{Image, button, column, container, lazy, row, text, tooltip},
 };
 use ytrs_lib::{format_relative_time, parse_relative_time};
 
@@ -138,56 +138,73 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let video_cards: Vec<Element<Message>> = all_videos
             .into_iter()
             .filter_map(|video| {
-                let vid = video.video_id.as_ref()?;
-                let thumb_handle = app.thumbs.get(vid)?;
+                let vid = video.video_id.clone()?;
 
-                let thumb = Image::new(thumb_handle.clone()).width(240).height(135);
-                let is_playing = app.playing_video.as_ref() == Some(vid);
-                let thumb_with_overlay = create_thumbnail(thumb, is_playing, app.countdown_value);
+                // Only render videos if thumbnail is loaded
+                let thumb_handle = app.thumbs.get(&vid)?.clone();
 
-                let display_title = truncate_title_smart(&video.title, 70, 110);
+                // Clone all data for lazy closure (must be owned)
+                let view_count = video.view_count;
+                let duration = video.duration.clone();
+                let published_text = video.published_text.clone();
+                let title = video.title.clone();
+                let is_playing = app.playing_video.as_ref() == Some(&vid);
+                let countdown = app.countdown_value;
 
-                // Build metadata line same as channel view
-                let mut meta = vec![];
-                if let Some(v) = video.view_count {
-                    meta.push(format!("{} views", fmt_num(v)));
-                }
-                if let Some(d) = &video.duration {
-                    meta.push(d.clone());
-                }
-                let seconds = parse_relative_time(video.published_text.as_deref());
-                let time_ago = format_relative_time(seconds);
-                meta.push(time_ago);
-
-                let title_widget = tooltip(
-                    text(display_title).size(14).shaping(Shaping::Advanced),
-                    container(text(&video.title).shaping(Shaping::Advanced))
-                        .style(container::dark)
-                        .padding(10),
-                    tooltip::Position::FollowCursor,
-                );
-
-                let info = column![
-                    title_widget,
-                    text(meta.join(" • ")).size(12).shaping(Shaping::Advanced)
-                ]
-                .spacing(4);
-
-                let card = column![
-                    thumb_with_overlay,
-                    container(info)
-                        .padding(8)
-                        .width(240)
-                        .height(Length::Fixed(120.0))
-                ]
-                .spacing(0)
-                .width(240);
-
+                // Lazy widget caches rendering - only rebuilds when (vid, is_playing, countdown) changes
                 Some(
-                    button(card)
-                        .on_press(Message::Play(vid.clone()))
-                        .padding(0)
-                        .into(),
+                    lazy((vid.clone(), is_playing, countdown), move |_| {
+                        let thumb = Image::new(thumb_handle.clone()).width(240).height(135);
+                        let thumb_with_overlay = create_thumbnail(thumb, is_playing, countdown);
+
+                        let display_title = truncate_title_smart(&title, 70, 110);
+
+                        // Build metadata line same as channel view
+                        let mut meta = vec![];
+                        if let Some(v) = view_count {
+                            meta.push(format!("{} views", fmt_num(v)));
+                        }
+                        if let Some(ref d) = duration {
+                            meta.push(d.clone());
+                        }
+                        let seconds = parse_relative_time(published_text.as_deref());
+                        let time_ago = format_relative_time(seconds);
+                        meta.push(time_ago);
+
+                        // Leak title for tooltip (same pattern as search view)
+                        let title_static: &'static str = Box::leak(title.clone().into_boxed_str());
+
+                        let title_widget = tooltip(
+                            text(display_title).size(14).shaping(Shaping::Advanced),
+                            container(text(title_static).shaping(Shaping::Advanced))
+                                .style(container::dark)
+                                .padding(10),
+                            tooltip::Position::FollowCursor,
+                        );
+
+                        let info = column![
+                            title_widget,
+                            text(meta.join(" • ")).size(12).shaping(Shaping::Advanced)
+                        ]
+                        .spacing(4);
+
+                        let card = column![
+                            thumb_with_overlay,
+                            container(info)
+                                .padding(8)
+                                .width(240)
+                                .height(Length::Fixed(120.0))
+                        ]
+                        .spacing(0)
+                        .width(240);
+
+                        let btn: Element<'static, Message> = button(card)
+                            .on_press(Message::Play(vid.clone()))
+                            .padding(0)
+                            .into();
+                        btn
+                    })
+                    .into(),
                 )
             })
             .collect();
