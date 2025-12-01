@@ -300,7 +300,7 @@ impl App {
                         // Update results (replace on first search, append on continuation/preload)
                         if !is_load_more && self.search_results.is_empty() {
                             self.search_results = new_results.clone();
-                            self.thumbs.clear();
+                            // Don't clear thumbs - they're cached to disk and shared across views
                         } else {
                             // Appending results (load more or preloading)
                             self.search_results.extend(new_results.clone());
@@ -1196,14 +1196,26 @@ impl App {
             Message::SubscriptionVideosCacheLoaded(result) => {
                 match result {
                     Ok(cache) => {
-                        // Populate subscription_videos from cache
+                        eprintln!(
+                            "Loaded subscription video cache with {} channels",
+                            cache.channels.len()
+                        );
+                        // Populate subscription_videos from cache and collect videos for thumbnail loading
+                        let mut all_videos: Vec<SearchResult> = Vec::new();
                         for (channel_id, cached) in &cache.channels {
+                            eprintln!("  - Channel {}: {} videos", channel_id, cached.videos.len());
+                            all_videos.extend(cached.videos.clone());
                             self.subscription_videos
                                 .insert(channel_id.clone(), cached.videos.clone());
                         }
                         self.subscription_videos_cache = cache;
+
+                        // Load thumbnails for cached videos
+                        let thumb_tasks = helpers::create_thumbnail_tasks(&all_videos);
+
                         // Now fetch stale videos
-                        self.fetch_stale_subscription_videos()
+                        let fetch_task = self.fetch_stale_subscription_videos();
+                        Task::batch(thumb_tasks).chain(fetch_task)
                     }
                     Err(e) => {
                         eprintln!("Failed to load subscription video cache: {}", e);
@@ -1234,18 +1246,31 @@ impl App {
                             },
                         );
 
-                        // Save cache to disk
-                        let cache = self.subscription_videos_cache.clone();
-                        let save_task =
-                            Task::perform(async move { cache.save().await }, |_| Message::NoOp);
-
                         self.subscription_videos.insert(channel_id, videos);
+
+                        // Save cache to disk only when all channels are done loading
+                        let save_task = if self.subscription_videos_loading.is_empty() {
+                            eprintln!(
+                                "All channels loaded, saving cache with {} channels",
+                                self.subscription_videos_cache.channels.len()
+                            );
+                            let cache = self.subscription_videos_cache.clone();
+                            Task::perform(async move { cache.save().await }, |_| Message::NoOp)
+                        } else {
+                            Task::none()
+                        };
 
                         Task::batch(thumb_tasks).chain(save_task)
                     }
                     Err(e) => {
                         eprintln!("Failed to load videos for channel {}: {}", channel_id, e);
-                        Task::none()
+                        // Save cache when all done, even if some failed
+                        if self.subscription_videos_loading.is_empty() {
+                            let cache = self.subscription_videos_cache.clone();
+                            Task::perform(async move { cache.save().await }, |_| Message::NoOp)
+                        } else {
+                            Task::none()
+                        }
                     }
                 }
             }
