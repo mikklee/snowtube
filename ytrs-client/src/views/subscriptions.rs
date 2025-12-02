@@ -5,6 +5,7 @@ use crate::helpers::{centered_grid_padding, create_thumbnail, fmt_num, truncate_
 use crate::messages::Message;
 use crate::theme::rounded_button_style;
 use crate::widgets::{Wrap, bounceable_scrollable};
+use iced::Padding;
 use iced::{
     Alignment::Center,
     Element, Length,
@@ -105,15 +106,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .collect();
 
         let left_column = bounceable_scrollable(
-            container(column(channel_cards).spacing(15.0)).padding(iced::Padding {
-                top: 20.0,
-                bottom: 100.0,
-                left: 10.0,
-                right: 10.0,
-            }),
+            container(column(channel_cards).spacing(15.0))
+                .padding(iced::Padding {
+                    top: 20.0,
+                    bottom: 100.0,
+                    left: 20.0,
+                    right: 0.0,
+                })
+                .align_x(Center),
         )
         .id("subscriptions-channels")
-        .width(Length::Fixed(160.0));
+        .width(Length::Fixed(190.0));
 
         // RIGHT COLUMN: Video grid (like search/channel view)
         // Collect all videos and sort by publish date (newest first)
@@ -215,8 +218,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
         const CARD_SPACING: f32 = 15.0;
         let videos_width = app.window_width - 160.0; // subtract left column width
 
-        let grid_padding =
+        let centered_grid_padding =
             centered_grid_padding(videos_width, CARD_WIDTH, CARD_SPACING, 20.0, 20.0, 100.0);
+        let grid_padding = Padding {
+            // We basically have to remove 20.0 padding on each side of the video column to compensate for the 20.0 + 20.0 R/L padding of the channels column.
+            left: centered_grid_padding.left - 20.0,
+            right: centered_grid_padding.right - 20.0,
+            ..centered_grid_padding
+        };
 
         let right_column: Element<Message> = if video_cards.is_empty() {
             if subscribed_channels
