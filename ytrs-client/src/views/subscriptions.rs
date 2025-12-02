@@ -108,7 +108,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let left_column = bounceable_scrollable(
             container(column(channel_cards).spacing(15.0))
                 .padding(iced::Padding {
-                    top: 20.0,
+                    top: 10.0,
                     bottom: 100.0,
                     left: 20.0,
                     right: 0.0,
