@@ -306,14 +306,22 @@ impl App {
                             self.search_results.extend(new_results.clone());
                         }
 
-                        // Auto-preload: fetch 3 pages (90 results) before showing content
-                        const TARGET_PRELOAD_PAGES: usize = 3;
+                        // Auto-preload: fetch more pages until we have enough displayable results
+                        // (after filtering out shorts and premium videos)
+                        const MIN_DISPLAYABLE_RESULTS: usize = 60;
+
+                        // Count displayable results (not shorts, not premium)
+                        let displayable_count = self
+                            .search_results
+                            .iter()
+                            .filter(|r| r.is_premium != Some(true) && r.is_short != Some(true))
+                            .count();
 
                         if self.search_preloading {
                             self.search_preload_count += 1;
 
-                            // If we haven't reached target and have continuation, auto-load more
-                            if self.search_preload_count < TARGET_PRELOAD_PAGES
+                            // Keep fetching if we don't have enough displayable results and have continuation
+                            if displayable_count < MIN_DISPLAYABLE_RESULTS
                                 && self.search_continuation.is_some()
                             {
                                 let token = self.search_continuation.as_ref().unwrap().clone();

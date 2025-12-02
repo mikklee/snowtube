@@ -44,6 +44,8 @@ pub struct SearchResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_premium: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_short: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub badges: Option<Vec<String>>,
 }
 

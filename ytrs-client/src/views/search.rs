@@ -75,8 +75,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .search_results
             .iter()
             .filter(|r| {
-                // Filter out premium/members-only videos (keep videos where is_premium is NOT true)
-                r.is_premium != Some(true)
+                // Filter out premium/members-only videos and Shorts
+                r.is_premium != Some(true) && r.is_short != Some(true)
             })
             .filter_map(|r| {
                 let vid = r.video_id.clone()?;
@@ -168,8 +168,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
         ]
         .align_x(Alignment::Center);
 
-        // Show "Load More" button or loading indicator
-        if app.search_loading_more {
+        // Show "Load More" button or loading indicator (hide while preloading)
+        if app.search_loading_more || app.search_preloading {
             let loading_indicator = container(text("Loading more...").size(14))
                 .padding(20)
                 .center_x(Length::Fill);

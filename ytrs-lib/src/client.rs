@@ -217,6 +217,7 @@ impl InnerTube {
                             published_text: None,
                             thumbnails: vec![],
                             is_premium: None,
+                            is_short: None,
                             badges: None,
                         });
                     }
