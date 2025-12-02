@@ -137,6 +137,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
         let video_cards: Vec<Element<Message>> = all_videos
             .into_iter()
+            .filter(|video| video.is_premium != Some(true))
             .filter_map(|video| {
                 let vid = video.video_id.clone()?;
 
