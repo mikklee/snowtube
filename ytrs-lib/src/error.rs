@@ -39,4 +39,16 @@ pub enum Error {
     /// Other errors
     #[error("{0}")]
     Other(String),
+
+    /// Parse error
+    #[error("Parse error: {0}")]
+    Parse(String),
+
+    /// Request error (non-reqwest)
+    #[error("Request error: {0}")]
+    Request(String),
+
+    /// Cipher/decryption error
+    #[error("Cipher error: {0}")]
+    Cipher(String),
 }

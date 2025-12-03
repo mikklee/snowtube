@@ -24,6 +24,7 @@
 //! }
 //! ```
 
+pub mod cipher;
 mod client;
 mod constants;
 mod error;
