@@ -1,7 +1,9 @@
 //! Channels (subscriptions) view for the ytrs-client application
 
 use crate::App;
-use crate::helpers::{centered_grid_padding, create_thumbnail, fmt_num, truncate_title_smart};
+use crate::helpers::{
+    ChannelInfo, centered_grid_padding, create_thumbnail, create_video_tile, fmt_num,
+};
 use crate::messages::Message;
 use crate::theme::rounded_button_style;
 use crate::widgets::{Wrap, bounceable_scrollable};
@@ -10,7 +12,7 @@ use iced::{
     Alignment::Center,
     Element, Length,
     widget::text::Shaping,
-    widget::{Image, button, column, container, lazy, row, text, tooltip},
+    widget::{Image, button, column, container, lazy, row, text},
 };
 use ytrs_lib::{format_relative_time, parse_relative_time};
 
@@ -119,29 +121,35 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .width(Length::Fixed(190.0));
 
         // RIGHT COLUMN: Video grid (like search/channel view)
-        // Collect all videos and sort by publish date (newest first)
+        // Collect all videos with their channel info and sort by publish date (newest first)
         let mut all_videos: Vec<_> = subscribed_channels
             .iter()
             .flat_map(|channel_config| {
-                let channel_id = &channel_config.channel_id;
+                let channel_id = channel_config.channel_id.clone();
+                let channel_name = channel_config.channel_name.clone();
                 app.subscription_videos
-                    .get(channel_id)
-                    .map(|videos| videos.iter().collect::<Vec<_>>())
+                    .get(&channel_id)
+                    .map(|videos| {
+                        videos
+                            .iter()
+                            .map(|v| (v, channel_id.clone(), channel_name.clone()))
+                            .collect::<Vec<_>>()
+                    })
                     .unwrap_or_default()
             })
             .collect();
 
         // Sort by published_text (parse relative time)
         all_videos.sort_by(|a, b| {
-            let a_mins = parse_relative_time(a.published_text.as_deref());
-            let b_mins = parse_relative_time(b.published_text.as_deref());
+            let a_mins = parse_relative_time(a.0.published_text.as_deref());
+            let b_mins = parse_relative_time(b.0.published_text.as_deref());
             a_mins.cmp(&b_mins) // smaller = more recent
         });
 
         let video_cards: Vec<Element<Message>> = all_videos
             .into_iter()
-            .filter(|video| video.is_premium != Some(true))
-            .filter_map(|video| {
+            .filter(|(video, _, _)| video.is_premium != Some(true))
+            .filter_map(|(video, channel_id, channel_name)| {
                 let vid = video.video_id.clone()?;
 
                 // Only render videos if thumbnail is loaded
@@ -161,8 +169,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
                         let thumb = Image::new(thumb_handle.clone()).width(240).height(135);
                         let thumb_with_overlay = create_thumbnail(thumb, is_playing, countdown);
 
-                        let display_title = truncate_title_smart(&title, 70, 110);
-
                         // Build metadata line same as channel view
                         let mut meta = vec![];
                         if let Some(v) = view_count {
@@ -174,39 +180,25 @@ pub fn view(app: &App) -> Element<'_, Message> {
                         let seconds = parse_relative_time(published_text.as_deref());
                         let time_ago = format_relative_time(seconds);
                         meta.push(time_ago);
+                        let metadata_text = if !meta.is_empty() {
+                            Some(meta.join(" • "))
+                        } else {
+                            None
+                        };
 
-                        // Leak title for tooltip (same pattern as search view)
-                        let title_static: &'static str = Box::leak(title.clone().into_boxed_str());
+                        // Build channel info using channel_id and channel_name from config
+                        let channel_info = Some(ChannelInfo {
+                            name: &*Box::leak(channel_name.clone().into_boxed_str()),
+                            on_press: Some(Message::ViewChannel(channel_id.clone())),
+                        });
 
-                        let title_widget = tooltip(
-                            text(display_title).size(14).shaping(Shaping::Advanced),
-                            container(text(title_static).shaping(Shaping::Advanced))
-                                .style(container::dark)
-                                .padding(10),
-                            tooltip::Position::FollowCursor,
-                        );
-
-                        let info = column![
-                            title_widget,
-                            text(meta.join(" • ")).size(12).shaping(Shaping::Advanced)
-                        ]
-                        .spacing(4);
-
-                        let card = column![
+                        create_video_tile(
                             thumb_with_overlay,
-                            container(info)
-                                .padding(8)
-                                .width(240)
-                                .height(Length::Fixed(120.0))
-                        ]
-                        .spacing(0)
-                        .width(240);
-
-                        let btn: Element<'static, Message> = button(card)
-                            .on_press(Message::Play(vid.clone()))
-                            .padding(0)
-                            .into();
-                        btn
+                            &title,
+                            channel_info,
+                            metadata_text,
+                            Message::Play(vid.clone()),
+                        )
                     })
                     .into(),
                 )

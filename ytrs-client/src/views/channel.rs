@@ -9,7 +9,7 @@ use iced::{
 use ytrs_lib::ChannelTab;
 
 use crate::App;
-use crate::helpers::{centered_grid_padding, create_thumbnail, fmt_num, truncate_title};
+use crate::helpers::{centered_grid_padding, create_thumbnail, fmt_num, truncate_title_smart};
 use crate::messages::Message;
 use crate::theme::{rounded_button_style, rounded_combo_box_style, rounded_pick_list_style};
 use crate::widgets::{Wrap, bounceable_scrollable};
@@ -210,7 +210,7 @@ pub fn view(
                 }
 
                 let full_title = r.title.clone();
-                let display_title = truncate_title(&r.title, 25);
+                let display_title = truncate_title_smart(&r.title, 25, 50);
 
                 let title_widget = iced::widget::tooltip(
                     text(display_title).size(14),

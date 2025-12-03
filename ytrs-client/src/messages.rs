@@ -47,7 +47,7 @@ pub enum Message {
     SubscribeToChannel,
     UnsubscribeFromChannel(String), // channel_id
     SubscriptionChannelThumbLoaded(String, Result<Vec<u8>, String>), // channel_id, thumb_data
-    SubscriptionVideosLoaded(String, Result<ChannelVideos, String>), // channel_id, videos
+    SubscriptionVideosLoaded(String, String, Result<ChannelVideos, String>), // channel_id, channel_name, videos
     SubscriptionVideosCacheLoaded(Result<crate::config::SubscriptionVideoCache, String>),
     RefreshSubscriptionVideos,
     // No-op message for non-interactive elements

@@ -189,19 +189,20 @@ impl App {
                             .map(|l| (l.hl.clone(), l.gl.clone()))
                     })
                     .unwrap_or_else(|| ("en".to_string(), "US".to_string()));
-                (c.channel_id.clone(), hl, gl)
+                (c.channel_id.clone(), c.channel_name.clone(), hl, gl)
             })
             .collect();
 
         // Mark channels as loading
-        for (channel_id, _, _) in &channels_to_fetch {
+        for (channel_id, _, _, _) in &channels_to_fetch {
             self.subscription_videos_loading.insert(channel_id.clone());
         }
 
         let tasks: Vec<Task<Message>> = channels_to_fetch
             .into_iter()
-            .map(|(channel_id, hl, gl)| {
+            .map(|(channel_id, channel_name, hl, gl)| {
                 let channel_id_for_msg = channel_id.clone();
+                let channel_name_for_msg = channel_name.clone();
                 Task::perform(
                     async move {
                         let client = ytrs_lib::InnerTube::new()
@@ -217,7 +218,13 @@ impl App {
                             .await
                             .map_err(|e| e.to_string())
                     },
-                    move |res| Message::SubscriptionVideosLoaded(channel_id_for_msg, res),
+                    move |res| {
+                        Message::SubscriptionVideosLoaded(
+                            channel_id_for_msg,
+                            channel_name_for_msg,
+                            res,
+                        )
+                    },
                 )
             })
             .collect();
@@ -1212,9 +1219,34 @@ impl App {
                         let mut all_videos: Vec<SearchResult> = Vec::new();
                         for (channel_id, cached) in &cache.channels {
                             eprintln!("  - Channel {}: {} videos", channel_id, cached.videos.len());
-                            all_videos.extend(cached.videos.clone());
-                            self.subscription_videos
-                                .insert(channel_id.clone(), cached.videos.clone());
+                            // Look up channel name from config
+                            let channel_name = self
+                                .config
+                                .channels
+                                .iter()
+                                .find(|c| &c.channel_id == channel_id)
+                                .map(|c| c.channel_name.clone());
+                            // Populate channel info on videos if missing
+                            let videos: Vec<SearchResult> = cached
+                                .videos
+                                .iter()
+                                .cloned()
+                                .map(|mut v| {
+                                    if v.channel.is_none() {
+                                        if let Some(ref name) = channel_name {
+                                            v.channel = Some(ytrs_lib::Channel {
+                                                id: Some(channel_id.clone()),
+                                                name: name.clone(),
+                                                url: None,
+                                                thumbnail: None,
+                                            });
+                                        }
+                                    }
+                                    v
+                                })
+                                .collect();
+                            all_videos.extend(videos.clone());
+                            self.subscription_videos.insert(channel_id.clone(), videos);
                         }
                         self.subscription_videos_cache = cache;
 
@@ -1231,12 +1263,27 @@ impl App {
                     }
                 }
             }
-            Message::SubscriptionVideosLoaded(channel_id, result) => {
+            Message::SubscriptionVideosLoaded(channel_id, channel_name, result) => {
                 self.subscription_videos_loading.remove(&channel_id);
                 match result {
                     Ok(channel_videos) => {
-                        // Store full first page of videos
-                        let videos: Vec<SearchResult> = channel_videos.videos;
+                        // Store full first page of videos with channel info populated
+                        let videos: Vec<SearchResult> = channel_videos
+                            .videos
+                            .into_iter()
+                            .map(|mut v| {
+                                // Populate channel info if not present
+                                if v.channel.is_none() {
+                                    v.channel = Some(ytrs_lib::Channel {
+                                        id: Some(channel_id.clone()),
+                                        name: channel_name.clone(),
+                                        url: None,
+                                        thumbnail: None,
+                                    });
+                                }
+                                v
+                            })
+                            .collect();
 
                         // Load thumbnails for these videos
                         let thumb_tasks = helpers::create_thumbnail_tasks(&videos);

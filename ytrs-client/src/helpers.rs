@@ -150,7 +150,7 @@ pub fn centered_grid_padding(
 }
 
 /// Helper function to truncate title text with ellipsis
-pub fn truncate_title(title: &str, max_chars: usize) -> String {
+fn truncate_title(title: &str, max_chars: usize) -> String {
     if title.chars().count() > max_chars {
         format!(
             "{}...",
@@ -295,7 +295,7 @@ pub fn create_video_tile<'a>(
 
     // Create title with tooltip
     let full_title = title_text.to_string();
-    let display_title = truncate_title(title_text, 25);
+    let display_title = truncate_title_smart(title_text, 25, 50);
 
     let title_widget = tooltip(
         text(display_title).size(14).shaping(Shaping::Advanced),
