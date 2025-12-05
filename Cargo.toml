@@ -1,5 +1,5 @@
 [workspace]
-members = ["ytrs-lib", "ytrs-client", "iced_video_player"]
+members = ["ytrs-lib", "ytrs-client"]
 resolver = "2"
 
 [patch.crates-io]

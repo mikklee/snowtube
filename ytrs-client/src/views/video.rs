@@ -12,11 +12,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
         if let Some(ref video) = app.video {
             let is_paused = video.paused();
             let title = app.playing_video_title.as_deref();
+            let position = video.position();
+            let duration = video.duration();
             return video_with_controls_fullscreen(
                 video,
                 title,
                 is_paused,
                 app.video_controls_visible,
+                position,
+                duration,
             );
         } else {
             return container(text("No video loaded"))
@@ -32,11 +36,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     if let Some(ref video) = app.video {
         let is_paused = video.paused();
-        container(video_with_controls(video, title, is_paused, true))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center(Length::Fill)
-            .into()
+        let position = video.position();
+        let duration = video.duration();
+        container(video_with_controls(
+            video, title, is_paused, true, position, duration,
+        ))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center(Length::Fill)
+        .into()
     } else {
         container(text("No video loaded"))
             .width(Length::Fill)

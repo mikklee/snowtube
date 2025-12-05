@@ -66,4 +66,5 @@ pub enum Message {
     VideoError(String),
     VideoMouseMoved,      // Mouse moved over video - show controls
     VideoControlsTimeout, // Timer fired - hide controls if no recent activity
+    SeekVideo(f64),       // Seek to position (0.0 to 1.0 percentage)
 }

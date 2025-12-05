@@ -2,9 +2,10 @@
 
 use crate::messages::Message;
 use crate::widgets::glass::glass_container_style;
-use iced::widget::{button, column, container, row, stack, text};
+use iced::widget::{button, column, container, row, slider, stack, text};
 use iced::{Color, Element, Font, Length, Padding, Theme};
 use iced_video_player::{Video, VideoPlayer};
+use std::time::Duration;
 
 /// Nerd Font for icons
 const NERD_FONT: Font = Font {
@@ -97,8 +98,66 @@ fn control_button_style(
     }
 }
 
-/// Create the video control bar
-fn video_control_bar(is_paused: bool) -> Element<'static, Message> {
+/// Format duration as MM:SS or HH:MM:SS
+fn format_duration(duration: Duration) -> String {
+    let total_secs = duration.as_secs();
+    let hours = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+
+    if hours > 0 {
+        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{:02}:{:02}", minutes, seconds)
+    }
+}
+
+/// Custom slider style for progress bar
+fn progress_slider_style(theme: &Theme, status: slider::Status) -> slider::Style {
+    let palette = theme.palette();
+
+    let handle_color = match status {
+        slider::Status::Hovered | slider::Status::Dragged => palette.primary,
+        _ => Color {
+            r: palette.text.r,
+            g: palette.text.g,
+            b: palette.text.b,
+            a: 0.9,
+        },
+    };
+
+    slider::Style {
+        rail: slider::Rail {
+            backgrounds: (
+                iced::Background::Color(palette.primary),
+                iced::Background::Color(Color {
+                    r: palette.text.r,
+                    g: palette.text.g,
+                    b: palette.text.b,
+                    a: 0.2,
+                }),
+            ),
+            width: 4.0,
+            border: iced::Border {
+                radius: 2.0.into(),
+                ..Default::default()
+            },
+        },
+        handle: slider::Handle {
+            shape: slider::HandleShape::Circle { radius: 6.0 },
+            background: iced::Background::Color(handle_color),
+            border_width: 0.0,
+            border_color: Color::TRANSPARENT,
+        },
+    }
+}
+
+/// Create the video control bar with progress slider
+fn video_control_bar(
+    is_paused: bool,
+    position: Duration,
+    duration: Duration,
+) -> Element<'static, Message> {
     let play_pause_icon = if is_paused { '\u{f04b}' } else { '\u{f04c}' };
     let play_pause_label = if is_paused { "Play" } else { "Pause" };
 
@@ -114,9 +173,36 @@ fn video_control_bar(is_paused: bool) -> Element<'static, Message> {
 
     let buttons_row = row(buttons).spacing(0).width(Length::Fill);
 
-    let glass_bar = container(buttons_row)
-        .padding(Padding::new(8.0))
-        .max_width(400.0)
+    // Progress bar with time display
+    let progress_percent = if duration.as_secs_f64() > 0.0 {
+        (position.as_secs_f64() / duration.as_secs_f64()).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    let progress_row = row![
+        text(format_duration(position))
+            .size(12)
+            .width(Length::Shrink),
+        slider(0.0..=1.0, progress_percent, Message::SeekVideo)
+            .step(0.001)
+            .width(Length::Fill)
+            .style(progress_slider_style),
+        text(format_duration(duration))
+            .size(12)
+            .width(Length::Shrink),
+    ]
+    .spacing(10)
+    .align_y(iced::Alignment::Center)
+    .width(Length::Fill);
+
+    let controls_content = column![buttons_row, progress_row]
+        .spacing(8)
+        .width(Length::Fill);
+
+    let glass_bar = container(controls_content)
+        .padding(Padding::new(12.0))
+        .max_width(500.0)
         .width(Length::Fill)
         .style(glass_container_style);
 
@@ -143,6 +229,8 @@ pub fn video_with_controls<'a>(
     title: Option<&'a str>,
     is_paused: bool,
     show_controls: bool,
+    position: Duration,
+    duration: Duration,
 ) -> Element<'a, Message> {
     let (video_width, video_height) = video.size();
 
@@ -172,7 +260,7 @@ pub fn video_with_controls<'a>(
     // Controls overlay at bottom
     if show_controls {
         layers.push(
-            container(video_control_bar(is_paused))
+            container(video_control_bar(is_paused, position, duration))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .align_y(iced::alignment::Vertical::Bottom)
@@ -193,6 +281,8 @@ pub fn video_with_controls_fullscreen<'a>(
     title: Option<&'a str>,
     is_paused: bool,
     show_controls: bool,
+    position: Duration,
+    duration: Duration,
 ) -> Element<'a, Message> {
     let video_widget: Element<'a, Message> = VideoPlayer::new(video)
         .width(Length::Fill)
@@ -226,7 +316,7 @@ pub fn video_with_controls_fullscreen<'a>(
 
     if show_controls {
         layers.push(
-            container(video_control_bar(is_paused))
+            container(video_control_bar(is_paused, position, duration))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .align_y(iced::alignment::Vertical::Bottom)

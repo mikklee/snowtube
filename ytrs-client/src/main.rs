@@ -37,6 +37,13 @@ fn get_language_by_locale(hl: &str, gl: &str) -> Option<&'static LanguageOption>
 }
 
 fn main() -> iced::Result {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive(tracing::Level::INFO.into()),
+        )
+        .init();
+
     iced::application(App::new, App::update, App::view)
         .title(cosmic_title)
         .theme(app_theme)
@@ -1409,6 +1416,17 @@ impl App {
                         if last_move.elapsed() >= std::time::Duration::from_secs(3) {
                             self.video_controls_visible = false;
                         }
+                    }
+                }
+                Task::none()
+            }
+            Message::SeekVideo(percent) => {
+                if let Some(ref mut video) = self.video {
+                    let duration = video.duration();
+                    let target_nanos = (duration.as_secs_f64() * percent) * 1_000_000_000.0;
+                    let target = std::time::Duration::from_nanos(target_nanos as u64);
+                    if let Err(e) = video.seek(target, false) {
+                        tracing::error!("Failed to seek video: {:?}", e);
                     }
                 }
                 Task::none()

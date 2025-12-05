@@ -9,7 +9,7 @@ license = "GPL-3.0"
 [dependencies]
 ytrs-lib = { path = "../ytrs-lib" }
 iced = { git = "https://github.com/iced-rs/iced", branch = "master", features = ["tokio", "image", "lazy", "advanced", "wgpu", "debug"], default-features = false }
-iced_video_player = { path = "../iced_video_player" }
+iced_video_player = { path = "../../iced_video_player" }
 url = "2"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
@@ -23,3 +23,4 @@ snafu = "0.8"
 strum = { version = "0.27", features = ["derive"] }
 chrono = "0.4"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
