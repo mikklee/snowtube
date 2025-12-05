@@ -1323,16 +1323,102 @@ impl App {
                 self.previous_view = self.current_view;
                 self.current_view = View::Video;
 
-                // Use yt-dlp to stream video directly via stdout
+                // Use yt-dlp to get direct URL with headers for seekable playback
                 let url = format!("https://www.youtube.com/watch?v={}", video_id);
                 Task::perform(
                     async move {
-                        // Run blocking Video::from_ytdlp in a separate thread
-                        tokio::task::spawn_blocking(move || Video::from_ytdlp(&url))
-                            .await
-                            .map_err(|e| format!("Task join error: {}", e))?
-                            .map(std::sync::Arc::new)
-                            .map_err(|e| format!("Failed to start video: {:?}", e))
+                        tokio::task::spawn_blocking(move || {
+                            tracing::info!("Starting yt-dlp for URL: {}", url);
+
+                            // Get video URL and headers from yt-dlp
+                            let output = std::process::Command::new("yt-dlp")
+                                .args(["--dump-single-json", &url])
+                                .output()
+                                .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
+
+                            if !output.status.success() {
+                                let stderr = String::from_utf8_lossy(&output.stderr);
+                                tracing::error!("yt-dlp failed: {}", stderr);
+                                return Err(format!("yt-dlp failed: {}", stderr));
+                            }
+
+                            tracing::info!("yt-dlp completed, parsing JSON...");
+
+                            let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+                                .map_err(|e| format!("Failed to parse yt-dlp JSON: {}", e))?;
+
+                            // yt-dlp returns separate video/audio in requested_formats
+                            let requested_formats = json["requested_formats"]
+                                .as_array()
+                                .ok_or("No requested_formats in yt-dlp output")?;
+
+                            // Find video and audio streams
+                            let video_format = requested_formats
+                                .iter()
+                                .find(|f| {
+                                    f["vcodec"].as_str().map(|v| v != "none").unwrap_or(false)
+                                })
+                                .ok_or("No video format found")?;
+                            let audio_format = requested_formats
+                                .iter()
+                                .find(|f| {
+                                    f["acodec"].as_str().map(|a| a != "none").unwrap_or(false)
+                                })
+                                .ok_or("No audio format found")?;
+
+                            let video_url = video_format["url"]
+                                .as_str()
+                                .ok_or("No video URL")?
+                                .to_string();
+                            let audio_url = audio_format["url"]
+                                .as_str()
+                                .ok_or("No audio URL")?
+                                .to_string();
+
+                            tracing::info!(
+                                "Got video URL: {}...",
+                                &video_url[..100.min(video_url.len())]
+                            );
+                            tracing::info!(
+                                "Got audio URL: {}...",
+                                &audio_url[..100.min(audio_url.len())]
+                            );
+
+                            // Get headers from video format
+                            let headers_obj = video_format["http_headers"].as_object();
+                            let headers: Vec<(String, String)> = headers_obj
+                                .map(|h| {
+                                    h.iter()
+                                        .filter_map(|(k, v)| {
+                                            v.as_str().map(|s| (k.clone(), s.to_string()))
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+
+                            tracing::info!("Got {} headers", headers.len());
+
+                            let header_refs: Vec<(&str, &str)> = headers
+                                .iter()
+                                .map(|(k, v)| (k.as_str(), v.as_str()))
+                                .collect();
+
+                            tracing::info!("Creating video with from_url_with_headers...");
+
+                            let result =
+                                Video::from_url_with_headers(&video_url, &audio_url, &header_refs)
+                                    .map_err(|e| format!("Failed to start video: {:?}", e));
+
+                            match &result {
+                                Ok(_) => tracing::info!("Video created successfully"),
+                                Err(e) => tracing::error!("Video creation failed: {}", e),
+                            }
+
+                            result
+                        })
+                        .await
+                        .map_err(|e| format!("Task join error: {}", e))?
+                        .map(std::sync::Arc::new)
                     },
                     Message::VideoLoaded,
                 )

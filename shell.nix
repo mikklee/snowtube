@@ -21,6 +21,7 @@ in
       nixd
       pkg-config
       glib
+      glib-networking # TLS support for GIO/souphttpsrc
       gst_all_1.gstreamer
       gst_all_1.gst-plugins-base
       gst_all_1.gst-plugins-good
@@ -41,6 +42,8 @@ in
 
     shellHook = ''
       export PATH="$HOME/.cargo/bin:$PATH"
+      # Add glib-networking for TLS support in GIO/souphttpsrc
+      export GIO_EXTRA_MODULES="${pkgs.glib-networking}/lib/gio/modules:$GIO_EXTRA_MODULES"
     '';
   };
 }
