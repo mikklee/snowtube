@@ -5,13 +5,15 @@ mod theme;
 mod views;
 mod widgets;
 
+use iced_video_player::Video;
+
 use iced::widget::combo_box;
 use iced::{Element, Size, Subscription, Task, Theme, event};
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, OnceLock};
+
+use std::sync::OnceLock;
+use tracing::trace;
 use ytrs_lib::{
     ChannelInfo, ChannelTab, InnerTube, LanguageOption, SearchResult, SortFilter, get_all_languages,
 };
@@ -71,12 +73,10 @@ pub struct App {
     pub last_view_for_timing: Cell<Option<View>>, // Track last view to detect tab switches
     pub language_combo_state: combo_box::State<LanguageOption>,
     pub selected_language: Option<LanguageOption>, // User's manual language override (global)
-    pub playing_video: Option<String>,             // Currently playing video ID
-    pub countdown_value: u8,                       // Current countdown value (5, 4, 3, 2, 1, 0)
-    pub mpv_process: Arc<tokio::sync::Mutex<Option<std::process::Child>>>, // MPV process handle
-    pub config: AppConfig,                         // Persistent configuration
-    pub window_width: f32,                         // Current window width for responsive layout
-    pub current_theme: Theme,                      // Current theme
+
+    pub config: AppConfig,    // Persistent configuration
+    pub window_width: f32,    // Current window width for responsive layout
+    pub current_theme: Theme, // Current theme
     pub pending_thumb_updates: Vec<(String, Vec<u8>)>, // Batched thumbnail updates
     pub last_thumb_update: Option<std::time::Instant>, // Last time we processed thumb updates
 
@@ -102,6 +102,13 @@ pub struct App {
     pub channel_preloading: bool,
     pub available_sort_filters: Vec<SortFilter>,
     pub selected_sort_label: Option<String>,
+
+    // Video player state
+    pub video: Option<Video>,
+    pub playing_video_title: Option<String>,
+    pub video_fullscreen: bool,
+    pub video_controls_visible: bool,
+    pub video_last_mouse_move: Option<std::time::Instant>,
 }
 
 impl App {
@@ -121,9 +128,7 @@ impl App {
                 last_view_for_timing: Cell::new(None),
                 language_combo_state: combo_box::State::new(get_all_languages().to_vec()),
                 selected_language: None,
-                playing_video: None,
-                countdown_value: 0,
-                mpv_process: Arc::new(tokio::sync::Mutex::new(None)),
+
                 config: AppConfig::default(),
                 window_width: 800.0,
                 current_theme: AppTheme::default().to_iced_theme(),
@@ -152,6 +157,13 @@ impl App {
                 channel_preloading: false,
                 available_sort_filters: Vec::new(),
                 selected_sort_label: None,
+
+                // Video player state
+                video: None,
+                playing_video_title: None,
+                video_fullscreen: false,
+                video_controls_visible: true,
+                video_last_mouse_move: None,
             },
             // Load config asynchronously on startup
             Task::perform(
@@ -229,22 +241,11 @@ impl App {
             })
             .collect();
 
-        eprintln!(
-            "Fetching videos for {} stale subscription channels",
-            tasks.len()
-        );
         Task::batch(tasks)
     }
 
     fn update(&mut self, msg: Message) -> Task<Message> {
-        let _update_start = std::time::Instant::now();
-        let msg_name = format!("{:?}", msg)
-            .split('(')
-            .next()
-            .unwrap_or("Unknown")
-            .to_string();
-
-        let result = match msg {
+        match msg {
             Message::InputChanged(v) => {
                 self.query = v;
                 Task::none()
@@ -363,7 +364,7 @@ impl App {
                         Task::batch(helpers::create_thumbnail_tasks(&new_results))
                     }
                     Err(e) => {
-                        eprintln!("Error: {}", e);
+                        trace!("Search error: {:?}", e);
                         self.search_preloading = false;
                         self.searching = false;
                         self.search_loading_more = false;
@@ -404,75 +405,6 @@ impl App {
                     self.banner = Some(iced::widget::image::Handle::from_bytes(bytes));
                 }
                 Task::none()
-            }
-            Message::Play(id) => {
-                // Set up countdown state
-                self.playing_video = Some(id.clone());
-                self.countdown_value = 5;
-
-                // Start MPV playback in tokio spawn_blocking
-                let url = format!("https://www.youtube.com/watch?v={}", id);
-                let mpv_process = self.mpv_process.clone();
-
-                tokio::spawn(async move {
-                    // Kill previous MPV process if it exists
-                    let mut process_lock = mpv_process.lock().await;
-                    if let Some(mut process) = process_lock.take() {
-                        let _ = process.kill();
-                    }
-                    drop(process_lock);
-
-                    // Spawn new MPV process
-                    let result = tokio::task::spawn_blocking(move || {
-                        Command::new("mpv")
-                            .arg(&url)
-                            .arg("--ytdl=yes")
-                            .arg("--script-opts=ytdl_hook-ytdl_path=yt-dlp")
-                            .spawn()
-                    })
-                    .await;
-
-                    // Store the process handle
-                    if let Ok(Ok(child)) = result {
-                        let mut process_lock = mpv_process.lock().await;
-                        *process_lock = Some(child);
-                    }
-                });
-
-                // Start countdown timer
-                let video_id = id.clone();
-                Task::perform(
-                    async move {
-                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                        video_id
-                    },
-                    Message::CountdownTick,
-                )
-            }
-            Message::CountdownTick(video_id) => {
-                // Only process countdown if this is still the playing video
-                if self.playing_video.as_ref() != Some(&video_id) {
-                    return Task::none();
-                }
-
-                if self.countdown_value > 0 {
-                    self.countdown_value -= 1;
-                }
-
-                if self.countdown_value > 0 {
-                    // Continue countdown
-                    Task::perform(
-                        async move {
-                            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                            video_id
-                        },
-                        Message::CountdownTick,
-                    )
-                } else {
-                    // Countdown complete, clear playing state
-                    self.playing_video = None;
-                    Task::none()
-                }
             }
             Message::ViewChannel(channel_id) => {
                 self.loading_channel = true;
@@ -607,7 +539,7 @@ impl App {
                         Task::batch(vec![banner_task, avatar_task, videos_task])
                     }
                     Err(e) => {
-                        eprintln!("Error loading channel: {}", e);
+                        trace!("Channel load error: {:?}", e);
                         Task::none()
                     }
                 }
@@ -704,7 +636,7 @@ impl App {
                         Task::batch(helpers::create_thumbnail_tasks(&new_videos))
                     }
                     Err(e) => {
-                        eprintln!("Error loading channel videos: {}", e);
+                        trace!("Channel videos load error: {:?}", e);
                         self.channel_preloading = false;
                         self.loading_channel = false;
                         self.channel_loading_more = false;
@@ -989,6 +921,10 @@ impl App {
                             Message::ConfigSaved,
                         )
                     }
+                    View::Video => {
+                        // No action needed for video view
+                        Task::none()
+                    }
                 }
             }
             Message::ConfigLoaded(result) => {
@@ -1009,14 +945,14 @@ impl App {
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to load config: {}", e);
+                        trace!("Config load error: {:?}", e);
                     }
                 }
                 Task::none()
             }
             Message::ConfigSaved(result) => {
                 if let Err(e) = result {
-                    eprintln!("Failed to save config: {}", e);
+                    trace!("Config save error: {:?}", e);
                 }
                 Task::none()
             }
@@ -1130,14 +1066,6 @@ impl App {
                 Task::none()
             }
             Message::TabSelected(tab_id) => {
-                let _tab_switch_start = std::time::Instant::now();
-                eprintln!("\n╔═══════════════════════════════════════════════════");
-                eprintln!(
-                    "║ TabSelected: switching to {:?} at {:?}",
-                    tab_id, _tab_switch_start
-                );
-                eprintln!("╚═══════════════════════════════════════════════════");
-
                 self.active_tab = tab_id;
                 let task = match tab_id {
                     TabId::Search => {
@@ -1147,7 +1075,6 @@ impl App {
                     TabId::Channels => {
                         self.current_view = View::Channels;
                         // Load circular thumbnails for all subscribed channels that aren't already loaded
-                        let thumb_load_start = std::time::Instant::now();
                         let thumb_tasks: Vec<Task<Message>> = self
                             .config
                             .channels
@@ -1172,11 +1099,6 @@ impl App {
                                 )
                             })
                             .collect();
-                        eprintln!(
-                            "    TabSelected: created {} thumbnail load tasks in {:?}",
-                            thumb_tasks.len(),
-                            thumb_load_start.elapsed()
-                        );
 
                         // Load subscription video cache from disk if not already loaded
                         let cache_task = if self.subscription_videos_cache.channels.is_empty() {
@@ -1201,24 +1123,15 @@ impl App {
                     }
                 };
 
-                eprintln!(
-                    "  TabSelected: update took {:?}",
-                    _tab_switch_start.elapsed()
-                );
                 task
             }
             Message::NoOp => Task::none(),
             Message::SubscriptionVideosCacheLoaded(result) => {
                 match result {
                     Ok(cache) => {
-                        eprintln!(
-                            "Loaded subscription video cache with {} channels",
-                            cache.channels.len()
-                        );
                         // Populate subscription_videos from cache and collect videos for thumbnail loading
                         let mut all_videos: Vec<SearchResult> = Vec::new();
                         for (channel_id, cached) in &cache.channels {
-                            eprintln!("  - Channel {}: {} videos", channel_id, cached.videos.len());
                             // Look up channel name from config
                             let channel_name = self
                                 .config
@@ -1258,7 +1171,7 @@ impl App {
                         Task::batch(thumb_tasks).chain(fetch_task)
                     }
                     Err(e) => {
-                        eprintln!("Failed to load subscription video cache: {}", e);
+                        trace!("Subscription video cache load error: {:?}", e);
                         self.fetch_stale_subscription_videos()
                     }
                 }
@@ -1305,10 +1218,6 @@ impl App {
 
                         // Save cache to disk only when all channels are done loading
                         let save_task = if self.subscription_videos_loading.is_empty() {
-                            eprintln!(
-                                "All channels loaded, saving cache with {} channels",
-                                self.subscription_videos_cache.channels.len()
-                            );
                             let cache = self.subscription_videos_cache.clone();
                             Task::perform(async move { cache.save().await }, |_| Message::NoOp)
                         } else {
@@ -1318,7 +1227,7 @@ impl App {
                         Task::batch(thumb_tasks).chain(save_task)
                     }
                     Err(e) => {
-                        eprintln!("Failed to load videos for channel {}: {}", channel_id, e);
+                        trace!("Subscription videos load error: {:?}", e);
                         // Save cache when all done, even if some failed
                         if self.subscription_videos_loading.is_empty() {
                             let cache = self.subscription_videos_cache.clone();
@@ -1370,77 +1279,150 @@ impl App {
                                 .map(|_| filename)
                         },
                         |result| match result {
-                            Ok(filename) => {
-                                eprintln!("Exported search results to: {}", filename);
-                                Message::NoOp
-                            }
+                            Ok(_filename) => Message::NoOp,
                             Err(e) => {
-                                eprintln!("Failed to export: {}", e);
+                                trace!("Subscription save error: {}", e);
                                 Message::NoOp
                             }
                         },
                     )
                 } else {
-                    eprintln!("No search results to export");
                     Task::none()
                 }
             }
-        };
+            Message::PlayVideo(video_id) => {
+                // For testing, use the local test video
+                let test_video_path = "/home/mtl/repos/ytrs/test_videos/test.mp4";
 
-        let elapsed = _update_start.elapsed();
-        if elapsed.as_micros() > 100 {
-            eprintln!("  Update[{}]: took {:?}", msg_name, elapsed);
+                // Find the video title from search results, channel results, or subscription videos
+                let title = self
+                    .search_results
+                    .iter()
+                    .find(|r| r.video_id.as_ref() == Some(&video_id))
+                    .map(|r| r.title.clone())
+                    .or_else(|| {
+                        self.channel_results
+                            .iter()
+                            .find(|r| r.video_id.as_ref() == Some(&video_id))
+                            .map(|r| r.title.clone())
+                    })
+                    .or_else(|| {
+                        // Search in subscription videos
+                        self.subscription_videos
+                            .values()
+                            .flatten()
+                            .find(|r| r.video_id.as_ref() == Some(&video_id))
+                            .map(|r| r.title.clone())
+                    });
+
+                self.playing_video_title = title;
+                self.previous_view = self.current_view;
+                self.current_view = View::Video;
+
+                match Video::new(&url::Url::from_file_path(test_video_path).unwrap()) {
+                    Ok(video) => {
+                        self.video = Some(video);
+                    }
+                    Err(e) => {
+                        return Task::perform(
+                            async move { format!("Failed to load video: {:?}", e) },
+                            Message::VideoError,
+                        );
+                    }
+                }
+                Task::none()
+            }
+            Message::VideoEnded => Task::none(),
+            Message::TogglePlayPause => {
+                if let Some(ref mut video) = self.video {
+                    video.set_paused(!video.paused());
+                }
+                Task::none()
+            }
+            Message::ToggleFullscreen => {
+                self.video_fullscreen = !self.video_fullscreen;
+                let mode = if self.video_fullscreen {
+                    iced::window::Mode::Fullscreen
+                } else {
+                    iced::window::Mode::Windowed
+                };
+                iced::window::latest().and_then(move |id| iced::window::set_mode(id, mode))
+            }
+            Message::BackFromVideo => {
+                if let Some(ref mut video) = self.video {
+                    video.set_paused(true);
+                }
+                self.video = None;
+                self.playing_video_title = None;
+                self.current_view = self.previous_view;
+                // Exit fullscreen if we were in it
+                if self.video_fullscreen {
+                    self.video_fullscreen = false;
+                    return iced::window::latest()
+                        .and_then(|id| iced::window::set_mode(id, iced::window::Mode::Windowed));
+                }
+                Task::none()
+            }
+            Message::VideoError(err) => {
+                trace!("Video error: {}", err);
+                self.current_view = self.previous_view;
+                Task::none()
+            }
+            Message::VideoMouseMoved => {
+                // Only process in fullscreen video mode
+                if self.current_view != View::Video || !self.video_fullscreen {
+                    return Task::none();
+                }
+                self.video_controls_visible = true;
+                self.video_last_mouse_move = Some(std::time::Instant::now());
+                // Start a timer to hide controls after 3 seconds
+                Task::perform(
+                    async {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                    },
+                    |_| Message::VideoControlsTimeout,
+                )
+            }
+            Message::VideoControlsTimeout => {
+                // Only hide if we're in fullscreen and no recent mouse movement
+                if self.video_fullscreen {
+                    if let Some(last_move) = self.video_last_mouse_move {
+                        if last_move.elapsed() >= std::time::Duration::from_secs(3) {
+                            self.video_controls_visible = false;
+                        }
+                    }
+                }
+                Task::none()
+            }
         }
-
-        result
     }
 
     fn view(&self) -> Element<'_, Message> {
-        // Track view call frequency
-        static VIEW_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
-        let call_num = VIEW_CALL_COUNT.fetch_add(1, Ordering::Relaxed);
-
-        // Detect tab switches for profiling using interior mutability
-        let last_view = self.last_view_for_timing.get();
-        let is_tab_switch = last_view.as_ref() != Some(&self.current_view);
-
-        eprintln!(
-            "  VIEW: call #{}, current view: {:?}, {} search results, {} thumbs loaded",
-            call_num,
-            self.current_view,
-            self.search_results.len(),
-            self.thumbs.len()
-        );
-        let _view_start = if is_tab_switch {
-            if let Some(last) = last_view {
-                eprintln!(
-                    "\n========== TAB SWITCH: {:?} -> {:?} ==========",
-                    last, self.current_view
-                );
-            }
-            self.last_view_for_timing
-                .set(Some(self.current_view.clone()));
-            Some(std::time::Instant::now())
-        } else {
-            None
-        };
-
         use iced::Length;
         use iced::widget::{container, stack};
-
-        // Create iOS-style tab bar at the bottom
-        let tab_bar = widgets::tab_bar(self.active_tab, &widgets::default_tab_items());
 
         let content = match self.current_view {
             View::Search => views::search::view(self),
             View::Channel => views::channel::view(self, get_language_by_locale),
             View::Config => views::config::view(self),
             View::Channels => views::subscriptions::view(self),
+            View::Video => views::video::view(self),
         };
+
+        // In video view, skip the tab bar entirely
+        if self.current_view == View::Video {
+            return container(content)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into();
+        }
+
+        // Create iOS-style tab bar at the bottom
+        let tab_bar = widgets::tab_bar(self.active_tab, &widgets::default_tab_items());
 
         // Stack: content fills the screen, tab bar floats at bottom (overlapping)
         // Bottom padding is now inside each view's scrollable content
-        let result = stack![
+        stack![
             container(content).width(Length::Fill).height(Length::Fill),
             container(tab_bar)
                 .width(Length::Fill)
@@ -1449,16 +1431,7 @@ impl App {
         ]
         .width(Length::Fill)
         .height(Length::Fill)
-        .into();
-
-        if let Some(start) = _view_start {
-            eprintln!(
-                "========== TAB SWITCH TOTAL: {:?} ==========\n",
-                start.elapsed()
-            );
-        }
-
-        result
+        .into()
     }
 
     fn subscription(&self) -> Subscription<Message> {
@@ -1471,6 +1444,10 @@ impl App {
                 modifiers,
                 ..
             }) if modifiers.control() && c.as_ref() == "e" => Some(Message::ExportSearchResults),
+            // Track all mouse movement - filter in handler based on view state
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { .. }) => {
+                Some(Message::VideoMouseMoved)
+            }
             _ => None,
         })
     }

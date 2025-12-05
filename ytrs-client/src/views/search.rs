@@ -15,8 +15,6 @@ use ytrs_lib::{format_relative_time, parse_relative_time};
 
 /// Render the search view
 pub fn view(app: &App) -> Element<'_, Message> {
-    let _start = std::time::Instant::now();
-
     let search_input: iced::widget::TextInput<'_, Message> =
         text_input("Search YouTube...", &app.query)
             .on_input(Message::InputChanged)
@@ -64,13 +62,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .into()
         }
     } else {
-        let iter_start = std::time::Instant::now();
-        eprintln!(
-            "  Search: starting iteration over {} results",
-            app.search_results.len()
-        );
-        eprintln!("  Search: thumbs HashMap has {} entries", app.thumbs.len());
-
         let cards: Vec<Element<Message>> = app
             .search_results
             .iter()
@@ -90,14 +81,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 let published_text = r.published_text.clone();
                 let title = r.title.clone();
                 let channel = r.channel.clone();
-                let is_playing = app.playing_video.as_ref() == Some(&vid);
-                let countdown = app.countdown_value;
 
-                // Lazy widget caches rendering - only rebuilds when (vid, is_playing, countdown) changes
+                // Lazy widget caches rendering - only rebuilds when vid changes
                 Some(
-                    lazy((vid.clone(), is_playing, countdown), move |_| {
+                    lazy(vid.clone(), move |_| {
                         let thumb = Image::new(h.clone()).width(240).height(135);
-                        let thumb_with_overlay = create_thumbnail(thumb, is_playing, countdown);
+                        let thumb_with_overlay = create_thumbnail(thumb, false, 0);
 
                         // Build metadata line
                         let mut meta_parts = vec![];
@@ -132,22 +121,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
                             &title,
                             channel_info,
                             metadata_text,
-                            Message::Play(vid.clone()),
+                            Message::PlayVideo(vid.clone()),
                         )
                     })
                     .into(),
                 )
             })
             .collect();
-
-        eprintln!(
-            "  Search: iteration + lazy creation took {:?}",
-            iter_start.elapsed()
-        );
-        eprintln!("    - Total cards: {}", cards.len());
-        eprintln!("    - Total results: {}", app.search_results.len());
-
-        let wrap_start = std::time::Instant::now();
 
         const CARD_WIDTH: f32 = 240.0;
         const CARD_SPACING: f32 = 15.0;
@@ -186,13 +166,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .center_x(Length::Fill);
             search_content = search_content.push(load_more_btn);
         }
-
-        eprintln!(
-            "  Search: wrap + column creation took {:?}",
-            wrap_start.elapsed()
-        );
-
-        eprintln!("  Search view TOTAL: {:?}", _start.elapsed());
 
         bounceable_scrollable(container(search_content).padding(grid_padding))
             .id("search")

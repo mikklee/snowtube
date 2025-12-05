@@ -10,6 +10,7 @@ pub enum View {
     Channel,
     Config,
     Channels,
+    Video,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,9 +27,7 @@ pub enum Message {
     SearchDone(Result<SearchResults, String>),
     ThumbLoaded(String, Result<Vec<u8>, String>),
     BannerLoaded(Result<Vec<u8>, String>),
-    Play(String),
-    CountdownTick(String), // video_id for the countdown
-    ViewChannel(String),   // channel_id
+    ViewChannel(String), // channel_id
     ChannelLoaded(Result<ChannelInfo, String>),
     ChannelVideosLoaded(Result<ChannelVideos, String>),
     ChangeChannelTab(ChannelTab),
@@ -56,4 +55,13 @@ pub enum Message {
     TabSelected(TabId),
     // Export search results
     ExportSearchResults,
+    // Video player messages
+    PlayVideo(String), // video_id - play with iced_video_player
+    VideoEnded,
+    TogglePlayPause,
+    ToggleFullscreen,
+    BackFromVideo,
+    VideoError(String),
+    VideoMouseMoved,      // Mouse moved over video - show controls
+    VideoControlsTimeout, // Timer fired - hide controls if no recent activity
 }

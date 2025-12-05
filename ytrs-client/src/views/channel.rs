@@ -191,12 +191,8 @@ pub fn view(
 
                 let thumb = Image::new(h.clone()).width(240).height(135);
 
-                // Check if this video is currently playing
-                let is_playing = app.playing_video.as_ref() == Some(vid);
-                let countdown = app.countdown_value;
-
-                // Create thumbnail with optional countdown overlay
-                let thumb_with_overlay = create_thumbnail(thumb, is_playing, countdown);
+                // Create thumbnail
+                let thumb_with_overlay = create_thumbnail(thumb, false, 0);
 
                 let mut meta = vec![];
                 if let Some(v) = r.view_count {
@@ -231,7 +227,12 @@ pub fn view(
                 .width(240);
 
                 let v = vid.clone();
-                Some(button(card).on_press(Message::Play(v)).padding(0).into())
+                Some(
+                    button(card)
+                        .on_press(Message::PlayVideo(v))
+                        .padding(0)
+                        .into(),
+                )
             })
             .collect();
 

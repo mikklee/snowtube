@@ -18,8 +18,6 @@ use ytrs_lib::{format_relative_time, parse_relative_time};
 
 /// Render the channels (subscriptions) view
 pub fn view(app: &App) -> Element<'_, Message> {
-    let _start = std::time::Instant::now();
-
     // Header with refresh button
     let header = container(
         row![
@@ -160,14 +158,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 let duration = video.duration.clone();
                 let published_text = video.published_text.clone();
                 let title = video.title.clone();
-                let is_playing = app.playing_video.as_ref() == Some(&vid);
-                let countdown = app.countdown_value;
 
-                // Lazy widget caches rendering - only rebuilds when (vid, is_playing, countdown) changes
+                // Lazy widget caches rendering - only rebuilds when vid changes
                 Some(
-                    lazy((vid.clone(), is_playing, countdown), move |_| {
+                    lazy(vid.clone(), move |_| {
                         let thumb = Image::new(thumb_handle.clone()).width(240).height(135);
-                        let thumb_with_overlay = create_thumbnail(thumb, is_playing, countdown);
+                        let thumb_with_overlay = create_thumbnail(thumb, false, 0);
 
                         // Build metadata line same as channel view
                         let mut meta = vec![];
@@ -197,7 +193,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                             &title,
                             channel_info,
                             metadata_text,
-                            Message::Play(vid.clone()),
+                            Message::PlayVideo(vid.clone()),
                         )
                     })
                     .into(),
@@ -249,9 +245,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
         row![left_column, right_column].into()
     };
-
-    eprintln!("  Subscriptions view TOTAL: {:?}", _start.elapsed());
-    eprintln!("    - Total subscriptions: {}", subscribed_channels.len());
 
     column![header, body].height(Length::Fill).into()
 }
