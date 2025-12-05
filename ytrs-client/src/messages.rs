@@ -2,6 +2,7 @@
 
 use crate::config::AppConfig;
 use crate::theme::AppTheme;
+use std::sync::Arc;
 use ytrs_lib::{ChannelInfo, ChannelTab, ChannelVideos, SearchResults};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -57,6 +58,7 @@ pub enum Message {
     ExportSearchResults,
     // Video player messages
     PlayVideo(String), // video_id - play with iced_video_player
+    VideoLoaded(Result<Arc<iced_video_player::Video>, String>), // Video loaded from yt-dlp (Arc for Clone)
     VideoEnded,
     TogglePlayPause,
     ToggleFullscreen,

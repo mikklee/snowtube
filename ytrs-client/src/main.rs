@@ -1291,9 +1291,6 @@ impl App {
                 }
             }
             Message::PlayVideo(video_id) => {
-                // For testing, use the local test video
-                let test_video_path = "/home/mtl/repos/ytrs/test_videos/test.mp4";
-
                 // Find the video title from search results, channel results, or subscription videos
                 let title = self
                     .search_results
@@ -1319,15 +1316,37 @@ impl App {
                 self.previous_view = self.current_view;
                 self.current_view = View::Video;
 
-                match Video::new(&url::Url::from_file_path(test_video_path).unwrap()) {
+                // Use yt-dlp to stream video directly via stdout
+                let url = format!("https://www.youtube.com/watch?v={}", video_id);
+                Task::perform(
+                    async move {
+                        // Run blocking Video::from_ytdlp in a separate thread
+                        tokio::task::spawn_blocking(move || Video::from_ytdlp(&url))
+                            .await
+                            .map_err(|e| format!("Task join error: {}", e))?
+                            .map(std::sync::Arc::new)
+                            .map_err(|e| format!("Failed to start video: {:?}", e))
+                    },
+                    Message::VideoLoaded,
+                )
+            }
+            Message::VideoLoaded(result) => {
+                match result {
                     Ok(video) => {
-                        self.video = Some(video);
+                        // Arc::into_inner only works if this is the only reference
+                        // Since we just created it, this should always succeed
+                        match std::sync::Arc::try_unwrap(video) {
+                            Ok(v) => self.video = Some(v),
+                            Err(_) => {
+                                return Task::perform(
+                                    async { "Failed to unwrap video Arc".to_string() },
+                                    Message::VideoError,
+                                );
+                            }
+                        }
                     }
                     Err(e) => {
-                        return Task::perform(
-                            async move { format!("Failed to load video: {:?}", e) },
-                            Message::VideoError,
-                        );
+                        return Task::perform(async move { e }, Message::VideoError);
                     }
                 }
                 Task::none()
