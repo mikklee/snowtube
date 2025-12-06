@@ -1607,6 +1607,9 @@ impl App {
                 }
                 self.video = None;
                 self.playing_video_title = None;
+                // Clear seeking state
+                self.video_seeking = false;
+                self.video_seek_target = None;
                 self.current_view = self.previous_view;
                 // Exit fullscreen if we were in it
                 if self.video_fullscreen {
