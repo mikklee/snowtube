@@ -223,15 +223,29 @@ fn video_control_bar(
         (progress_percent, position)
     };
 
-    let progress_row = row![
-        text(format_duration(display_position))
-            .size(12)
-            .width(Length::Shrink),
+    // Only enable seeking if video has started playing (position > 0 or has been playing)
+    // Otherwise the A/V is desynced if the user seeks.
+    let can_seek = duration.as_secs_f64() > 0.0 && position.as_millis() > 0;
+
+    let progress_slider: Element<'static, Message> = if can_seek {
         slider(0.0..=1.0, display_percent, Message::SeekVideoPreview)
             .step(0.001)
             .on_release(Message::SeekVideoRelease)
             .width(Length::Fill)
-            .style(progress_slider_style),
+            .style(progress_slider_style)
+            .into()
+    } else {
+        slider(0.0..=1.0, 0.0, |_| Message::NoOp)
+            .width(Length::Fill)
+            .style(progress_slider_style)
+            .into()
+    };
+
+    let progress_row = row![
+        text(format_duration(display_position))
+            .size(12)
+            .width(Length::Shrink),
+        progress_slider,
         text(format_duration(duration))
             .size(12)
             .width(Length::Shrink),
