@@ -1353,7 +1353,7 @@ impl App {
                             // Check if this is a live stream
                             let is_live = json["is_live"].as_bool().unwrap_or(false);
 
-                            let result = if is_live {
+                            if is_live {
                                 // Live streams use HLS with muxed video+audio
                                 tracing::info!("Detected live stream, using HLS playback");
 
@@ -1372,8 +1372,41 @@ impl App {
                                 let uri = url::Url::parse(&hls_url)
                                     .map_err(|e| format!("Invalid HLS URL: {}", e))?;
 
-                                Video::new(&uri)
-                                    .map_err(|e| format!("Failed to start live video: {:?}", e))
+                                // Retry logic for transient Caps errors
+                                let mut last_error = None;
+                                for attempt in 1..=3 {
+                                    tracing::trace!("Live video creation attempt {}/3", attempt);
+                                    match Video::new(&uri) {
+                                        Ok(video) => {
+                                            tracing::info!(
+                                                "Live video created successfully on attempt {}",
+                                                attempt
+                                            );
+                                            return Ok(std::sync::Arc::new(video));
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "Live video creation attempt {} failed: {:?}",
+                                                attempt,
+                                                e
+                                            );
+                                            last_error = Some(e);
+                                            if attempt < 3 {
+                                                std::thread::sleep(
+                                                    std::time::Duration::from_millis(500),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                tracing::error!(
+                                    "Live video creation failed after 3 attempts: {:?}",
+                                    last_error
+                                );
+                                Err(format!(
+                                    "Failed to start live video after 3 attempts: {:?}",
+                                    last_error.unwrap()
+                                ))
                             } else {
                                 // VOD: yt-dlp returns separate video/audio in requested_formats
                                 let requested_formats = json["requested_formats"]
@@ -1426,6 +1459,25 @@ impl App {
 
                                 tracing::info!("Got {} headers", headers.len());
 
+                                // Wait for available_at timestamp if present (YouTube throttle protection)
+                                if let Some(available_at) = video_format["available_at"].as_i64() {
+                                    let now = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_secs() as i64;
+                                    let wait_secs = available_at - now;
+                                    if wait_secs > 0 {
+                                        tracing::info!(
+                                            "Waiting {} seconds for YouTube throttle (available_at: {})",
+                                            wait_secs,
+                                            available_at
+                                        );
+                                        std::thread::sleep(std::time::Duration::from_secs(
+                                            wait_secs as u64,
+                                        ));
+                                    }
+                                }
+
                                 let header_refs: Vec<(&str, &str)> = headers
                                     .iter()
                                     .map(|(k, v)| (k.as_str(), v.as_str()))
@@ -1433,20 +1485,49 @@ impl App {
 
                                 tracing::info!("Creating video with from_url_with_headers...");
 
-                                Video::from_url_with_headers(&video_url, &audio_url, &header_refs)
-                                    .map_err(|e| format!("Failed to start video: {:?}", e))
-                            };
-
-                            match &result {
-                                Ok(_) => tracing::info!("Video created successfully"),
-                                Err(e) => tracing::error!("Video creation failed: {}", e),
+                                // Retry logic for transient Caps errors
+                                let mut last_error = None;
+                                for attempt in 1..=3 {
+                                    tracing::trace!("VOD video creation attempt {}/3", attempt);
+                                    match Video::from_url_with_headers(
+                                        &video_url,
+                                        &audio_url,
+                                        &header_refs,
+                                    ) {
+                                        Ok(video) => {
+                                            tracing::info!(
+                                                "VOD video created successfully on attempt {}",
+                                                attempt
+                                            );
+                                            return Ok(std::sync::Arc::new(video));
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "VOD video creation attempt {} failed: {:?}",
+                                                attempt,
+                                                e
+                                            );
+                                            last_error = Some(e);
+                                            if attempt < 3 {
+                                                std::thread::sleep(
+                                                    std::time::Duration::from_millis(500),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                tracing::error!(
+                                    "VOD video creation failed after 3 attempts: {:?}",
+                                    last_error
+                                );
+                                Err(format!(
+                                    "Failed to start video after 3 attempts: {:?}",
+                                    last_error.unwrap()
+                                ))
                             }
-
-                            result
                         })
                         .await
                         .map_err(|e| format!("Task join error: {}", e))?
-                        .map(std::sync::Arc::new)
                     },
                     Message::VideoLoaded,
                 )
