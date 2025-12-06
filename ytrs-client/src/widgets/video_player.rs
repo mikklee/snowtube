@@ -103,7 +103,11 @@ fn control_button_style(
 /// Seeking overlay with spinner and status text
 /// Reusable across windowed and fullscreen modes
 pub fn seeking_overlay<'a>() -> Element<'a, Message> {
-    let spinner: Element<'a, Message> = Circular::new().size(48.0).bar_height(4.0).into();
+    let spinner: Element<'a, Message> = Circular::new()
+        .id("seeking")
+        .size(48.0)
+        .bar_height(4.0)
+        .into();
 
     let seeking_content = column![
         spinner,
@@ -491,7 +495,11 @@ pub fn video_loading_placeholder<'a>(
     };
 
     // Circular spinner that animates itself
-    let spinner: Element<'a, Message> = Circular::new().size(48.0).bar_height(4.0).into();
+    let spinner: Element<'a, Message> = Circular::new()
+        .id("loading")
+        .size(48.0)
+        .bar_height(4.0)
+        .into();
 
     let status_text = status.map(|s| {
         text(s).size(14).color(Color {

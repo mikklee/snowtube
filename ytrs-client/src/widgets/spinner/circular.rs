@@ -53,6 +53,7 @@ where
     easing: &'a Easing,
     cycle_duration: Duration,
     rotation_duration: Duration,
+    id: &'a str,
 }
 
 impl<'a, Theme> Circular<'a, Theme>
@@ -68,7 +69,14 @@ where
             easing: &easing::STANDARD,
             cycle_duration: Duration::from_millis(600),
             rotation_duration: Duration::from_secs(2),
+            id: "",
         }
+    }
+
+    /// Sets a unique ID for this spinner to force state reset
+    pub fn id(mut self, id: &'a str) -> Self {
+        self.id = id;
+        self
     }
 
     /// Sets the size of the [`Circular`].
@@ -235,6 +243,7 @@ impl Animation {
 struct State {
     animation: Animation,
     cache: canvas::Cache,
+    id: String,
 }
 
 impl<'a, Message, Theme> Widget<Message, Theme, Renderer> for Circular<'a, Theme>
@@ -278,6 +287,13 @@ where
         _viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_mut::<State>();
+
+        // Reset state if ID changed (new spinner instance)
+        if state.id != self.id {
+            state.id = self.id.to_string();
+            state.animation = Animation::default();
+            state.cache.clear();
+        }
 
         if let Event::Window(window::Event::RedrawRequested(now)) = event {
             state.animation =
