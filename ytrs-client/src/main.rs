@@ -1331,6 +1331,7 @@ impl App {
                             tracing::info!("Starting yt-dlp for URL: {}", url);
 
                             // Get video URL and headers from yt-dlp
+                            // Prefer VP9 over AV1 - often has higher bitrate
                             let output = std::process::Command::new("yt-dlp")
                                 .args(["--dump-single-json", &url])
                                 .output()
@@ -1517,6 +1518,10 @@ impl App {
                 }
                 Task::none()
             }
+            Message::VideoTick => {
+                // Just triggers a re-render to update the progress bar
+                Task::none()
+            }
         }
     }
 
@@ -1558,7 +1563,7 @@ impl App {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        event::listen_with(|ev, _status, _id| match ev {
+        let events = event::listen_with(|ev, _status, _id| match ev {
             iced::Event::Window(iced::window::Event::Resized(Size { width, height })) => {
                 Some(Message::Resized(width, height))
             }
@@ -1572,6 +1577,18 @@ impl App {
                 Some(Message::VideoMouseMoved)
             }
             _ => None,
-        })
+        });
+
+        // Add a timer tick while video is playing to update progress bar
+        let video_tick = if self.video.is_some()
+            && self.current_view == View::Video
+            && !self.video.as_ref().map(|v| v.paused()).unwrap_or(true)
+        {
+            iced::time::every(std::time::Duration::from_millis(250)).map(|_| Message::VideoTick)
+        } else {
+            Subscription::none()
+        };
+
+        Subscription::batch([events, video_tick])
     }
 }
