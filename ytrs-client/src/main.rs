@@ -1093,7 +1093,9 @@ impl App {
             }
             Message::TabSelected(tab_id) => {
                 self.active_tab = tab_id;
-                let task = match tab_id {
+                
+
+                match tab_id {
                     TabId::Search => {
                         self.current_view = View::Search;
                         Task::none()
@@ -1147,9 +1149,7 @@ impl App {
                         self.current_view = View::Config;
                         Task::none()
                     }
-                };
-
-                task
+                }
             }
             Message::NoOp => Task::none(),
             Message::SubscriptionVideosCacheLoaded(result) => {
@@ -1171,8 +1171,8 @@ impl App {
                                 .iter()
                                 .cloned()
                                 .map(|mut v| {
-                                    if v.channel.is_none() {
-                                        if let Some(ref name) = channel_name {
+                                    if v.channel.is_none()
+                                        && let Some(ref name) = channel_name {
                                             v.channel = Some(ytrs_lib::Channel {
                                                 id: Some(channel_id.clone()),
                                                 name: name.clone(),
@@ -1180,7 +1180,6 @@ impl App {
                                                 thumbnail: None,
                                             });
                                         }
-                                    }
                                     v
                                 })
                                 .collect();
@@ -1289,7 +1288,7 @@ impl App {
                         if let Some(ref video_id) = result.video_id {
                             content.push_str(&format!("   Video ID: {}\n", video_id));
                         }
-                        content.push_str("\n");
+                        content.push('\n');
                     }
 
                     let filename = format!(
@@ -1679,13 +1678,11 @@ impl App {
             }
             Message::VideoControlsTimeout => {
                 // Only hide if we're in fullscreen and no recent mouse movement
-                if self.video_fullscreen {
-                    if let Some(last_move) = self.video_last_mouse_move {
-                        if last_move.elapsed() >= std::time::Duration::from_secs(3) {
+                if self.video_fullscreen
+                    && let Some(last_move) = self.video_last_mouse_move
+                        && last_move.elapsed() >= std::time::Duration::from_secs(3) {
                             self.video_controls_visible = false;
                         }
-                    }
-                }
                 Task::none()
             }
             Message::SeekVideoPreview(percent) => {
@@ -1693,8 +1690,8 @@ impl App {
                 Task::none()
             }
             Message::SeekVideoRelease => {
-                if let Some(percent) = self.video_seek_preview.take() {
-                    if let Some(ref mut video) = self.video {
+                if let Some(percent) = self.video_seek_preview.take()
+                    && let Some(ref mut video) = self.video {
                         let duration = video.duration();
                         let target_nanos = (duration.as_secs_f64() * percent) * 1_000_000_000.0;
                         let target = std::time::Duration::from_nanos(target_nanos as u64);
@@ -1705,13 +1702,12 @@ impl App {
                         self.video_seeking = true;
                         self.video_seek_target = Some(target);
                     }
-                }
                 Task::none()
             }
             Message::VideoTick => {
                 // Check if seeking is complete (position has advanced past target)
-                if self.video_seeking {
-                    if let (Some(video), Some(target)) = (&self.video, self.video_seek_target) {
+                if self.video_seeking
+                    && let (Some(video), Some(target)) = (&self.video, self.video_seek_target) {
                         let position = video.position();
                         // Consider seeking done when position is past target by at least 500ms
                         // This ensures the video is actually playing, not just buffering
@@ -1720,7 +1716,6 @@ impl App {
                             self.video_seek_target = None;
                         }
                     }
-                }
                 Task::none()
             }
         }

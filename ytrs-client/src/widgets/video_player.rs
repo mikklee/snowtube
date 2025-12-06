@@ -361,6 +361,7 @@ fn loading_control_bar() -> Element<'static, Message> {
 
 /// Video player with title at top and controls at bottom, all overlaid on video
 /// For windowed mode - scales to fit available space while maintaining aspect ratio
+#[allow(clippy::too_many_arguments)]
 pub fn video_with_controls<'a>(
     video: &'a Video,
     title: Option<&'a str>,
@@ -468,6 +469,7 @@ pub fn video_with_controls<'a>(
 }
 
 /// Video player with controls overlaid - fullscreen mode (fills available space)
+#[allow(clippy::too_many_arguments)]
 pub fn video_with_controls_fullscreen<'a>(
     video: &'a Video,
     title: Option<&'a str>,
@@ -496,29 +498,27 @@ pub fn video_with_controls_fullscreen<'a>(
     ];
 
     // Title overlay at top with text shadow (same visibility as controls)
-    if show_controls {
-        if let Some(title_text) = title {
-            let shadow_text = text(title_text).size(18).color(Color::BLACK);
-            let main_text = text(title_text).size(18).color(Color::WHITE);
-            let title_with_shadow = stack![
-                container(shadow_text).padding(Padding {
-                    top: 1.0,
-                    bottom: 0.0,
-                    left: 1.0,
-                    right: 0.0
-                }),
-                main_text,
-            ];
-            layers.push(
-                container(title_with_shadow)
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .align_y(iced::alignment::Vertical::Top)
-                    .align_x(iced::alignment::Horizontal::Left)
-                    .padding(Padding::from([15, 20]))
-                    .into(),
-            );
-        }
+    if show_controls && let Some(title_text) = title {
+        let shadow_text = text(title_text).size(18).color(Color::BLACK);
+        let main_text = text(title_text).size(18).color(Color::WHITE);
+        let title_with_shadow = stack![
+            container(shadow_text).padding(Padding {
+                top: 1.0,
+                bottom: 0.0,
+                left: 1.0,
+                right: 0.0
+            }),
+            main_text,
+        ];
+        layers.push(
+            container(title_with_shadow)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_y(iced::alignment::Vertical::Top)
+                .align_x(iced::alignment::Horizontal::Left)
+                .padding(Padding::from([15, 20]))
+                .into(),
+        );
     }
 
     if show_controls {

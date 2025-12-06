@@ -48,7 +48,7 @@ impl TrieNode {
         } else {
             self.children
                 .entry(words[0])
-                .or_insert_with(TrieNode::new)
+                .or_default()
                 .insert(&words[1..], value);
         }
     }

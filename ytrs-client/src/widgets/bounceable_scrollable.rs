@@ -175,12 +175,11 @@ impl State {
 
     fn tick(&mut self, now: Instant) -> bool {
         // Check if it's time to start bounce-back
-        if let Some(bounce_at) = self.bounce_back_at {
-            if now >= bounce_at && self.animation.is_none() && self.bounce_offset.abs() > 0.5 {
+        if let Some(bounce_at) = self.bounce_back_at
+            && now >= bounce_at && self.animation.is_none() && self.bounce_offset.abs() > 0.5 {
                 self.start_bounce_back(now);
                 self.bounce_back_at = None;
             }
-        }
 
         if let Some((ref anim, start, _)) = self.animation {
             self.bounce_offset = anim.interpolate(start, 0.0, now);
@@ -245,13 +244,13 @@ where
                 Size::new(false, true), // compress height, not width
             );
 
-            let content_node = self.content.as_widget_mut().layout(
+            
+
+            self.content.as_widget_mut().layout(
                 &mut tree.children[0],
                 renderer,
                 &content_limits,
-            );
-
-            content_node
+            )
         });
 
         // Update state with sizes after layout
@@ -296,8 +295,8 @@ where
         }
 
         // Handle scroll wheel - capture this event, don't pass to children
-        if let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event {
-            if cursor.is_over(bounds) {
+        if let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event
+            && cursor.is_over(bounds) {
                 let state = tree.state.downcast_mut::<State>();
                 let scroll_delta = match delta {
                     mouse::ScrollDelta::Lines { y, .. } => -y * 40.0,
@@ -323,7 +322,6 @@ where
 
                 return; // Don't forward scroll events
             }
-        }
 
         // Forward other events to content with adjusted cursor position
         // (same approach as iced's scrollable)
