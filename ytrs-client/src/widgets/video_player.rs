@@ -137,14 +137,14 @@ fn progress_slider_style(theme: &Theme, status: slider::Status) -> slider::Style
                     a: 0.2,
                 }),
             ),
-            width: 4.0,
+            width: 2.0,
             border: iced::Border {
-                radius: 2.0.into(),
+                radius: 1.0.into(),
                 ..Default::default()
             },
         },
         handle: slider::Handle {
-            shape: slider::HandleShape::Circle { radius: 6.0 },
+            shape: slider::HandleShape::Circle { radius: 5.0 },
             background: iced::Background::Color(handle_color),
             border_width: 0.0,
             border_color: Color::TRANSPARENT,
@@ -194,6 +194,11 @@ fn video_control_bar(
     ]
     .spacing(10)
     .align_y(iced::Alignment::Center)
+    .padding(Padding {
+        left: 20.0,
+        right: 20.0,
+        ..Padding::ZERO
+    })
     .width(Length::Fill);
 
     let controls_content = column![buttons_row, progress_row]
