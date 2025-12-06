@@ -108,25 +108,25 @@ pub fn seeking_overlay(theme: &Theme) -> Element<'static, Message> {
     let seeking_content = column![
         spinner,
         text("Seeking. This may take a minute.")
-            .size(14)
+            .size(16)
             .color(Color::WHITE),
         text("If it takes longer, try reloading the video.")
-            .size(12)
+            .size(14)
             .color(Color::WHITE)
     ]
     .spacing(16)
     .align_x(iced::Alignment::Center);
 
-    container(
-        container(seeking_content)
-            .padding(Padding::new(20.0))
-            .style(glass_container_style),
-    )
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .center_x(Length::Fill)
-    .center_y(Length::Fill)
-    .into()
+    container(seeking_content)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(|_| container::Style {
+            background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
+            ..Default::default()
+        })
+        .into()
 }
 
 /// Format duration as MM:SS or HH:MM:SS
