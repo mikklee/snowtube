@@ -263,10 +263,21 @@ pub fn video_with_controls<'a>(
 
     let mut layers: Vec<Element<'a, Message>> = vec![video_widget];
 
-    // Title overlay at top
+    // Title overlay at top with text shadow
     if let Some(title_text) = title {
+        let shadow_text = text(title_text).size(18).color(Color::BLACK);
+        let main_text = text(title_text).size(18).color(Color::WHITE);
+        let title_with_shadow = stack![
+            container(shadow_text).padding(Padding {
+                top: 1.0,
+                bottom: 0.0,
+                left: 1.0,
+                right: 0.0
+            }),
+            main_text,
+        ];
         layers.push(
-            container(text(title_text).size(18))
+            container(title_with_shadow)
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .align_y(iced::alignment::Vertical::Top)
@@ -318,11 +329,22 @@ pub fn video_with_controls_fullscreen<'a>(
             .into(),
     ];
 
-    // Title overlay at top (same visibility as controls)
+    // Title overlay at top with text shadow (same visibility as controls)
     if show_controls {
         if let Some(title_text) = title {
+            let shadow_text = text(title_text).size(18).color(Color::BLACK);
+            let main_text = text(title_text).size(18).color(Color::WHITE);
+            let title_with_shadow = stack![
+                container(shadow_text).padding(Padding {
+                    top: 1.0,
+                    bottom: 0.0,
+                    left: 1.0,
+                    right: 0.0
+                }),
+                main_text,
+            ];
             layers.push(
-                container(text(title_text).size(18))
+                container(title_with_shadow)
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .align_y(iced::alignment::Vertical::Top)
