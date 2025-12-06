@@ -21,6 +21,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 app.video_controls_visible,
                 position,
                 duration,
+                app.video_seek_preview,
             ))
             .width(Length::Fill)
             .height(Length::Fill)
@@ -56,6 +57,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             duration,
             app.window_width,
             available_height,
+            app.video_seek_preview,
         ))
         .width(Length::Fill)
         .height(Length::Fill)

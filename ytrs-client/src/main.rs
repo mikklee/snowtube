@@ -117,6 +117,7 @@ pub struct App {
     pub video_fullscreen: bool,
     pub video_controls_visible: bool,
     pub video_last_mouse_move: Option<std::time::Instant>,
+    pub video_seek_preview: Option<f64>, // Preview position while dragging slider (0.0 to 1.0)
 }
 
 impl App {
@@ -173,6 +174,7 @@ impl App {
                 video_fullscreen: false,
                 video_controls_visible: true,
                 video_last_mouse_move: None,
+                video_seek_preview: None,
             },
             // Load config asynchronously on startup
             Task::perform(
@@ -1615,13 +1617,19 @@ impl App {
                 }
                 Task::none()
             }
-            Message::SeekVideo(percent) => {
-                if let Some(ref mut video) = self.video {
-                    let duration = video.duration();
-                    let target_nanos = (duration.as_secs_f64() * percent) * 1_000_000_000.0;
-                    let target = std::time::Duration::from_nanos(target_nanos as u64);
-                    if let Err(e) = video.seek(target, false) {
-                        tracing::error!("Failed to seek video: {:?}", e);
+            Message::SeekVideoPreview(percent) => {
+                self.video_seek_preview = Some(percent);
+                Task::none()
+            }
+            Message::SeekVideoRelease => {
+                if let Some(percent) = self.video_seek_preview.take() {
+                    if let Some(ref mut video) = self.video {
+                        let duration = video.duration();
+                        let target_nanos = (duration.as_secs_f64() * percent) * 1_000_000_000.0;
+                        let target = std::time::Duration::from_nanos(target_nanos as u64);
+                        if let Err(e) = video.seek(target, false) {
+                            tracing::error!("Failed to seek video: {:?}", e);
+                        }
                     }
                 }
                 Task::none()

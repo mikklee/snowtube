@@ -64,8 +64,9 @@ pub enum Message {
     ToggleFullscreen,
     BackFromVideo,
     VideoError(String),
-    VideoMouseMoved,      // Mouse moved over video - show controls
-    VideoControlsTimeout, // Timer fired - hide controls if no recent activity
-    SeekVideo(f64),       // Seek to position (0.0 to 1.0 percentage)
-    VideoTick,            // Periodic tick to update progress bar
+    VideoMouseMoved,       // Mouse moved over video - show controls
+    VideoControlsTimeout,  // Timer fired - hide controls if no recent activity
+    SeekVideoPreview(f64), // Preview seek position while dragging (0.0 to 1.0)
+    SeekVideoRelease,      // Actually seek to the previewed position on release
+    VideoTick,             // Periodic tick to update progress bar
 }

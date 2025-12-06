@@ -157,6 +157,7 @@ fn video_control_bar(
     is_paused: bool,
     position: Duration,
     duration: Duration,
+    seek_preview: Option<f64>,
 ) -> Element<'static, Message> {
     let play_pause_icon = if is_paused { '\u{f04b}' } else { '\u{f04c}' };
     let play_pause_label = if is_paused { "Play" } else { "Pause" };
@@ -174,18 +175,26 @@ fn video_control_bar(
     let buttons_row = row(buttons).spacing(0).width(Length::Fill);
 
     // Progress bar with time display
-    let progress_percent = if duration.as_secs_f64() > 0.0 {
-        (position.as_secs_f64() / duration.as_secs_f64()).clamp(0.0, 1.0)
+    // Show preview position if dragging, otherwise show current position
+    let (display_percent, display_position) = if let Some(preview) = seek_preview {
+        let preview_duration = Duration::from_secs_f64(duration.as_secs_f64() * preview);
+        (preview, preview_duration)
     } else {
-        0.0
+        let progress_percent = if duration.as_secs_f64() > 0.0 {
+            (position.as_secs_f64() / duration.as_secs_f64()).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        (progress_percent, position)
     };
 
     let progress_row = row![
-        text(format_duration(position))
+        text(format_duration(display_position))
             .size(12)
             .width(Length::Shrink),
-        slider(0.0..=1.0, progress_percent, Message::SeekVideo)
+        slider(0.0..=1.0, display_percent, Message::SeekVideoPreview)
             .step(0.001)
+            .on_release(Message::SeekVideoRelease)
             .width(Length::Fill)
             .style(progress_slider_style),
         text(format_duration(duration))
@@ -238,6 +247,7 @@ pub fn video_with_controls<'a>(
     duration: Duration,
     available_width: f32,
     available_height: f32,
+    seek_preview: Option<f64>,
 ) -> Element<'a, Message> {
     let (video_width, video_height) = video.size();
 
@@ -290,11 +300,16 @@ pub fn video_with_controls<'a>(
     // Controls overlay at bottom
     if show_controls {
         layers.push(
-            container(video_control_bar(is_paused, position, duration))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .align_y(iced::alignment::Vertical::Bottom)
-                .into(),
+            container(video_control_bar(
+                is_paused,
+                position,
+                duration,
+                seek_preview,
+            ))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_y(iced::alignment::Vertical::Bottom)
+            .into(),
         );
     }
 
@@ -313,6 +328,7 @@ pub fn video_with_controls_fullscreen<'a>(
     show_controls: bool,
     position: Duration,
     duration: Duration,
+    seek_preview: Option<f64>,
 ) -> Element<'a, Message> {
     let video_widget: Element<'a, Message> = VideoPlayer::new(video)
         .width(Length::Fill)
@@ -357,11 +373,16 @@ pub fn video_with_controls_fullscreen<'a>(
 
     if show_controls {
         layers.push(
-            container(video_control_bar(is_paused, position, duration))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .align_y(iced::alignment::Vertical::Bottom)
-                .into(),
+            container(video_control_bar(
+                is_paused,
+                position,
+                duration,
+                seek_preview,
+            ))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_y(iced::alignment::Vertical::Bottom)
+            .into(),
         );
     }
 
