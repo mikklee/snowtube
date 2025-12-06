@@ -24,5 +24,4 @@ strum = { version = "0.27", features = ["derive"] }
 chrono = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "tracing-log"] }
-lyon_algorithms = "1"
 bytemuck = { version = "1", features = ["derive"] }

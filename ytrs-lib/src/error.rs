@@ -47,8 +47,4 @@ pub enum Error {
     /// Request error (non-reqwest)
     #[error("Request error: {0}")]
     Request(String),
-
-    /// Cipher/decryption error
-    #[error("Cipher error: {0}")]
-    Cipher(String),
 }
