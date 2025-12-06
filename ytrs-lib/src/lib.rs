@@ -30,6 +30,7 @@ mod error;
 pub mod locale_map;
 mod models;
 mod parsers;
+pub mod relative_time;
 mod utils;
 
 #[cfg(test)]
@@ -39,5 +40,7 @@ mod parsers_tests;
 
 pub use client::InnerTube;
 pub use error::{Error, Result};
-pub use locale_map::{LanguageOption, get_all_languages};
+pub use locale_map::{LanguageOption, get_all_languages, get_language_by_locale};
 pub use models::*;
+pub use relative_time::{format_relative_time, parse_relative_time};
+pub use utils::contains_asian_characters;

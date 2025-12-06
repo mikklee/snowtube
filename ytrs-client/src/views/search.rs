@@ -1,17 +1,17 @@
 //! Search view for the ytrs-client application
 
-use iced::{
-    Alignment::{self, Center},
-    Element, Length,
-    widget::{
-        Image, button, column, combo_box, container, lazy, row, scrollable, text, text_input,
-    },
-};
-use iced_aw::Wrap;
-
 use crate::App;
-use crate::helpers::{ChannelInfo, create_thumbnail, create_video_tile, fmt_num};
+use crate::helpers::{
+    ChannelInfo, centered_grid_padding, create_thumbnail, create_video_tile, fmt_num,
+};
 use crate::messages::Message;
+use crate::theme::{rounded_button_style, rounded_text_input_style};
+use crate::widgets::{Wrap, bounceable_scrollable, glass_container_style};
+use iced::{
+    Alignment, Element, Length, Padding,
+    widget::{Image, button, column, container, lazy, row, stack, text, text_input},
+};
+use ytrs_lib::{format_relative_time, parse_relative_time};
 
 /// Render the search view
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -20,51 +20,30 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .on_input(Message::InputChanged)
             .on_submit(Message::Search)
             .padding(10)
-            .width(400);
+            .width(300)
+            .style(rounded_text_input_style);
 
-    let search_button = button(text("Search")).on_press(Message::Search).padding(10);
+    let search_button = button(text("Search"))
+        .on_press(Message::Search)
+        .padding(10)
+        .style(rounded_button_style);
 
-    let language_label = text("Language:").size(14);
+    // Floating search bar with glass style
+    let search_controls = row![search_input, search_button].spacing(10);
 
-    let language_selector = combo_box(
-        &app.language_combo_state,
-        "Auto-detect",
-        app.selected_language.as_ref(),
-        Message::LanguageSelected,
+    let floating_search = container(
+        container(search_controls)
+            .padding(Padding::new(12.0))
+            .style(glass_container_style),
     )
-    .width(250);
-
-    let settings_button = button(text("⚙ Settings"))
-        .on_press(Message::OpenConfig)
-        .padding(10);
-
-    // Responsive layout: under 1000px width, stack controls in two rows
-    let controls: Element<Message> = if app.window_width < 1000.0 {
-        column![
-            row![language_label, language_selector, settings_button]
-                .align_y(Center)
-                .spacing(10),
-            row![search_input, search_button].spacing(10),
-        ]
-        .align_x(Center)
-        .width(Length::Fill)
-        .spacing(10)
-        .into()
-    } else {
-        row![
-            search_input,
-            search_button,
-            iced::widget::space::horizontal().width(Length::Fill),
-            language_label,
-            language_selector,
-            settings_button,
-        ]
-        .align_y(Center)
-        .spacing(10)
-        .into()
-    };
-
-    let search = container(controls).padding(20).width(Length::Fill);
+    .padding(Padding {
+        top: 8.0,
+        bottom: 8.0,
+        left: 12.0,
+        right: 12.0,
+    })
+    .width(Length::Shrink)
+    .center_x(Length::Fill);
 
     let body: Element<Message> = if app.search_results.is_empty() {
         if app.searching {
@@ -87,8 +66,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .search_results
             .iter()
             .filter(|r| {
-                // Filter out premium/members-only videos (keep videos where is_premium is NOT true)
-                r.is_premium != Some(true)
+                // Filter out premium/members-only videos and Shorts
+                r.is_premium != Some(true) && r.is_short != Some(true)
             })
             .filter_map(|r| {
                 let vid = r.video_id.clone()?;
@@ -99,16 +78,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 // Clone all data for lazy closure (must be owned)
                 let view_count = r.view_count;
                 let duration = r.duration.clone();
+                let published_text = r.published_text.clone();
                 let title = r.title.clone();
                 let channel = r.channel.clone();
-                let is_playing = app.playing_video.as_ref() == Some(&vid);
-                let countdown = app.countdown_value;
 
-                // Lazy widget caches rendering - only rebuilds when (vid, is_playing, countdown) changes
+                // Lazy widget caches rendering - only rebuilds when vid changes
                 Some(
-                    lazy((vid.clone(), is_playing, countdown), move |_| {
+                    lazy(vid.clone(), move |_| {
                         let thumb = Image::new(h.clone()).width(240).height(135);
-                        let thumb_with_overlay = create_thumbnail(thumb, is_playing, countdown);
+                        let thumb_with_overlay = create_thumbnail(thumb, false, 0);
 
                         // Build metadata line
                         let mut meta_parts = vec![];
@@ -118,6 +96,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
                         if let Some(ref d) = duration {
                             meta_parts.push(d.clone());
                         }
+                        let seconds = parse_relative_time(published_text.as_deref());
+                        let time_ago = format_relative_time(seconds);
+                        meta_parts.push(time_ago);
                         let metadata_text = if !meta_parts.is_empty() {
                             Some(meta_parts.join(" • "))
                         } else {
@@ -140,7 +121,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                             &title,
                             channel_info,
                             metadata_text,
-                            Message::Play(vid.clone()),
+                            Message::PlayVideo(vid.clone()),
                         )
                     })
                     .into(),
@@ -148,14 +129,27 @@ pub fn view(app: &App) -> Element<'_, Message> {
             })
             .collect();
 
+        const CARD_WIDTH: f32 = 240.0;
+        const CARD_SPACING: f32 = 15.0;
+
+        let grid_padding = centered_grid_padding(
+            app.window_width,
+            CARD_WIDTH,
+            CARD_SPACING,
+            20.0,  // min_padding
+            20.0,  // top
+            180.0, // bottom - extra space for tab bar + floating search bar
+        );
+
         let mut search_content = column![
-            container(Wrap::with_elements(cards).spacing(15.0).line_spacing(15.0))
-                .center_x(Length::Fill)
+            Wrap::with_elements(cards)
+                .spacing(CARD_SPACING)
+                .line_spacing(CARD_SPACING)
         ]
         .align_x(Alignment::Center);
 
-        // Show "Load More" button or loading indicator
-        if app.search_loading_more {
+        // Show "Load More" button or loading indicator (hide while preloading)
+        if app.search_loading_more || app.search_preloading {
             let loading_indicator = container(text("Loading more...").size(14))
                 .padding(20)
                 .center_x(Length::Fill);
@@ -165,15 +159,33 @@ pub fn view(app: &App) -> Element<'_, Message> {
             let load_more_btn = container(
                 button(text("Load More Results"))
                     .on_press(Message::LoadMoreSearchResults)
-                    .padding(10),
+                    .padding(10)
+                    .style(rounded_button_style),
             )
             .padding(20)
             .center_x(Length::Fill);
             search_content = search_content.push(load_more_btn);
         }
 
-        scrollable(container(search_content).padding(20).width(Length::Fill)).into()
+        bounceable_scrollable(container(search_content).padding(grid_padding))
+            .id("search")
+            .into()
     };
 
-    column![search, body].into()
+    stack![
+        container(body).width(Length::Fill).height(Length::Fill),
+        container(floating_search)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(Padding {
+                top: 0.0,
+                bottom: 110.0, // Position above tab bar with spacing
+                left: 0.0,
+                right: 0.0,
+            })
+            .align_y(iced::alignment::Vertical::Bottom)
+    ]
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
 }

@@ -44,6 +44,8 @@ pub struct SearchResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_premium: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_short: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub badges: Option<Vec<String>>,
 }
 
@@ -207,4 +209,22 @@ pub struct PlaylistVideo {
     pub index: Option<u64>,
     pub duration: Option<String>,
     pub thumbnails: Vec<Thumbnail>,
+}
+
+/// Saved channel configuration (subscription and/or language override)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelConfig {
+    pub channel_id: String,
+    pub channel_name: String,
+    pub channel_handle: Option<String>,
+    pub thumbnail_url: String,
+    /// Whether the user is subscribed to this channel
+    #[serde(default)]
+    pub subscribed: bool,
+    /// Timestamp when subscribed (ISO 8601), None if never subscribed
+    pub subscribed_at: Option<String>,
+    /// Per-channel language override (hl, gl)
+    #[serde(default)]
+    pub language: Option<(String, String)>,
 }

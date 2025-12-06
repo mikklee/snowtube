@@ -3,3 +3,5 @@
 pub mod channel;
 pub mod config;
 pub mod search;
+pub mod subscriptions;
+pub mod video;

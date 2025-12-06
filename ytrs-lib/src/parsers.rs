@@ -146,6 +146,35 @@ pub(crate) fn parse_badges(video: &Value) -> (Option<bool>, Option<Vec<String>>)
     (is_premium, badges)
 }
 
+/// Detect if a video is a YouTube Short
+/// Checks both the navigation URL and thumbnail overlay style
+pub(crate) fn is_short(video: &Value) -> Option<bool> {
+    // Method 1: Check navigation endpoint URL for /shorts/
+    if let Some(url) = video
+        .pointer("/navigationEndpoint/commandMetadata/webCommandMetadata/url")
+        .and_then(|v| v.as_str())
+        && url.contains("/shorts/") {
+            return Some(true);
+        }
+
+    // Method 2: Check thumbnail overlay for SHORTS style
+    if let Some(overlays) = video
+        .pointer("/thumbnailOverlays")
+        .and_then(|v| v.as_array())
+    {
+        for overlay in overlays {
+            if let Some(style) = overlay
+                .pointer("/thumbnailOverlayTimeStatusRenderer/style")
+                .and_then(|v| v.as_str())
+                && style == "SHORTS" {
+                    return Some(true);
+                }
+        }
+    }
+
+    None
+}
+
 /// Parse a video renderer object
 pub(crate) fn parse_video_renderer(video: &Value) -> Result<SearchResult> {
     let video_id = video
@@ -197,6 +226,7 @@ pub(crate) fn parse_video_renderer(video: &Value) -> Result<SearchResult> {
     let thumbnails = parse_thumbnails(video.pointer("/thumbnail"));
 
     let (is_premium, badges) = parse_badges(video);
+    let is_short = is_short(video);
 
     Ok(SearchResult {
         video_id,
@@ -208,6 +238,7 @@ pub(crate) fn parse_video_renderer(video: &Value) -> Result<SearchResult> {
         published_text,
         thumbnails,
         is_premium,
+        is_short,
         badges,
     })
 }
@@ -784,6 +815,7 @@ fn parse_grid_video_renderer(video: &Value) -> Result<SearchResult> {
     let published_text = extract_text(video.pointer("/publishedTimeText"));
 
     let (is_premium, badges) = parse_badges(video);
+    let is_short = is_short(video);
 
     Ok(SearchResult {
         video_id,
@@ -795,6 +827,7 @@ fn parse_grid_video_renderer(video: &Value) -> Result<SearchResult> {
         published_text,
         thumbnails,
         is_premium,
+        is_short,
         badges,
     })
 }
@@ -882,6 +915,7 @@ fn parse_shorts_lockup(short: &Value) -> Result<SearchResult> {
         published_text: None,
         thumbnails,
         is_premium,
+        is_short: Some(true), // This is always a short since we're parsing shortsLockupViewModel
         badges,
     })
 }

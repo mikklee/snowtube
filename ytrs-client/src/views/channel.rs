@@ -4,14 +4,15 @@ use iced::{
     Alignment,
     Alignment::Center,
     Element, Length, Theme,
-    widget::{Image, button, column, combo_box, container, pick_list, row, scrollable, text},
+    widget::{Image, button, column, combo_box, container, pick_list, row, text},
 };
-use iced_aw::Wrap;
 use ytrs_lib::ChannelTab;
 
 use crate::App;
-use crate::helpers::{create_thumbnail, fmt_num, truncate_title};
+use crate::helpers::{centered_grid_padding, create_thumbnail, fmt_num, truncate_title_smart};
 use crate::messages::Message;
+use crate::theme::{rounded_button_style, rounded_combo_box_style, rounded_pick_list_style};
+use crate::widgets::{Wrap, bounceable_scrollable};
 
 /// Render the channel view
 pub fn view(
@@ -54,12 +55,33 @@ pub fn view(
             info_column = info_column.push(text(subs).size(14));
         }
 
+        // Check if subscribed
+        let is_subscribed = app
+            .config
+            .channels
+            .iter()
+            .any(|c| c.channel_id == channel.id && c.subscribed);
+
+        let subscribe_button = if is_subscribed {
+            button(text("Unsubscribe"))
+                .on_press(Message::UnsubscribeFromChannel(channel.id.clone()))
+                .padding(10)
+                .style(rounded_button_style)
+        } else {
+            button(text("Subscribe"))
+                .on_press(Message::SubscribeToChannel)
+                .padding(10)
+                .style(rounded_button_style)
+        };
+
         let header = row![
             button(text("← Back"))
-                .on_press(Message::BackToSearch)
-                .padding(10),
+                .on_press(Message::BackToChannels)
+                .padding(10)
+                .style(rounded_button_style),
             avatar,
             info_column.padding(10),
+            subscribe_button,
         ]
         .spacing(10)
         .align_y(Alignment::Center);
@@ -68,13 +90,16 @@ pub fn view(
         let tabs = row![
             button(text("VIDEOS"))
                 .on_press(Message::ChangeChannelTab(ChannelTab::Videos))
-                .padding(10),
+                .padding(10)
+                .style(rounded_button_style),
             button(text("SHORTS"))
                 .on_press(Message::ChangeChannelTab(ChannelTab::Shorts))
-                .padding(10),
+                .padding(10)
+                .style(rounded_button_style),
             button(text("LIVE"))
                 .on_press(Message::ChangeChannelTab(ChannelTab::Streams))
-                .padding(10),
+                .padding(10)
+                .style(rounded_button_style),
         ]
         .spacing(10);
 
@@ -96,6 +121,7 @@ pub fn view(
                 Message::LanguageSelected,
             )
             .width(250)
+            .input_style(rounded_combo_box_style)
         ]
         .align_y(Center)
         .spacing(10);
@@ -117,6 +143,7 @@ pub fn view(
                         Message::ChangeSortFilter,
                     )
                     .padding(5)
+                    .style(rounded_pick_list_style)
                 ]
                 .spacing(10)
                 .padding(10)
@@ -164,12 +191,8 @@ pub fn view(
 
                 let thumb = Image::new(h.clone()).width(240).height(135);
 
-                // Check if this video is currently playing
-                let is_playing = app.playing_video.as_ref() == Some(vid);
-                let countdown = app.countdown_value;
-
-                // Create thumbnail with optional countdown overlay
-                let thumb_with_overlay = create_thumbnail(thumb, is_playing, countdown);
+                // Create thumbnail
+                let thumb_with_overlay = create_thumbnail(thumb, false, 0);
 
                 let mut meta = vec![];
                 if let Some(v) = r.view_count {
@@ -183,7 +206,7 @@ pub fn view(
                 }
 
                 let full_title = r.title.clone();
-                let display_title = truncate_title(&r.title, 25);
+                let display_title = truncate_title_smart(&r.title, 25, 50);
 
                 let title_widget = iced::widget::tooltip(
                     text(display_title).size(14),
@@ -204,7 +227,12 @@ pub fn view(
                 .width(240);
 
                 let v = vid.clone();
-                Some(button(card).on_press(Message::Play(v)).padding(0).into())
+                Some(
+                    button(card)
+                        .on_press(Message::PlayVideo(v))
+                        .padding(0)
+                        .into(),
+                )
             })
             .collect();
 
@@ -221,14 +249,22 @@ pub fn view(
                     .into()
             }
         } else {
+            const CARD_WIDTH: f32 = 240.0;
+            const CARD_SPACING: f32 = 15.0;
+
+            let grid_padding = centered_grid_padding(
+                app.window_width,
+                CARD_WIDTH,
+                CARD_SPACING,
+                20.0,  // min_padding
+                20.0,  // top
+                100.0, // bottom - extra space for tab bar overlay
+            );
+
             let mut video_content = column![
-                container(
-                    Wrap::with_elements(video_cards)
-                        .spacing(15.0)
-                        .line_spacing(15.0),
-                )
-                .center_x(Length::Fill)
-                .align_x(Alignment::Center)
+                Wrap::with_elements(video_cards)
+                    .spacing(CARD_SPACING)
+                    .line_spacing(CARD_SPACING)
             ];
 
             // Show "Load More" button or loading indicator
@@ -249,14 +285,17 @@ pub fn view(
                 let load_more_btn = container(
                     button(text("Load More Videos"))
                         .on_press(Message::LoadMoreVideos)
-                        .padding(10),
+                        .padding(10)
+                        .style(rounded_button_style),
                 )
                 .padding(20)
                 .center_x(Length::Fill);
                 video_content = video_content.push(load_more_btn);
             }
 
-            scrollable(container(video_content).padding(20)).into()
+            bounceable_scrollable(container(video_content).padding(grid_padding))
+                .id("channel")
+                .into()
         };
 
         content = content.push(videos_section);

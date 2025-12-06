@@ -2,14 +2,16 @@
 
 use iced::{
     Alignment, Background, Color, Element, Length, Theme,
-    widget::{button, column, combo_box, container, pick_list, row, scrollable, text},
+    widget::{column, combo_box, container, pick_list, row, text},
 };
+
+use crate::widgets::bounceable_scrollable;
 use strum::IntoEnumIterator;
 
 use crate::App;
 use crate::helpers::{ChannelInfo, create_video_tile};
 use crate::messages::Message;
-use crate::theme::AppTheme;
+use crate::theme::{AppTheme, rounded_combo_box_style, rounded_pick_list_style};
 
 /// Create a mock video tile preview to show how the theme looks
 fn create_theme_preview() -> Element<'static, Message> {
@@ -40,10 +42,6 @@ fn create_theme_preview() -> Element<'static, Message> {
 
 /// Render the configuration view
 pub fn view(app: &App) -> Element<'_, Message> {
-    let title = text("Configuration").size(32);
-
-    let header = container(title).padding(20).width(Length::Fill);
-
     // Language Section
     let language_section_title = text("Default Language").size(20);
 
@@ -63,6 +61,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             Message::LanguageSelected,
         )
         .width(250)
+        .input_style(rounded_combo_box_style)
     ]
     .spacing(10)
     .align_y(Alignment::Center);
@@ -88,7 +87,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let theme_options: Vec<AppTheme> = AppTheme::iter().collect();
     let theme_row = row![
         text("Theme:").size(14),
-        pick_list(theme_options, Some(app.config.theme), Message::ThemeChanged).padding(5)
+        pick_list(theme_options, Some(app.config.theme), Message::ThemeChanged)
+            .padding(5)
+            .style(rounded_pick_list_style)
     ]
     .spacing(10)
     .align_y(Alignment::Center);
@@ -110,25 +111,24 @@ pub fn view(app: &App) -> Element<'_, Message> {
     ]
     .spacing(5);
 
-    // Back button
-    let back_button = button(text("← Back"))
-        .on_press(Message::CloseConfig)
-        .padding(10);
-
     let content = column![
-        header,
         container(
             column![
                 language_section,
                 iced::widget::space::vertical().height(30),
                 theme_section,
-                iced::widget::space::vertical().height(30),
-                back_button,
             ]
             .padding(20)
         )
         .width(Length::Fill)
     ];
 
-    scrollable(content).into()
+    bounceable_scrollable(container(content).padding(iced::Padding {
+        top: 0.0,
+        bottom: 100.0, // Extra space for tab bar overlay
+        left: 0.0,
+        right: 0.0,
+    }))
+    .id("config")
+    .into()
 }

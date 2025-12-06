@@ -3,18 +3,23 @@ mod helpers;
 mod messages;
 mod theme;
 mod views;
+mod widgets;
+
+use iced_video_player::Video;
 
 use iced::widget::combo_box;
 use iced::{Element, Size, Subscription, Task, Theme, event};
+use std::cell::Cell;
 use std::collections::HashMap;
-use std::process::Command;
-use std::sync::{Arc, OnceLock};
+
+use std::sync::OnceLock;
+use tracing::trace;
 use ytrs_lib::{
     ChannelInfo, ChannelTab, InnerTube, LanguageOption, SearchResult, SortFilter, get_all_languages,
 };
 
 use config::{AppConfig, SerializableLanguageOption, YtrsConfig};
-use messages::{Message, View};
+use messages::{Message, TabId, View};
 use theme::AppTheme;
 
 /// Cached HashMap for O(1) language lookups by (hl, gl) tuple
@@ -32,13 +37,22 @@ fn get_language_by_locale(hl: &str, gl: &str) -> Option<&'static LanguageOption>
 }
 
 fn main() -> iced::Result {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive(tracing::Level::INFO.into()),
+        )
+        .init();
+
     iced::application(App::new, App::update, App::view)
         .title(cosmic_title)
         .theme(app_theme)
         .subscription(App::subscription)
-        .font(include_bytes!("../fonts/NotoSansCJK-VF.otf.ttc"))
+        .font(include_bytes!("../fonts/Inter-Regular.ttf"))
+        .font(include_bytes!("../fonts/MPLUSRounded1c-Regular.ttf"))
+        .font(include_bytes!("../fonts/JetBrainsMonoNerdFont-Regular.ttf"))
         .default_font(iced::Font {
-            family: iced::font::Family::Name("Noto Sans CJK JP"),
+            family: iced::font::Family::Name("Rounded Mplus 1c"),
             ..iced::Font::DEFAULT
         })
         .run()
@@ -56,16 +70,23 @@ pub struct App {
     // Shared state
     pub query: String,
     pub thumbs: HashMap<String, iced::widget::image::Handle>,
+    pub subscription_thumbs: HashMap<String, iced::widget::image::Handle>, // Channel avatars for subscriptions
+    pub subscription_videos: HashMap<String, Vec<SearchResult>>, // channel_id -> last 2 videos
+    pub subscription_videos_cache: config::SubscriptionVideoCache, // Persistent cache
+    pub subscription_videos_loading: std::collections::HashSet<String>, // Channels currently being fetched
     pub current_view: View,
     pub previous_view: View, // Track which view to return to from config
+    pub active_tab: TabId,   // Current active tab in TabBar
+    pub last_view_for_timing: Cell<Option<View>>, // Track last view to detect tab switches
     pub language_combo_state: combo_box::State<LanguageOption>,
     pub selected_language: Option<LanguageOption>, // User's manual language override (global)
-    pub playing_video: Option<String>,             // Currently playing video ID
-    pub countdown_value: u8,                       // Current countdown value (5, 4, 3, 2, 1, 0)
-    pub mpv_process: Arc<tokio::sync::Mutex<Option<std::process::Child>>>, // MPV process handle
-    pub config: AppConfig,                         // Persistent configuration
-    pub window_width: f32,                         // Current window width for responsive layout
-    pub current_theme: Theme,                      // Current theme
+
+    pub config: AppConfig,    // Persistent configuration
+    pub window_width: f32,    // Current window width for responsive layout
+    pub window_height: f32,   // Current window height for responsive layout
+    pub current_theme: Theme, // Current theme
+    pub pending_thumb_updates: Vec<(String, Vec<u8>)>, // Batched thumbnail updates
+    pub last_thumb_update: Option<std::time::Instant>, // Last time we processed thumb updates
 
     // Search-specific state
     pub search_results: Vec<SearchResult>,
@@ -89,6 +110,21 @@ pub struct App {
     pub channel_preloading: bool,
     pub available_sort_filters: Vec<SortFilter>,
     pub selected_sort_label: Option<String>,
+
+    // Video player state
+    pub video: Option<Video>,
+    pub playing_video_title: Option<String>,
+    pub video_fullscreen: bool,
+    pub video_controls_visible: bool,
+    pub video_last_mouse_move: Option<std::time::Instant>,
+    pub video_seek_preview: Option<f64>, // Preview position while dragging slider (0.0 to 1.0)
+    pub notification: Option<String>,    // Temporary notification message
+    pub video_loading: bool,             // Whether video is currently loading
+    pub video_loading_status: Option<String>, // Current loading status message
+    pub video_seeking: bool,             // Whether video is currently seeking
+    pub video_seek_target: Option<std::time::Duration>, // Target position when seeking
+    pub video_error: Option<String>,     // Error message if video failed to load
+    pub playing_video_id: Option<String>, // Current video ID (for actions like mpv, copy URL)
 }
 
 impl App {
@@ -98,16 +134,23 @@ impl App {
                 // Shared state
                 query: String::new(),
                 thumbs: HashMap::new(),
+                subscription_thumbs: HashMap::new(),
+                subscription_videos: HashMap::new(),
+                subscription_videos_cache: config::SubscriptionVideoCache::default(),
+                subscription_videos_loading: std::collections::HashSet::new(),
                 current_view: View::Search,
                 previous_view: View::Search,
+                active_tab: TabId::Search,
+                last_view_for_timing: Cell::new(None),
                 language_combo_state: combo_box::State::new(get_all_languages().to_vec()),
                 selected_language: None,
-                playing_video: None,
-                countdown_value: 0,
-                mpv_process: Arc::new(tokio::sync::Mutex::new(None)),
+
                 config: AppConfig::default(),
                 window_width: 800.0,
+                window_height: 600.0,
                 current_theme: AppTheme::default().to_iced_theme(),
+                pending_thumb_updates: Vec::new(),
+                last_thumb_update: None,
 
                 // Search-specific state
                 search_results: Vec::new(),
@@ -131,6 +174,21 @@ impl App {
                 channel_preloading: false,
                 available_sort_filters: Vec::new(),
                 selected_sort_label: None,
+
+                // Video player state
+                video: None,
+                playing_video_title: None,
+                video_fullscreen: false,
+                video_controls_visible: true,
+                video_last_mouse_move: None,
+                video_seek_preview: None,
+                notification: None,
+                video_loading: false,
+                video_loading_status: None,
+                video_seeking: false,
+                video_seek_target: None,
+                video_error: None,
+                playing_video_id: None,
             },
             // Load config asynchronously on startup
             Task::perform(
@@ -143,6 +201,72 @@ impl App {
                 Message::ConfigLoaded,
             ),
         )
+    }
+
+    /// Fetch videos for subscribed channels that are stale (>10h old or not cached)
+    fn fetch_stale_subscription_videos(&mut self) -> Task<Message> {
+        // Collect channels to fetch first to avoid borrow issues
+        let channels_to_fetch: Vec<_> = self
+            .config
+            .channels
+            .iter()
+            .filter(|c| c.subscribed)
+            .filter(|c| {
+                !self.subscription_videos_loading.contains(&c.channel_id)
+                    && self.subscription_videos_cache.is_stale(&c.channel_id)
+            })
+            .map(|c| {
+                let (hl, gl) = c
+                    .language
+                    .clone()
+                    .or_else(|| {
+                        self.config
+                            .default_language
+                            .as_ref()
+                            .map(|l| (l.hl.clone(), l.gl.clone()))
+                    })
+                    .unwrap_or_else(|| ("en".to_string(), "US".to_string()));
+                (c.channel_id.clone(), c.channel_name.clone(), hl, gl)
+            })
+            .collect();
+
+        // Mark channels as loading
+        for (channel_id, _, _, _) in &channels_to_fetch {
+            self.subscription_videos_loading.insert(channel_id.clone());
+        }
+
+        let tasks: Vec<Task<Message>> = channels_to_fetch
+            .into_iter()
+            .map(|(channel_id, channel_name, hl, gl)| {
+                let channel_id_for_msg = channel_id.clone();
+                let channel_name_for_msg = channel_name.clone();
+                Task::perform(
+                    async move {
+                        let client = ytrs_lib::InnerTube::new()
+                            .await
+                            .map_err(|e| e.to_string())?;
+                        client
+                            .get_channel_videos_with_explicit_locale(
+                                &channel_id,
+                                ytrs_lib::ChannelTab::Videos,
+                                &hl,
+                                &gl,
+                            )
+                            .await
+                            .map_err(|e| e.to_string())
+                    },
+                    move |res| {
+                        Message::SubscriptionVideosLoaded(
+                            channel_id_for_msg,
+                            channel_name_for_msg,
+                            res,
+                        )
+                    },
+                )
+            })
+            .collect();
+
+        Task::batch(tasks)
     }
 
     fn update(&mut self, msg: Message) -> Task<Message> {
@@ -209,20 +333,28 @@ impl App {
                         // Update results (replace on first search, append on continuation/preload)
                         if !is_load_more && self.search_results.is_empty() {
                             self.search_results = new_results.clone();
-                            self.thumbs.clear();
+                            // Don't clear thumbs - they're cached to disk and shared across views
                         } else {
                             // Appending results (load more or preloading)
                             self.search_results.extend(new_results.clone());
                         }
 
-                        // Auto-preload: fetch 3 pages (90 results) before showing content
-                        const TARGET_PRELOAD_PAGES: usize = 3;
+                        // Auto-preload: fetch more pages until we have enough displayable results
+                        // (after filtering out shorts and premium videos)
+                        const MIN_DISPLAYABLE_RESULTS: usize = 60;
+
+                        // Count displayable results (not shorts, not premium)
+                        let displayable_count = self
+                            .search_results
+                            .iter()
+                            .filter(|r| r.is_premium != Some(true) && r.is_short != Some(true))
+                            .count();
 
                         if self.search_preloading {
                             self.search_preload_count += 1;
 
-                            // If we haven't reached target and have continuation, auto-load more
-                            if self.search_preload_count < TARGET_PRELOAD_PAGES
+                            // Keep fetching if we don't have enough displayable results and have continuation
+                            if displayable_count < MIN_DISPLAYABLE_RESULTS
                                 && self.search_continuation.is_some()
                             {
                                 let token = self.search_continuation.as_ref().unwrap().clone();
@@ -257,7 +389,7 @@ impl App {
                         Task::batch(helpers::create_thumbnail_tasks(&new_results))
                     }
                     Err(e) => {
-                        eprintln!("Error: {}", e);
+                        trace!("Search error: {:?}", e);
                         self.search_preloading = false;
                         self.searching = false;
                         self.search_loading_more = false;
@@ -267,8 +399,29 @@ impl App {
             }
             Message::ThumbLoaded(id, res) => {
                 if let Ok(bytes) = res {
-                    self.thumbs
-                        .insert(id, iced::widget::image::Handle::from_bytes(bytes));
+                    // Batch thumbnail updates instead of updating immediately
+                    self.pending_thumb_updates.push((id, bytes));
+
+                    let now = std::time::Instant::now();
+                    let should_flush = match self.last_thumb_update {
+                        None => true,
+                        Some(last) => {
+                            // Flush if we have 10+ pending or 100ms has passed
+                            self.pending_thumb_updates.len() >= 10
+                                || now.duration_since(last).as_millis() >= 100
+                        }
+                    };
+
+                    if should_flush {
+                        // Process all pending updates at once
+                        for (thumb_id, thumb_bytes) in self.pending_thumb_updates.drain(..) {
+                            self.thumbs.insert(
+                                thumb_id,
+                                iced::widget::image::Handle::from_bytes(thumb_bytes),
+                            );
+                        }
+                        self.last_thumb_update = Some(now);
+                    }
                 }
                 Task::none()
             }
@@ -278,78 +431,10 @@ impl App {
                 }
                 Task::none()
             }
-            Message::Play(id) => {
-                // Set up countdown state
-                self.playing_video = Some(id.clone());
-                self.countdown_value = 5;
-
-                // Start MPV playback in tokio spawn_blocking
-                let url = format!("https://www.youtube.com/watch?v={}", id);
-                let mpv_process = self.mpv_process.clone();
-
-                tokio::spawn(async move {
-                    // Kill previous MPV process if it exists
-                    let mut process_lock = mpv_process.lock().await;
-                    if let Some(mut process) = process_lock.take() {
-                        let _ = process.kill();
-                    }
-                    drop(process_lock);
-
-                    // Spawn new MPV process
-                    let result = tokio::task::spawn_blocking(move || {
-                        Command::new("mpv")
-                            .arg(&url)
-                            .arg("--ytdl=yes")
-                            .arg("--script-opts=ytdl_hook-ytdl_path=yt-dlp")
-                            .spawn()
-                    })
-                    .await;
-
-                    // Store the process handle
-                    if let Ok(Ok(child)) = result {
-                        let mut process_lock = mpv_process.lock().await;
-                        *process_lock = Some(child);
-                    }
-                });
-
-                // Start countdown timer
-                let video_id = id.clone();
-                Task::perform(
-                    async move {
-                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                        video_id
-                    },
-                    Message::CountdownTick,
-                )
-            }
-            Message::CountdownTick(video_id) => {
-                // Only process countdown if this is still the playing video
-                if self.playing_video.as_ref() != Some(&video_id) {
-                    return Task::none();
-                }
-
-                if self.countdown_value > 0 {
-                    self.countdown_value -= 1;
-                }
-
-                if self.countdown_value > 0 {
-                    // Continue countdown
-                    Task::perform(
-                        async move {
-                            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                            video_id
-                        },
-                        Message::CountdownTick,
-                    )
-                } else {
-                    // Countdown complete, clear playing state
-                    self.playing_video = None;
-                    Task::none()
-                }
-            }
             Message::ViewChannel(channel_id) => {
                 self.loading_channel = true;
                 self.current_view = View::Channel;
+                self.active_tab = TabId::Channels;
                 self.banner = None;
                 // Don't clear search state! Only initialize channel state
                 self.channel_results.clear();
@@ -359,15 +444,31 @@ impl App {
                 self.channel_continuation = None;
                 self.channel_preload_count = 0;
                 self.channel_preloading = true;
-                // Keep selected_language if it exists (persist from search view)
 
                 let id = channel_id.clone();
 
-                // Use manual locale if selected, otherwise let channel load detect it
-                if let Some(ref language) = self.selected_language {
-                    let hl = language.hl.to_string();
-                    let gl = language.gl.to_string();
-                    self.channel_locale = (hl, gl);
+                // Determine channel language:
+                // 1. Use per-channel saved language if set
+                // 2. Otherwise use global default from config
+                // 3. Otherwise auto-detect
+                let channel_language = self
+                    .config
+                    .channels
+                    .iter()
+                    .find(|c| c.channel_id == channel_id)
+                    .and_then(|c| c.language.clone());
+
+                if let Some((hl, gl)) = channel_language {
+                    // This channel has a specific language set
+                    self.channel_locale = (hl.clone(), gl.clone());
+                    self.selected_language = ytrs_lib::get_language_by_locale(&hl, &gl).cloned();
+                } else if let Some(ref lang_config) = self.config.default_language {
+                    // Use global default language
+                    self.channel_locale = (lang_config.hl.clone(), lang_config.gl.clone());
+                    self.selected_language = lang_config.to_language_option();
+                } else {
+                    // No language set - will auto-detect
+                    self.selected_language = None;
                 }
 
                 // First load channel info, then use channel name for locale detection when loading videos
@@ -463,7 +564,7 @@ impl App {
                         Task::batch(vec![banner_task, avatar_task, videos_task])
                     }
                     Err(e) => {
-                        eprintln!("Error loading channel: {}", e);
+                        trace!("Channel load error: {:?}", e);
                         Task::none()
                     }
                 }
@@ -560,7 +661,7 @@ impl App {
                         Task::batch(helpers::create_thumbnail_tasks(&new_videos))
                     }
                     Err(e) => {
-                        eprintln!("Error loading channel videos: {}", e);
+                        trace!("Channel videos load error: {:?}", e);
                         self.channel_preloading = false;
                         self.loading_channel = false;
                         self.channel_loading_more = false;
@@ -677,8 +778,9 @@ impl App {
                 }
                 Task::none()
             }
-            Message::BackToSearch => {
-                self.current_view = View::Search;
+            Message::BackToChannels => {
+                self.current_view = View::Channels;
+                self.active_tab = TabId::Channels;
                 // Clear only channel state, preserve search state!
                 self.current_channel = None;
                 self.channel_results.clear();
@@ -690,7 +792,31 @@ impl App {
                 self.channel_preloading = false;
                 self.loading_channel = false;
                 self.channel_loading_more = false;
-                Task::none()
+
+                // Load thumbnails for any newly subscribed channels
+                let tasks: Vec<Task<Message>> = self
+                    .config
+                    .channels
+                    .iter()
+                    .filter(|c| c.subscribed)
+                    .filter(|c| !self.subscription_thumbs.contains_key(&c.channel_id))
+                    .map(|c| {
+                        let channel_id = c.channel_id.clone();
+                        let url = c.thumbnail_url.clone();
+                        Task::perform(
+                            async move {
+                                helpers::load_circular_thumb(&url, 80)
+                                    .await
+                                    .map_err(|e| e.to_string())
+                            },
+                            move |res| {
+                                Message::SubscriptionChannelThumbLoaded(channel_id.clone(), res)
+                            },
+                        )
+                    })
+                    .collect();
+
+                Task::batch(tasks)
             }
             Message::LanguageSelected(language) => {
                 self.selected_language = Some(language.clone());
@@ -705,6 +831,45 @@ impl App {
                     View::Channel => {
                         // Re-fetch channel with this locale
                         if let Some(ref channel) = self.current_channel {
+                            // Save language preference for this channel
+                            let language_tuple = (hl.clone(), gl.clone());
+                            if let Some(channel_config) = self
+                                .config
+                                .channels
+                                .iter_mut()
+                                .find(|c| c.channel_id == channel.id)
+                            {
+                                // Update existing channel config
+                                channel_config.language = Some(language_tuple);
+                            } else {
+                                // Create new channel config with just language
+                                let thumbnail_url = channel
+                                    .thumbnails
+                                    .last()
+                                    .map(|t| t.url.clone())
+                                    .unwrap_or_default();
+
+                                self.config.channels.push(ytrs_lib::ChannelConfig {
+                                    channel_id: channel.id.clone(),
+                                    channel_name: channel.name.clone(),
+                                    channel_handle: channel.handle.clone(),
+                                    thumbnail_url,
+                                    subscribed: false,
+                                    subscribed_at: None,
+                                    language: Some((hl.clone(), gl.clone())),
+                                });
+                            }
+
+                            // Save config
+                            let new_config = YtrsConfig {
+                                config: self.config.clone(),
+                                ..Default::default()
+                            };
+                            let save_task = Task::perform(
+                                async move { new_config.save().await.map_err(|e| e.to_string()) },
+                                Message::ConfigSaved,
+                            );
+
                             self.channel_results.clear();
                             self.channel_continuation = None;
                             self.channel_preload_count = 0;
@@ -714,7 +879,7 @@ impl App {
                             let channel_id = channel.id.clone();
 
                             // Fetch channel info first
-                            Task::perform(
+                            let fetch_task = Task::perform(
                                 async move {
                                     let client =
                                         InnerTube::new().await.map_err(|e| e.to_string())?;
@@ -724,10 +889,16 @@ impl App {
                                         .map_err(|e| e.to_string())
                                 },
                                 Message::ChannelLoaded,
-                            )
+                            );
+
+                            Task::batch([save_task, fetch_task])
                         } else {
                             Task::none()
                         }
+                    }
+                    View::Channels => {
+                        // No action needed for channels view
+                        Task::none()
                     }
                     View::Search => {
                         // Re-run search with new locale if there's an active query
@@ -775,16 +946,11 @@ impl App {
                             Message::ConfigSaved,
                         )
                     }
+                    View::Video => {
+                        // No action needed for video view
+                        Task::none()
+                    }
                 }
-            }
-            Message::OpenConfig => {
-                self.previous_view = self.current_view.clone();
-                self.current_view = View::Config;
-                Task::none()
-            }
-            Message::CloseConfig => {
-                self.current_view = self.previous_view.clone();
-                Task::none()
             }
             Message::ConfigLoaded(result) => {
                 match result {
@@ -804,14 +970,14 @@ impl App {
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to load config: {}", e);
+                        trace!("Config load error: {:?}", e);
                     }
                 }
                 Task::none()
             }
             Message::ConfigSaved(result) => {
                 if let Err(e) = result {
-                    eprintln!("Failed to save config: {}", e);
+                    trace!("Config save error: {:?}", e);
                 }
                 Task::none()
             }
@@ -831,29 +997,794 @@ impl App {
                     Message::ConfigSaved,
                 )
             }
-            Message::Resized(width, _height) => {
+            Message::Resized(width, height) => {
                 self.window_width = width;
+                self.window_height = height;
                 Task::none()
             }
+            Message::SubscribeToChannel => {
+                if let Some(ref channel) = self.current_channel {
+                    // Check if channel config already exists
+                    let existing_config = self
+                        .config
+                        .channels
+                        .iter_mut()
+                        .find(|c| c.channel_id == channel.id);
+
+                    if let Some(channel_config) = existing_config {
+                        // Channel config exists, just mark as subscribed
+                        if !channel_config.subscribed {
+                            channel_config.subscribed = true;
+                            channel_config.subscribed_at = Some(chrono::Utc::now().to_rfc3339());
+                        }
+                    } else {
+                        // Get the best quality thumbnail
+                        let thumbnail_url = channel
+                            .thumbnails
+                            .last()
+                            .map(|t| t.url.clone())
+                            .unwrap_or_default();
+
+                        // Create new channel config
+                        let channel_config = ytrs_lib::ChannelConfig {
+                            channel_id: channel.id.clone(),
+                            channel_name: channel.name.clone(),
+                            channel_handle: channel.handle.clone(),
+                            thumbnail_url,
+                            subscribed: true,
+                            subscribed_at: Some(chrono::Utc::now().to_rfc3339()),
+                            language: None,
+                        };
+
+                        // Add to config
+                        self.config.channels.push(channel_config);
+                    }
+
+                    // Save config
+                    let new_config = YtrsConfig {
+                        config: self.config.clone(),
+                        ..Default::default()
+                    };
+
+                    return Task::perform(
+                        async move { new_config.save().await.map_err(|e| e.to_string()) },
+                        Message::ConfigSaved,
+                    );
+                }
+                Task::none()
+            }
+            Message::UnsubscribeFromChannel(channel_id) => {
+                // Find the channel config
+                if let Some(channel_config) = self
+                    .config
+                    .channels
+                    .iter_mut()
+                    .find(|c| c.channel_id == channel_id)
+                {
+                    channel_config.subscribed = false;
+                    channel_config.subscribed_at = None;
+
+                    // If no language override, remove the entry entirely
+                    if channel_config.language.is_none() {
+                        self.config.channels.retain(|c| c.channel_id != channel_id);
+                    }
+                }
+
+                // Remove thumbnail from cache
+                self.subscription_thumbs.remove(&channel_id);
+
+                // Save config
+                let new_config = YtrsConfig {
+                    config: self.config.clone(),
+                    ..Default::default()
+                };
+
+                Task::perform(
+                    async move { new_config.save().await.map_err(|e| e.to_string()) },
+                    Message::ConfigSaved,
+                )
+            }
+            Message::SubscriptionChannelThumbLoaded(channel_id, res) => {
+                if let Ok(bytes) = res {
+                    self.subscription_thumbs
+                        .insert(channel_id, iced::widget::image::Handle::from_bytes(bytes));
+                }
+                Task::none()
+            }
+            Message::TabSelected(tab_id) => {
+                self.active_tab = tab_id;
+                
+
+                match tab_id {
+                    TabId::Search => {
+                        self.current_view = View::Search;
+                        Task::none()
+                    }
+                    TabId::Channels => {
+                        self.current_view = View::Channels;
+                        // Load circular thumbnails for all subscribed channels that aren't already loaded
+                        let thumb_tasks: Vec<Task<Message>> = self
+                            .config
+                            .channels
+                            .iter()
+                            .filter(|c| c.subscribed)
+                            .filter(|c| !self.subscription_thumbs.contains_key(&c.channel_id))
+                            .map(|c| {
+                                let channel_id = c.channel_id.clone();
+                                let url = c.thumbnail_url.clone();
+                                Task::perform(
+                                    async move {
+                                        helpers::load_circular_thumb(&url, 80)
+                                            .await
+                                            .map_err(|e| e.to_string())
+                                    },
+                                    move |res| {
+                                        Message::SubscriptionChannelThumbLoaded(
+                                            channel_id.clone(),
+                                            res,
+                                        )
+                                    },
+                                )
+                            })
+                            .collect();
+
+                        // Load subscription video cache from disk if not already loaded
+                        let cache_task = if self.subscription_videos_cache.channels.is_empty() {
+                            Task::perform(
+                                async { config::SubscriptionVideoCache::load().await },
+                                |res| {
+                                    Message::SubscriptionVideosCacheLoaded(
+                                        res.map_err(|e| e.to_string()),
+                                    )
+                                },
+                            )
+                        } else {
+                            // Cache already loaded, fetch stale videos
+                            self.fetch_stale_subscription_videos()
+                        };
+
+                        Task::batch(thumb_tasks).chain(cache_task)
+                    }
+                    TabId::Settings => {
+                        self.current_view = View::Config;
+                        Task::none()
+                    }
+                }
+            }
             Message::NoOp => Task::none(),
+            Message::SubscriptionVideosCacheLoaded(result) => {
+                match result {
+                    Ok(cache) => {
+                        // Populate subscription_videos from cache and collect videos for thumbnail loading
+                        let mut all_videos: Vec<SearchResult> = Vec::new();
+                        for (channel_id, cached) in &cache.channels {
+                            // Look up channel name from config
+                            let channel_name = self
+                                .config
+                                .channels
+                                .iter()
+                                .find(|c| &c.channel_id == channel_id)
+                                .map(|c| c.channel_name.clone());
+                            // Populate channel info on videos if missing
+                            let videos: Vec<SearchResult> = cached
+                                .videos
+                                .iter()
+                                .cloned()
+                                .map(|mut v| {
+                                    if v.channel.is_none()
+                                        && let Some(ref name) = channel_name {
+                                            v.channel = Some(ytrs_lib::Channel {
+                                                id: Some(channel_id.clone()),
+                                                name: name.clone(),
+                                                url: None,
+                                                thumbnail: None,
+                                            });
+                                        }
+                                    v
+                                })
+                                .collect();
+                            all_videos.extend(videos.clone());
+                            self.subscription_videos.insert(channel_id.clone(), videos);
+                        }
+                        self.subscription_videos_cache = cache;
+
+                        // Load thumbnails for cached videos
+                        let thumb_tasks = helpers::create_thumbnail_tasks(&all_videos);
+
+                        // Now fetch stale videos
+                        let fetch_task = self.fetch_stale_subscription_videos();
+                        Task::batch(thumb_tasks).chain(fetch_task)
+                    }
+                    Err(e) => {
+                        trace!("Subscription video cache load error: {:?}", e);
+                        self.fetch_stale_subscription_videos()
+                    }
+                }
+            }
+            Message::SubscriptionVideosLoaded(channel_id, channel_name, result) => {
+                self.subscription_videos_loading.remove(&channel_id);
+                match result {
+                    Ok(channel_videos) => {
+                        // Store full first page of videos with channel info populated
+                        let videos: Vec<SearchResult> = channel_videos
+                            .videos
+                            .into_iter()
+                            .map(|mut v| {
+                                // Populate channel info if not present
+                                if v.channel.is_none() {
+                                    v.channel = Some(ytrs_lib::Channel {
+                                        id: Some(channel_id.clone()),
+                                        name: channel_name.clone(),
+                                        url: None,
+                                        thumbnail: None,
+                                    });
+                                }
+                                v
+                            })
+                            .collect();
+
+                        // Load thumbnails for these videos
+                        let thumb_tasks = helpers::create_thumbnail_tasks(&videos);
+
+                        // Update cache
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs() as i64;
+                        self.subscription_videos_cache.channels.insert(
+                            channel_id.clone(),
+                            config::CachedChannelVideos {
+                                videos: videos.clone(),
+                                fetched_at: now,
+                            },
+                        );
+
+                        self.subscription_videos.insert(channel_id, videos);
+
+                        // Save cache to disk only when all channels are done loading
+                        let save_task = if self.subscription_videos_loading.is_empty() {
+                            let cache = self.subscription_videos_cache.clone();
+                            Task::perform(async move { cache.save().await }, |_| Message::NoOp)
+                        } else {
+                            Task::none()
+                        };
+
+                        Task::batch(thumb_tasks).chain(save_task)
+                    }
+                    Err(e) => {
+                        trace!("Subscription videos load error: {:?}", e);
+                        // Save cache when all done, even if some failed
+                        if self.subscription_videos_loading.is_empty() {
+                            let cache = self.subscription_videos_cache.clone();
+                            Task::perform(async move { cache.save().await }, |_| Message::NoOp)
+                        } else {
+                            Task::none()
+                        }
+                    }
+                }
+            }
+            Message::RefreshSubscriptionVideos => {
+                // Clear cache timestamps to force refetch
+                self.subscription_videos_cache.channels.clear();
+                self.subscription_videos.clear();
+                self.fetch_stale_subscription_videos()
+            }
+            Message::ExportSearchResults => {
+                if !self.search_results.is_empty() {
+                    let mut content = String::new();
+                    content.push_str("=== YTRS Search Results Export ===\n\n");
+
+                    for (idx, result) in self.search_results.iter().enumerate() {
+                        content.push_str(&format!("{}. {}\n", idx + 1, result.title));
+                        if let Some(ref channel) = result.channel {
+                            content.push_str(&format!("   Channel: {}\n", channel.name));
+                        }
+                        if let Some(views) = result.view_count {
+                            content.push_str(&format!("   Views: {}\n", views));
+                        }
+                        if let Some(ref duration) = result.duration {
+                            content.push_str(&format!("   Duration: {}\n", duration));
+                        }
+                        if let Some(ref video_id) = result.video_id {
+                            content.push_str(&format!("   Video ID: {}\n", video_id));
+                        }
+                        content.push('\n');
+                    }
+
+                    let filename = format!(
+                        "ytrs-search-export-{}.txt",
+                        chrono::Utc::now().format("%Y%m%d-%H%M%S")
+                    );
+
+                    Task::perform(
+                        async move {
+                            tokio::fs::write(&filename, content)
+                                .await
+                                .map_err(|e| e.to_string())
+                                .map(|_| filename)
+                        },
+                        |result| match result {
+                            Ok(_filename) => Message::NoOp,
+                            Err(e) => {
+                                trace!("Subscription save error: {}", e);
+                                Message::NoOp
+                            }
+                        },
+                    )
+                } else {
+                    Task::none()
+                }
+            }
+            Message::PlayVideo(video_id) => {
+                // Find the video title from search results, channel results, or subscription videos
+                let title = self
+                    .search_results
+                    .iter()
+                    .find(|r| r.video_id.as_ref() == Some(&video_id))
+                    .map(|r| r.title.clone())
+                    .or_else(|| {
+                        self.channel_results
+                            .iter()
+                            .find(|r| r.video_id.as_ref() == Some(&video_id))
+                            .map(|r| r.title.clone())
+                    })
+                    .or_else(|| {
+                        // Search in subscription videos
+                        self.subscription_videos
+                            .values()
+                            .flatten()
+                            .find(|r| r.video_id.as_ref() == Some(&video_id))
+                            .map(|r| r.title.clone())
+                    });
+
+                self.playing_video_title = title;
+                self.video_error = None;
+                self.playing_video_id = Some(video_id.clone());
+                self.previous_view = self.current_view;
+                self.current_view = View::Video;
+                self.video_loading = true;
+                self.video_loading_status = Some("Fetching video info...".to_string());
+
+                // Use yt-dlp to get direct URL with headers for seekable playback
+                let url = format!("https://www.youtube.com/watch?v={}", video_id);
+
+                // Use a stream to send status updates during loading
+                use iced::futures::SinkExt;
+
+                enum VideoLoadProgress {
+                    Status(String),
+                    Done(Result<std::sync::Arc<Video>, String>),
+                }
+
+                let stream = iced::stream::channel(
+                    10,
+                    move |mut sender: iced::futures::channel::mpsc::Sender<VideoLoadProgress>| async move {
+                        // Phase 1: Run yt-dlp (blocking)
+                        let yt_dlp_result = tokio::task::spawn_blocking(move || {
+                            tracing::info!("Starting yt-dlp for URL: {}", url);
+                            let output = std::process::Command::new("yt-dlp")
+                                .args(["--dump-single-json", &url])
+                                .output()
+                                .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
+
+                            if !output.status.success() {
+                                let stderr = String::from_utf8_lossy(&output.stderr);
+                                return Err(format!("yt-dlp failed: {}", stderr));
+                            }
+
+                            serde_json::from_slice(&output.stdout)
+                                .map_err(|e| format!("Failed to parse yt-dlp JSON: {}", e))
+                        })
+                        .await
+                        .map_err(|e| format!("Task join error: {}", e))
+                        .and_then(|r| r);
+
+                        let json: serde_json::Value = match yt_dlp_result {
+                            Ok(j) => j,
+                            Err(e) => {
+                                let _ = sender.send(VideoLoadProgress::Done(Err(e))).await;
+                                return;
+                            }
+                        };
+
+                        let is_live = json["is_live"].as_bool().unwrap_or(false);
+
+                        if is_live {
+                            let _ = sender
+                                .send(VideoLoadProgress::Status(
+                                    "Loading live stream...".to_string(),
+                                ))
+                                .await;
+
+                            let hls_url = match json["url"].as_str() {
+                                Some(u) => u.to_string(),
+                                None => {
+                                    let _ = sender
+                                        .send(VideoLoadProgress::Done(Err(
+                                            "No URL for live stream".to_string(),
+                                        )))
+                                        .await;
+                                    return;
+                                }
+                            };
+
+                            let result = tokio::task::spawn_blocking(move || {
+                                let uri = url::Url::parse(&hls_url)
+                                    .map_err(|e| format!("Invalid URL: {}", e))?;
+                                let mut last_error = None;
+                                for attempt in 1..=3 {
+                                    match Video::new(&uri) {
+                                        Ok(video) => return Ok(std::sync::Arc::new(video)),
+                                        Err(e) => {
+                                            last_error = Some(e);
+                                            if attempt < 3 {
+                                                std::thread::sleep(
+                                                    std::time::Duration::from_millis(500),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(format!(
+                                    "Failed after 3 attempts: {:?}",
+                                    last_error.unwrap()
+                                ))
+                            })
+                            .await
+                            .map_err(|e| format!("Task join error: {}", e))
+                            .and_then(|r| r);
+
+                            let _ = sender.send(VideoLoadProgress::Done(result)).await;
+                        } else {
+                            // VOD path
+                            let requested_formats = match json["requested_formats"].as_array() {
+                                Some(f) => f,
+                                None => {
+                                    let _ = sender
+                                        .send(VideoLoadProgress::Done(Err(
+                                            "No formats in output".to_string()
+                                        )))
+                                        .await;
+                                    return;
+                                }
+                            };
+
+                            let video_format = requested_formats.iter().find(|f| {
+                                f["vcodec"].as_str().map(|v| v != "none").unwrap_or(false)
+                            });
+                            let audio_format = requested_formats.iter().find(|f| {
+                                f["acodec"].as_str().map(|a| a != "none").unwrap_or(false)
+                            });
+
+                            let (video_format, audio_format) = match (video_format, audio_format) {
+                                (Some(v), Some(a)) => (v, a),
+                                _ => {
+                                    let _ = sender
+                                        .send(VideoLoadProgress::Done(Err(
+                                            "Missing video/audio format".to_string(),
+                                        )))
+                                        .await;
+                                    return;
+                                }
+                            };
+
+                            let video_url = video_format["url"].as_str().unwrap_or("").to_string();
+                            let audio_url = audio_format["url"].as_str().unwrap_or("").to_string();
+
+                            if video_url.is_empty() || audio_url.is_empty() {
+                                let _ = sender
+                                    .send(VideoLoadProgress::Done(Err("Missing URLs".to_string())))
+                                    .await;
+                                return;
+                            }
+
+                            let headers: Vec<(String, String)> = video_format["http_headers"]
+                                .as_object()
+                                .map(|h| {
+                                    h.iter()
+                                        .filter_map(|(k, v)| {
+                                            v.as_str().map(|s| (k.clone(), s.to_string()))
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+
+                            // Check for throttle wait (can update status from async context!)
+                            // GStreamer video player already waits 5 seconds, so we only need
+                            // to wait the remaining time beyond that
+                            const GSTREAMER_WAIT_SECS: i64 = 5;
+                            if let Some(available_at) = video_format["available_at"].as_i64() {
+                                let now = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs() as i64;
+                                let wait_secs = (available_at - now - GSTREAMER_WAIT_SECS).max(0);
+                                if wait_secs > 0 {
+                                    tracing::info!(
+                                        "Waiting {} seconds for YouTube throttle (after GStreamer's {}s)",
+                                        wait_secs,
+                                        GSTREAMER_WAIT_SECS
+                                    );
+                                    // Countdown each second
+                                    for remaining in (1..=wait_secs).rev() {
+                                        let _ = sender
+                                            .send(VideoLoadProgress::Status(format!(
+                                                "Waiting {} seconds...",
+                                                remaining
+                                            )))
+                                            .await;
+                                        tokio::time::sleep(tokio::time::Duration::from_secs(1))
+                                            .await;
+                                    }
+                                }
+                            }
+
+                            let _ = sender
+                                .send(VideoLoadProgress::Status(
+                                    "Loading video stream...".to_string(),
+                                ))
+                                .await;
+
+                            let result = tokio::task::spawn_blocking(move || {
+                                let header_refs: Vec<(&str, &str)> = headers
+                                    .iter()
+                                    .map(|(k, v)| (k.as_str(), v.as_str()))
+                                    .collect();
+                                let mut last_error = None;
+                                for attempt in 1..=3 {
+                                    match Video::from_url_with_headers(
+                                        &video_url,
+                                        &audio_url,
+                                        &header_refs,
+                                    ) {
+                                        Ok(video) => return Ok(std::sync::Arc::new(video)),
+                                        Err(e) => {
+                                            last_error = Some(e);
+                                            if attempt < 3 {
+                                                std::thread::sleep(
+                                                    std::time::Duration::from_millis(500),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(format!(
+                                    "Failed after 3 attempts: {:?}",
+                                    last_error.unwrap()
+                                ))
+                            })
+                            .await
+                            .map_err(|e| format!("Task join error: {}", e))
+                            .and_then(|r| r);
+
+                            let _ = sender.send(VideoLoadProgress::Done(result)).await;
+                        }
+                    },
+                );
+
+                Task::run(stream, |progress| match progress {
+                    VideoLoadProgress::Status(s) => Message::VideoLoadingStatus(s),
+                    VideoLoadProgress::Done(result) => Message::VideoLoaded(result),
+                })
+            }
+            Message::VideoLoaded(result) => {
+                self.video_loading = false;
+                self.video_loading_status = None;
+                match result {
+                    Ok(video) => {
+                        // Arc::into_inner only works if this is the only reference
+                        // Since we just created it, this should always succeed
+                        match std::sync::Arc::try_unwrap(video) {
+                            Ok(v) => self.video = Some(v),
+                            Err(_) => {
+                                return Task::perform(
+                                    async { "Failed to unwrap video Arc".to_string() },
+                                    Message::VideoError,
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        return Task::perform(async move { e }, Message::VideoError);
+                    }
+                }
+                Task::none()
+            }
+            Message::VideoEnded => Task::none(),
+            Message::TogglePlayPause => {
+                if let Some(ref mut video) = self.video {
+                    video.set_paused(!video.paused());
+                }
+                Task::none()
+            }
+            Message::ToggleFullscreen => {
+                self.video_fullscreen = !self.video_fullscreen;
+                let mode = if self.video_fullscreen {
+                    iced::window::Mode::Fullscreen
+                } else {
+                    iced::window::Mode::Windowed
+                };
+                iced::window::latest().and_then(move |id| iced::window::set_mode(id, mode))
+            }
+            Message::BackFromVideo => {
+                if let Some(ref mut video) = self.video {
+                    video.set_paused(true);
+                }
+                self.video = None;
+                self.playing_video_title = None;
+                // Clear seeking state
+                self.video_seeking = false;
+                self.video_seek_target = None;
+                self.current_view = self.previous_view;
+                // Exit fullscreen if we were in it
+                if self.video_fullscreen {
+                    self.video_fullscreen = false;
+                    return iced::window::latest()
+                        .and_then(|id| iced::window::set_mode(id, iced::window::Mode::Windowed));
+                }
+                Task::none()
+            }
+            Message::VideoError(err) => {
+                tracing::error!("Video error: {}", err);
+                self.video_loading = false;
+                self.video_loading_status = None;
+                self.video_error = Some(err);
+                // Stay on video view to show error with mpv fallback option
+                Task::none()
+            }
+            Message::VideoLoadingStatus(status) => {
+                self.video_loading_status = Some(status);
+                Task::none()
+            }
+            Message::LaunchInMpv(video_id) => {
+                // Launch video in mpv
+                let url = format!("https://www.youtube.com/watch?v={}", video_id);
+                Task::perform(
+                    async move {
+                        tokio::process::Command::new("mpv")
+                            .arg(&url)
+                            .arg("--ytdl=yes")
+                            .arg("--script-opts=ytdl_hook-ytdl_path=yt-dlp")
+                            .spawn()
+                            .map(|_| ())
+                            .map_err(|e| e.to_string())
+                    },
+                    |result| {
+                        if let Err(e) = result {
+                            tracing::error!("Failed to launch mpv: {}", e);
+                        }
+                        Message::NoOp
+                    },
+                )
+            }
+            Message::CopyVideoUrl(video_id) => {
+                let url = format!("https://www.youtube.com/watch?v={}", video_id);
+                iced::clipboard::write(url)
+            }
+            Message::VideoMouseMoved => {
+                // Only process in fullscreen video mode
+                if self.current_view != View::Video || !self.video_fullscreen {
+                    return Task::none();
+                }
+                self.video_controls_visible = true;
+                self.video_last_mouse_move = Some(std::time::Instant::now());
+                // Start a timer to hide controls after 3 seconds
+                Task::perform(
+                    async {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                    },
+                    |_| Message::VideoControlsTimeout,
+                )
+            }
+            Message::VideoControlsTimeout => {
+                // Only hide if we're in fullscreen and no recent mouse movement
+                if self.video_fullscreen
+                    && let Some(last_move) = self.video_last_mouse_move
+                        && last_move.elapsed() >= std::time::Duration::from_secs(3) {
+                            self.video_controls_visible = false;
+                        }
+                Task::none()
+            }
+            Message::SeekVideoPreview(percent) => {
+                self.video_seek_preview = Some(percent);
+                Task::none()
+            }
+            Message::SeekVideoRelease => {
+                if let Some(percent) = self.video_seek_preview.take()
+                    && let Some(ref mut video) = self.video {
+                        let duration = video.duration();
+                        let target_nanos = (duration.as_secs_f64() * percent) * 1_000_000_000.0;
+                        let target = std::time::Duration::from_nanos(target_nanos as u64);
+                        if let Err(e) = video.seek(target, false) {
+                            tracing::error!("Failed to seek video: {:?}", e);
+                        }
+                        // Show seeking spinner overlay until playback resumes
+                        self.video_seeking = true;
+                        self.video_seek_target = Some(target);
+                    }
+                Task::none()
+            }
+            Message::VideoTick => {
+                // Check if seeking is complete (position has advanced past target)
+                if self.video_seeking
+                    && let (Some(video), Some(target)) = (&self.video, self.video_seek_target) {
+                        let position = video.position();
+                        // Consider seeking done when position is past target by at least 500ms
+                        // This ensures the video is actually playing, not just buffering
+                        if position > target + std::time::Duration::from_millis(500) {
+                            self.video_seeking = false;
+                            self.video_seek_target = None;
+                        }
+                    }
+                Task::none()
+            }
         }
     }
 
     fn view(&self) -> Element<'_, Message> {
-        match self.current_view {
+        use iced::Length;
+        use iced::widget::{container, stack};
+
+        let content = match self.current_view {
             View::Search => views::search::view(self),
             View::Channel => views::channel::view(self, get_language_by_locale),
             View::Config => views::config::view(self),
+            View::Channels => views::subscriptions::view(self),
+            View::Video => views::video::view(self),
+        };
+
+        // In video view, skip the tab bar entirely
+        if self.current_view == View::Video {
+            return container(content)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into();
         }
+
+        // Create iOS-style tab bar at the bottom
+        let tab_bar = widgets::tab_bar(self.active_tab, &widgets::default_tab_items());
+
+        // Stack: content fills the screen, tab bar floats at bottom (overlapping)
+        // Bottom padding is now inside each view's scrollable content
+        stack![
+            container(content).width(Length::Fill).height(Length::Fill),
+            container(tab_bar)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_y(iced::alignment::Vertical::Bottom)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        event::listen_with(|ev, _status, _id| {
-            if let iced::Event::Window(iced::window::Event::Resized(Size { width, height })) = ev {
+        let events = event::listen_with(|ev, _status, _id| match ev {
+            iced::Event::Window(iced::window::Event::Resized(Size { width, height })) => {
                 Some(Message::Resized(width, height))
-            } else {
-                None
             }
-        })
+            iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                key: iced::keyboard::Key::Character(c),
+                modifiers,
+                ..
+            }) if modifiers.control() && c.as_ref() == "e" => Some(Message::ExportSearchResults),
+            // Track all mouse movement - filter in handler based on view state
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { .. }) => {
+                Some(Message::VideoMouseMoved)
+            }
+            _ => None,
+        });
+
+        // Add a timer tick while video is playing (or seeking) to update progress bar
+        let video_tick = if self.video.is_some()
+            && self.current_view == View::Video
+            && (!self.video.as_ref().map(|v| v.paused()).unwrap_or(true) || self.video_seeking)
+        {
+            iced::time::every(std::time::Duration::from_millis(250)).map(|_| Message::VideoTick)
+        } else {
+            Subscription::none()
+        };
+
+        Subscription::batch([events, video_tick])
     }
 }

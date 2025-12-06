@@ -250,7 +250,7 @@ fn detect_locale_with_lingua(text: &str) -> (String, String) {
 }
 
 /// Check if text contains Asian characters (CJK, Hangul, Thai, etc.)
-fn contains_asian_characters(text: &str) -> bool {
+pub fn contains_asian_characters(text: &str) -> bool {
     text.chars().any(|c| {
         // Japanese: Hiragana, Katakana, Kanji
         ('\u{3040}'..='\u{309F}').contains(&c) ||  // Hiragana

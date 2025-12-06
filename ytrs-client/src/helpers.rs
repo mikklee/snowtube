@@ -1,22 +1,154 @@
 //! Helper functions for the ytrs-client UI
 
+use iced::Padding;
 use iced::{
     Alignment, Color, Element, Task, Theme,
     widget::{Image, column, container, stack, text},
 };
+use std::path::PathBuf;
 use ytrs_lib::SearchResult;
 
 use crate::messages::Message;
 
-/// Load thumbnail from URL
+/// Get the cache directory for images
+fn get_cache_dir() -> Result<PathBuf, String> {
+    let cache_dir = dirs::cache_dir()
+        .ok_or_else(|| "Could not determine cache directory".to_string())?
+        .join("ytrs")
+        .join("thumbnails");
+    std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+    Ok(cache_dir)
+}
+
+/// Generate a cache key from URL
+fn url_to_cache_key(url: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    url.hash(&mut hasher);
+    format!("{:x}", hasher.finish())
+}
+
+/// Load thumbnail from URL with disk caching
 pub async fn load_thumb(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    // Try to load from cache first
+    if let Ok(cache_dir) = get_cache_dir() {
+        let cache_key = url_to_cache_key(url);
+        let cache_path = cache_dir.join(&cache_key);
+
+        if cache_path.exists()
+            && let Ok(bytes) = tokio::fs::read(&cache_path).await {
+                return Ok(bytes);
+            }
+    }
+
+    // Download from URL
     let r = reqwest::get(url).await?;
     let b = r.bytes().await?;
-    Ok(b.to_vec())
+    let bytes = b.to_vec();
+
+    // Save to cache
+    if let Ok(cache_dir) = get_cache_dir() {
+        let cache_key = url_to_cache_key(url);
+        let cache_path = cache_dir.join(&cache_key);
+        let _ = tokio::fs::write(&cache_path, &bytes).await;
+    }
+
+    Ok(bytes)
+}
+
+/// Load thumbnail and make it circular with disk caching
+pub async fn load_circular_thumb(
+    url: &str,
+    size: u32,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
+
+    // Try to load from cache first (circular version)
+    if let Ok(cache_dir) = get_cache_dir() {
+        let cache_key = format!("{}_circular_{}", url_to_cache_key(url), size);
+        let cache_path = cache_dir.join(&cache_key);
+
+        if cache_path.exists()
+            && let Ok(bytes) = tokio::fs::read(&cache_path).await {
+                return Ok(bytes);
+            }
+    }
+
+    // Download from URL
+    let r = reqwest::get(url).await?;
+    let bytes = r.bytes().await?;
+
+    // Load image
+    let img = image::load_from_memory(&bytes)?;
+
+    // Resize to square
+    let img = img.resize_exact(size, size, image::imageops::FilterType::Lanczos3);
+
+    // Create circular mask
+    let mut output = ImageBuffer::new(size, size);
+    let center = size as f32 / 2.0;
+    let radius = center;
+
+    for (x, y, pixel) in output.enumerate_pixels_mut() {
+        let dx = x as f32 - center;
+        let dy = y as f32 - center;
+        let distance = (dx * dx + dy * dy).sqrt();
+
+        if distance <= radius {
+            let img_pixel = img.get_pixel(x, y);
+            *pixel = Rgba([img_pixel[0], img_pixel[1], img_pixel[2], img_pixel[3]]);
+        } else {
+            *pixel = Rgba([0, 0, 0, 0]); // Transparent
+        }
+    }
+
+    // Encode back to PNG
+    let mut buf = Vec::new();
+    DynamicImage::ImageRgba8(output)
+        .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)?;
+
+    // Save to cache
+    if let Ok(cache_dir) = get_cache_dir() {
+        let cache_key = format!("{}_circular_{}", url_to_cache_key(url), size);
+        let cache_path = cache_dir.join(&cache_key);
+        let _ = tokio::fs::write(&cache_path, &buf).await;
+    }
+
+    Ok(buf)
+}
+
+/// Calculate horizontal padding to center a grid of items.
+///
+/// Given the window width, item width, and spacing between items,
+/// calculates the left/right padding needed to center the grid.
+/// This achieves a CSS `margin: 0 auto` effect for wrapped grids.
+pub fn centered_grid_padding(
+    window_width: f32,
+    item_width: f32,
+    spacing: f32,
+    min_padding: f32,
+    top: f32,
+    bottom: f32,
+) -> Padding {
+    let available_width = window_width - (min_padding * 2.0);
+    let items_per_row = ((available_width + spacing) / (item_width + spacing)).floor() as u32;
+    let items_per_row = items_per_row.max(1);
+    let content_width =
+        (items_per_row as f32 * item_width) + ((items_per_row - 1) as f32 * spacing);
+    let side_padding = ((window_width - content_width) / 2.0).max(min_padding);
+
+    Padding {
+        top,
+        bottom,
+        left: side_padding,
+        right: side_padding,
+    }
 }
 
 /// Helper function to truncate title text with ellipsis
-pub fn truncate_title(title: &str, max_chars: usize) -> String {
+fn truncate_title(title: &str, max_chars: usize) -> String {
     if title.chars().count() > max_chars {
         format!(
             "{}...",
@@ -25,6 +157,16 @@ pub fn truncate_title(title: &str, max_chars: usize) -> String {
     } else {
         title.to_string()
     }
+}
+
+/// Truncate title with different limits for CJK vs non-CJK text
+pub fn truncate_title_smart(title: &str, cjk_limit: usize, non_cjk_limit: usize) -> String {
+    let limit = if ytrs_lib::contains_asian_characters(title) {
+        cjk_limit
+    } else {
+        non_cjk_limit
+    };
+    truncate_title(title, limit)
 }
 
 /// Helper function to create a thumbnail element.
@@ -74,38 +216,44 @@ pub fn create_thumbnail(
 }
 
 /// Helper function to create thumbnail loading tasks for search results
+/// All thumbnails are loaded in parallel using tokio::spawn
 pub fn create_thumbnail_tasks(results: &[SearchResult]) -> Vec<Task<Message>> {
-    results
+    let thumb_data: Vec<(String, String)> = results
         .iter()
         .filter_map(|r| {
             // Load video thumbnails
             if let Some(vid) = r.video_id.as_ref() {
-                r.thumbnails.first().map(|t| {
-                    let id = vid.clone();
-                    let url = t.url.clone();
-                    Task::perform(
-                        async move { load_thumb(&url).await.map_err(|e| e.to_string()) },
-                        move |res| Message::ThumbLoaded(id.clone(), res),
-                    )
-                })
+                r.thumbnails.first().map(|t| (vid.clone(), t.url.clone()))
             }
             // Load channel thumbnails
             else if let Some(channel) = r.channel.as_ref() {
                 if let Some(cid) = channel.id.as_ref() {
-                    r.thumbnails.first().map(|t| {
-                        let id = cid.clone();
-                        let url = t.url.clone();
-                        Task::perform(
-                            async move { load_thumb(&url).await.map_err(|e| e.to_string()) },
-                            move |res| Message::ThumbLoaded(id.clone(), res),
-                        )
-                    })
+                    r.thumbnails.first().map(|t| (cid.clone(), t.url.clone()))
                 } else {
                     None
                 }
             } else {
                 None
             }
+        })
+        .collect();
+
+    // Spawn ALL downloads in parallel
+    thumb_data
+        .into_iter()
+        .map(|(id, url)| {
+            Task::perform(
+                async move {
+                    let id_clone = id.clone();
+                    // Spawn on tokio runtime for true parallelism
+                    tokio::spawn(async move {
+                        (id_clone, load_thumb(&url).await.map_err(|e| e.to_string()))
+                    })
+                    .await
+                    .unwrap_or_else(|_| (id, Err("Task panicked".to_string())))
+                },
+                move |(id, res)| Message::ThumbLoaded(id, res),
+            )
         })
         .collect()
 }
@@ -139,16 +287,17 @@ pub fn create_video_tile<'a>(
 ) -> Element<'a, Message> {
     use iced::{
         Length,
+        widget::text::Shaping,
         widget::{button, column, container, text, tooltip},
     };
 
     // Create title with tooltip
     let full_title = title_text.to_string();
-    let display_title = truncate_title(title_text, 25);
+    let display_title = truncate_title_smart(title_text, 25, 50);
 
     let title_widget = tooltip(
-        text(display_title).size(14),
-        container(text(full_title))
+        text(display_title).size(14).shaping(Shaping::Advanced),
+        container(text(full_title).shaping(Shaping::Advanced))
             .style(container::dark)
             .padding(10),
         tooltip::Position::FollowCursor,
@@ -194,13 +343,13 @@ pub fn create_video_tile<'a>(
                     .on_press(msg),
             );
         } else {
-            info_col = info_col.push(text(ch.name));
+            info_col = info_col.push(text(ch.name).shaping(Shaping::Advanced));
         }
     }
 
     // Add metadata if provided
     if let Some(meta) = metadata_text {
-        info_col = info_col.push(text(meta).size(12));
+        info_col = info_col.push(text(meta).size(12).shaping(Shaping::Advanced));
     }
 
     let card = column![
