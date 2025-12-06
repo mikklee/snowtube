@@ -123,6 +123,8 @@ pub struct App {
     pub video_loading_status: Option<String>, // Current loading status message
     pub video_seeking: bool,             // Whether video is currently seeking
     pub video_seek_target: Option<std::time::Duration>, // Target position when seeking
+    pub video_error: Option<String>,     // Error message if video failed to load
+    pub playing_video_id: Option<String>, // Current video ID (for actions like mpv, copy URL)
 }
 
 impl App {
@@ -185,6 +187,8 @@ impl App {
                 video_loading_status: None,
                 video_seeking: false,
                 video_seek_target: None,
+                video_error: None,
+                playing_video_id: None,
             },
             // Load config asynchronously on startup
             Task::perform(
@@ -1335,6 +1339,8 @@ impl App {
                     });
 
                 self.playing_video_title = title;
+                self.video_error = None;
+                self.playing_video_id = Some(video_id.clone());
                 self.previous_view = self.current_view;
                 self.current_view = View::Video;
                 self.video_loading = true;
@@ -1620,15 +1626,41 @@ impl App {
                 Task::none()
             }
             Message::VideoError(err) => {
-                trace!("Video error: {}", err);
+                tracing::error!("Video error: {}", err);
                 self.video_loading = false;
                 self.video_loading_status = None;
-                self.current_view = self.previous_view;
+                self.video_error = Some(err);
+                // Stay on video view to show error with mpv fallback option
                 Task::none()
             }
             Message::VideoLoadingStatus(status) => {
                 self.video_loading_status = Some(status);
                 Task::none()
+            }
+            Message::LaunchInMpv(video_id) => {
+                // Launch video in mpv
+                let url = format!("https://www.youtube.com/watch?v={}", video_id);
+                Task::perform(
+                    async move {
+                        tokio::process::Command::new("mpv")
+                            .arg(&url)
+                            .arg("--ytdl=yes")
+                            .arg("--script-opts=ytdl_hook-ytdl_path=yt-dlp")
+                            .spawn()
+                            .map(|_| ())
+                            .map_err(|e| e.to_string())
+                    },
+                    |result| {
+                        if let Err(e) = result {
+                            tracing::error!("Failed to launch mpv: {}", e);
+                        }
+                        Message::NoOp
+                    },
+                )
+            }
+            Message::CopyVideoUrl(video_id) => {
+                let url = format!("https://www.youtube.com/watch?v={}", video_id);
+                iced::clipboard::write(url)
             }
             Message::VideoMouseMoved => {
                 // Only process in fullscreen video mode

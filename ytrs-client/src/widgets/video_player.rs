@@ -477,6 +477,7 @@ pub fn video_with_controls_fullscreen<'a>(
 /// Used when video is loading to show progress to the user
 /// Uses 16:9 aspect ratio to calculate dimensions
 pub fn video_loading_placeholder<'a>(
+    title: Option<&'a str>,
     status: Option<&'a str>,
     available_width: f32,
     available_height: f32,
@@ -510,20 +511,52 @@ pub fn video_loading_placeholder<'a>(
         })
     });
 
-    let content = if let Some(status_widget) = status_text {
-        column![spinner, status_widget]
-            .spacing(16)
-            .align_x(iced::Alignment::Center)
-    } else {
-        column![spinner].align_x(iced::Alignment::Center)
-    };
+    let mut center_content = column![spinner]
+        .spacing(16)
+        .align_x(iced::Alignment::Center);
 
-    // Container with black background and centered content, sized to match video dimensions
-    container(content)
+    if let Some(status_widget) = status_text {
+        center_content = center_content.push(status_widget);
+    }
+
+    let mut layers: Vec<Element<'a, Message>> = vec![
+        // Centered spinner and status
+        container(center_content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .into(),
+    ];
+
+    // Title overlay at top left (same style as video player)
+    if let Some(title_text) = title {
+        let shadow_text = text(title_text).size(18).color(Color::BLACK);
+        let main_text = text(title_text).size(18).color(Color::WHITE);
+        let title_with_shadow = stack![
+            container(shadow_text).padding(Padding {
+                top: 1.0,
+                bottom: 0.0,
+                left: 1.0,
+                right: 0.0
+            }),
+            main_text,
+        ];
+        layers.push(
+            container(title_with_shadow)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_y(iced::alignment::Vertical::Top)
+                .align_x(iced::alignment::Horizontal::Left)
+                .padding(Padding::from([15, 20]))
+                .into(),
+        );
+    }
+
+    // Container with black background, sized to match video dimensions
+    container(stack(layers))
         .width(Length::Fixed(width))
         .height(Length::Fixed(height))
-        .center_x(Length::Fixed(width))
-        .center_y(Length::Fixed(height))
         .style(|_| container::Style {
             background: Some(iced::Background::Color(Color::BLACK)),
             ..Default::default()

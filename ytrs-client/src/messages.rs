@@ -70,4 +70,6 @@ pub enum Message {
     SeekVideoRelease,           // Actually seek to the previewed position on release
     VideoTick,                  // Periodic tick to update progress bar
     VideoLoadingStatus(String), // Update loading status during video load
+    LaunchInMpv(String),        // Launch video in mpv (video_id)
+    CopyVideoUrl(String),       // Copy video URL to clipboard
 }
