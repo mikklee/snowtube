@@ -1331,7 +1331,6 @@ impl App {
                             tracing::info!("Starting yt-dlp for URL: {}", url);
 
                             // Get video URL and headers from yt-dlp
-                            // Prefer VP9 over AV1 - often has higher bitrate
                             let output = std::process::Command::new("yt-dlp")
                                 .args(["--dump-single-json", &url])
                                 .output()
@@ -1348,67 +1347,92 @@ impl App {
                             let json: serde_json::Value = serde_json::from_slice(&output.stdout)
                                 .map_err(|e| format!("Failed to parse yt-dlp JSON: {}", e))?;
 
-                            // yt-dlp returns separate video/audio in requested_formats
-                            let requested_formats = json["requested_formats"]
-                                .as_array()
-                                .ok_or("No requested_formats in yt-dlp output")?;
+                            // Check if this is a live stream
+                            let is_live = json["is_live"].as_bool().unwrap_or(false);
 
-                            // Find video and audio streams
-                            let video_format = requested_formats
-                                .iter()
-                                .find(|f| {
-                                    f["vcodec"].as_str().map(|v| v != "none").unwrap_or(false)
-                                })
-                                .ok_or("No video format found")?;
-                            let audio_format = requested_formats
-                                .iter()
-                                .find(|f| {
-                                    f["acodec"].as_str().map(|a| a != "none").unwrap_or(false)
-                                })
-                                .ok_or("No audio format found")?;
+                            let result = if is_live {
+                                // Live streams use HLS with muxed video+audio
+                                tracing::info!("Detected live stream, using HLS playback");
 
-                            let video_url = video_format["url"]
-                                .as_str()
-                                .ok_or("No video URL")?
-                                .to_string();
-                            let audio_url = audio_format["url"]
-                                .as_str()
-                                .ok_or("No audio URL")?
-                                .to_string();
+                                // Get the best format URL (yt-dlp puts best in "url" field)
+                                let hls_url = json["url"]
+                                    .as_str()
+                                    .ok_or("No URL in yt-dlp output for live stream")?
+                                    .to_string();
 
-                            tracing::info!(
-                                "Got video URL: {}...",
-                                &video_url[..100.min(video_url.len())]
-                            );
-                            tracing::info!(
-                                "Got audio URL: {}...",
-                                &audio_url[..100.min(audio_url.len())]
-                            );
+                                tracing::info!(
+                                    "Got HLS URL: {}...",
+                                    &hls_url[..100.min(hls_url.len())]
+                                );
 
-                            // Get headers from video format
-                            let headers_obj = video_format["http_headers"].as_object();
-                            let headers: Vec<(String, String)> = headers_obj
-                                .map(|h| {
-                                    h.iter()
-                                        .filter_map(|(k, v)| {
-                                            v.as_str().map(|s| (k.clone(), s.to_string()))
-                                        })
-                                        .collect()
-                                })
-                                .unwrap_or_default();
+                                // Use playbin for HLS streams (it handles hlsdemux internally)
+                                let uri = url::Url::parse(&hls_url)
+                                    .map_err(|e| format!("Invalid HLS URL: {}", e))?;
 
-                            tracing::info!("Got {} headers", headers.len());
+                                Video::new(&uri)
+                                    .map_err(|e| format!("Failed to start live video: {:?}", e))
+                            } else {
+                                // VOD: yt-dlp returns separate video/audio in requested_formats
+                                let requested_formats = json["requested_formats"]
+                                    .as_array()
+                                    .ok_or("No requested_formats in yt-dlp output")?;
 
-                            let header_refs: Vec<(&str, &str)> = headers
-                                .iter()
-                                .map(|(k, v)| (k.as_str(), v.as_str()))
-                                .collect();
+                                // Find video and audio streams
+                                let video_format = requested_formats
+                                    .iter()
+                                    .find(|f| {
+                                        f["vcodec"].as_str().map(|v| v != "none").unwrap_or(false)
+                                    })
+                                    .ok_or("No video format found")?;
+                                let audio_format = requested_formats
+                                    .iter()
+                                    .find(|f| {
+                                        f["acodec"].as_str().map(|a| a != "none").unwrap_or(false)
+                                    })
+                                    .ok_or("No audio format found")?;
 
-                            tracing::info!("Creating video with from_url_with_headers...");
+                                let video_url = video_format["url"]
+                                    .as_str()
+                                    .ok_or("No video URL")?
+                                    .to_string();
+                                let audio_url = audio_format["url"]
+                                    .as_str()
+                                    .ok_or("No audio URL")?
+                                    .to_string();
 
-                            let result =
+                                tracing::info!(
+                                    "Got video URL: {}...",
+                                    &video_url[..100.min(video_url.len())]
+                                );
+                                tracing::info!(
+                                    "Got audio URL: {}...",
+                                    &audio_url[..100.min(audio_url.len())]
+                                );
+
+                                // Get headers from video format
+                                let headers_obj = video_format["http_headers"].as_object();
+                                let headers: Vec<(String, String)> = headers_obj
+                                    .map(|h| {
+                                        h.iter()
+                                            .filter_map(|(k, v)| {
+                                                v.as_str().map(|s| (k.clone(), s.to_string()))
+                                            })
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+
+                                tracing::info!("Got {} headers", headers.len());
+
+                                let header_refs: Vec<(&str, &str)> = headers
+                                    .iter()
+                                    .map(|(k, v)| (k.as_str(), v.as_str()))
+                                    .collect();
+
+                                tracing::info!("Creating video with from_url_with_headers...");
+
                                 Video::from_url_with_headers(&video_url, &audio_url, &header_refs)
-                                    .map_err(|e| format!("Failed to start video: {:?}", e));
+                                    .map_err(|e| format!("Failed to start video: {:?}", e))
+                            };
 
                             match &result {
                                 Ok(_) => tracing::info!("Video created successfully"),
