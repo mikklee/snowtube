@@ -21,6 +21,7 @@ fn control_button<'a>(
     label: &'static str,
     message: Message,
     is_active: bool,
+    disabled: bool,
 ) -> Element<'a, Message> {
     let content = column![
         text(icon.to_string())
@@ -34,7 +35,7 @@ fn control_button<'a>(
     .align_x(iced::Alignment::Center)
     .width(Length::Fill);
 
-    button(
+    let btn = button(
         container(content)
             .padding(Padding {
                 top: 6.0,
@@ -46,9 +47,13 @@ fn control_button<'a>(
             .center_y(Length::Shrink),
     )
     .width(Length::FillPortion(1))
-    .style(move |theme, status| control_button_style(theme, status, is_active))
-    .on_press(message)
-    .into()
+    .style(move |theme, status| control_button_style(theme, status, is_active, disabled));
+
+    if disabled {
+        btn.into()
+    } else {
+        btn.on_press(message).into()
+    }
 }
 
 /// Custom button style for control bar items
@@ -56,11 +61,22 @@ fn control_button_style(
     theme: &Theme,
     status: iced::widget::button::Status,
     is_active: bool,
+    disabled: bool,
 ) -> iced::widget::button::Style {
     use iced::widget::button;
     let palette = theme.palette();
 
-    let (background, text_color) = if is_active {
+    let (background, text_color) = if disabled {
+        (
+            None,
+            Color {
+                r: palette.text.r,
+                g: palette.text.g,
+                b: palette.text.b,
+                a: 0.2,
+            },
+        )
+    } else if is_active {
         (
             Some(iced::Background::Color(Color {
                 r: palette.primary.r,
@@ -194,11 +210,12 @@ fn video_control_bar(
     let play_pause_label = if is_paused { "Play" } else { "Pause" };
 
     let buttons: Vec<Element<'static, Message>> = vec![
-        control_button('\u{f053}', "Back", Message::BackFromVideo, false),
+        control_button('\u{f053}', "Back", Message::BackFromVideo, false, false),
         control_button(
             play_pause_icon,
             play_pause_label,
             Message::TogglePlayPause,
+            false,
             false,
         ),
     ];
@@ -245,6 +262,67 @@ fn video_control_bar(
         text(format_duration(duration))
             .size(12)
             .width(Length::Shrink),
+    ]
+    .spacing(10)
+    .align_y(iced::Alignment::Center)
+    .padding(Padding {
+        left: 20.0,
+        right: 20.0,
+        ..Padding::ZERO
+    })
+    .width(Length::Fill);
+
+    let controls_content = column![buttons_row, progress_row]
+        .spacing(8)
+        .width(Length::Fill);
+
+    let glass_bar = container(controls_content)
+        .padding(Padding::new(12.0))
+        .max_width(500.0)
+        .width(Length::Fill)
+        .style(glass_container_style);
+
+    container(glass_bar)
+        .padding(Padding {
+            top: 8.0,
+            bottom: 16.0,
+            left: 12.0,
+            right: 12.0,
+        })
+        .width(Length::Fill)
+        .center_x(Length::Fill)
+        .style(|_| container::Style {
+            background: None,
+            ..Default::default()
+        })
+        .into()
+}
+
+/// Create the video control bar for loading state (play/pause disabled)
+fn loading_control_bar() -> Element<'static, Message> {
+    let buttons: Vec<Element<'static, Message>> = vec![
+        control_button('\u{f053}', "Back", Message::BackFromVideo, false, false),
+        control_button(
+            '\u{f04b}', // Play icon
+            "Play",
+            Message::TogglePlayPause,
+            false,
+            true, // disabled
+        ),
+    ];
+
+    let buttons_row = row(buttons).spacing(0).width(Length::Fill);
+
+    // Disabled progress slider showing 0:00
+    let progress_slider: Element<'static, Message> = slider(0.0..=1.0, 0.0, |_| Message::NoOp)
+        .width(Length::Fill)
+        .style(progress_slider_style)
+        .into();
+
+    let progress_row = row![
+        text("00:00").size(12).width(Length::Shrink),
+        progress_slider,
+        text("00:00").size(12).width(Length::Shrink),
     ]
     .spacing(10)
     .align_y(iced::Alignment::Center)
@@ -561,6 +639,15 @@ pub fn video_loading_placeholder<'a>(
                 .into(),
         );
     }
+
+    // Controls at bottom (with disabled play/pause)
+    layers.push(
+        container(loading_control_bar())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_y(iced::alignment::Vertical::Bottom)
+            .into(),
+    );
 
     // Container with black background, sized to match video dimensions
     container(stack(layers))
