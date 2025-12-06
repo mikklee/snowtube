@@ -83,6 +83,7 @@ pub struct App {
 
     pub config: AppConfig,    // Persistent configuration
     pub window_width: f32,    // Current window width for responsive layout
+    pub window_height: f32,   // Current window height for responsive layout
     pub current_theme: Theme, // Current theme
     pub pending_thumb_updates: Vec<(String, Vec<u8>)>, // Batched thumbnail updates
     pub last_thumb_update: Option<std::time::Instant>, // Last time we processed thumb updates
@@ -138,6 +139,7 @@ impl App {
 
                 config: AppConfig::default(),
                 window_width: 800.0,
+                window_height: 600.0,
                 current_theme: AppTheme::default().to_iced_theme(),
                 pending_thumb_updates: Vec::new(),
                 last_thumb_update: None,
@@ -979,8 +981,9 @@ impl App {
                     Message::ConfigSaved,
                 )
             }
-            Message::Resized(width, _height) => {
+            Message::Resized(width, height) => {
                 self.window_width = width;
+                self.window_height = height;
                 Task::none()
             }
             Message::SubscribeToChannel => {

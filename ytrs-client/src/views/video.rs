@@ -38,8 +38,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let is_paused = video.paused();
         let position = video.position();
         let duration = video.duration();
+        // Account for tab bar height (~60px) when calculating available space
+        let available_height = (app.window_height - 60.0).max(100.0);
         container(video_with_controls(
-            video, title, is_paused, true, position, duration,
+            video,
+            title,
+            is_paused,
+            true,
+            position,
+            duration,
+            app.window_width,
+            available_height,
         ))
         .width(Length::Fill)
         .height(Length::Fill)

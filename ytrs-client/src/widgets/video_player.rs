@@ -223,7 +223,7 @@ fn video_control_bar(
 }
 
 /// Video player with title at top and controls at bottom, all overlaid on video
-/// For windowed mode - constrains height to video's actual dimensions, full width
+/// For windowed mode - scales to fit available space while maintaining aspect ratio
 pub fn video_with_controls<'a>(
     video: &'a Video,
     title: Option<&'a str>,
@@ -231,12 +231,26 @@ pub fn video_with_controls<'a>(
     show_controls: bool,
     position: Duration,
     duration: Duration,
+    available_width: f32,
+    available_height: f32,
 ) -> Element<'a, Message> {
     let (video_width, video_height) = video.size();
 
+    // Calculate scaled dimensions to fit within available space while maintaining aspect ratio
+    let video_aspect = video_width as f32 / video_height as f32;
+    let available_aspect = available_width / available_height;
+
+    let (scaled_width, scaled_height) = if video_aspect > available_aspect {
+        // Video is wider than available space - constrain by width
+        (available_width, available_width / video_aspect)
+    } else {
+        // Video is taller than available space - constrain by height
+        (available_height * video_aspect, available_height)
+    };
+
     let video_widget: Element<'a, Message> = VideoPlayer::new(video)
-        .width(Length::Fill)
-        .height(Length::Fill)
+        .width(scaled_width)
+        .height(scaled_height)
         .content_fit(iced::ContentFit::Contain)
         .on_end_of_stream(Message::VideoEnded)
         .on_double_click(Message::ToggleFullscreen)
@@ -268,10 +282,10 @@ pub fn video_with_controls<'a>(
         );
     }
 
-    // Stack video and overlays, fixed dimensions
+    // Stack sized to scaled video dimensions
     stack(layers)
-        .width(Length::Fixed(video_width as f32))
-        .height(Length::Fixed(video_height as f32))
+        .width(Length::Fixed(scaled_width))
+        .height(Length::Fixed(scaled_height))
         .into()
 }
 
