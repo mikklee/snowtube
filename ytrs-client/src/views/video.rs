@@ -2,9 +2,14 @@
 
 use crate::App;
 use crate::messages::Message;
-use crate::widgets::{video_with_controls, video_with_controls_fullscreen};
-use iced::widget::{container, text};
+use crate::widgets::{
+    video_loading_placeholder, video_with_controls, video_with_controls_fullscreen,
+};
+use iced::widget::container;
 use iced::{Color, Element, Length};
+
+/// Fixed video height for windowed mode (leaves room for options below)
+const VIDEO_HEIGHT: f32 = 800.0;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     // In fullscreen mode: video with controls fills the screen
@@ -32,11 +37,16 @@ pub fn view(app: &App) -> Element<'_, Message> {
             })
             .into();
         } else {
-            return container(text("No video loaded"))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .center(Length::Fill)
-                .into();
+            // Fullscreen but no video - show loading placeholder
+            return container(video_loading_placeholder(
+                app.video_loading_status.as_deref(),
+                app.window_width,
+                app.window_height,
+            ))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center(Length::Fill)
+            .into();
         }
     }
 
@@ -47,8 +57,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let is_paused = video.paused();
         let position = video.position();
         let duration = video.duration();
-        // Account for tab bar height (~60px) when calculating available space
-        let available_height = (app.window_height - 60.0).max(100.0);
         container(video_with_controls(
             video,
             title,
@@ -57,7 +65,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             position,
             duration,
             app.window_width,
-            available_height,
+            VIDEO_HEIGHT,
             app.video_seek_preview,
             app.notification.as_deref(),
         ))
@@ -65,11 +73,27 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .height(Length::Fill)
         .center(Length::Fill)
         .into()
+    } else if app.video_loading {
+        // Show loading placeholder with status (same positioning as video)
+        container(video_loading_placeholder(
+            app.video_loading_status.as_deref(),
+            app.window_width,
+            VIDEO_HEIGHT,
+        ))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center(Length::Fill)
+        .into()
     } else {
-        container(text("No video loaded"))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center(Length::Fill)
-            .into()
+        // No video and not loading - show empty placeholder (same positioning as video)
+        container(video_loading_placeholder(
+            None,
+            app.window_width,
+            VIDEO_HEIGHT,
+        ))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center(Length::Fill)
+        .into()
     }
 }

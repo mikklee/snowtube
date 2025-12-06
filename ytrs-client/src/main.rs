@@ -119,6 +119,8 @@ pub struct App {
     pub video_last_mouse_move: Option<std::time::Instant>,
     pub video_seek_preview: Option<f64>, // Preview position while dragging slider (0.0 to 1.0)
     pub notification: Option<String>,    // Temporary notification message
+    pub video_loading: bool,             // Whether video is currently loading
+    pub video_loading_status: Option<String>, // Current loading status message
 }
 
 impl App {
@@ -177,6 +179,8 @@ impl App {
                 video_last_mouse_move: None,
                 video_seek_preview: None,
                 notification: None,
+                video_loading: false,
+                video_loading_status: None,
             },
             // Load config asynchronously on startup
             Task::perform(
@@ -1329,15 +1333,26 @@ impl App {
                 self.playing_video_title = title;
                 self.previous_view = self.current_view;
                 self.current_view = View::Video;
+                self.video_loading = true;
+                self.video_loading_status = Some("Fetching video info...".to_string());
 
                 // Use yt-dlp to get direct URL with headers for seekable playback
                 let url = format!("https://www.youtube.com/watch?v={}", video_id);
-                Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            tracing::info!("Starting yt-dlp for URL: {}", url);
 
-                            // Get video URL and headers from yt-dlp
+                // Use a stream to send status updates during loading
+                use iced::futures::SinkExt;
+
+                enum VideoLoadProgress {
+                    Status(String),
+                    Done(Result<std::sync::Arc<Video>, String>),
+                }
+
+                let stream = iced::stream::channel(
+                    10,
+                    move |mut sender: iced::futures::channel::mpsc::Sender<VideoLoadProgress>| async move {
+                        // Phase 1: Run yt-dlp (blocking)
+                        let yt_dlp_result = tokio::task::spawn_blocking(move || {
+                            tracing::info!("Starting yt-dlp for URL: {}", url);
                             let output = std::process::Command::new("yt-dlp")
                                 .args(["--dump-single-json", &url])
                                 .output()
@@ -1345,55 +1360,53 @@ impl App {
 
                             if !output.status.success() {
                                 let stderr = String::from_utf8_lossy(&output.stderr);
-                                tracing::error!("yt-dlp failed: {}", stderr);
                                 return Err(format!("yt-dlp failed: {}", stderr));
                             }
 
-                            tracing::info!("yt-dlp completed, parsing JSON...");
+                            serde_json::from_slice(&output.stdout)
+                                .map_err(|e| format!("Failed to parse yt-dlp JSON: {}", e))
+                        })
+                        .await
+                        .map_err(|e| format!("Task join error: {}", e))
+                        .and_then(|r| r);
 
-                            let json: serde_json::Value = serde_json::from_slice(&output.stdout)
-                                .map_err(|e| format!("Failed to parse yt-dlp JSON: {}", e))?;
+                        let json: serde_json::Value = match yt_dlp_result {
+                            Ok(j) => j,
+                            Err(e) => {
+                                let _ = sender.send(VideoLoadProgress::Done(Err(e))).await;
+                                return;
+                            }
+                        };
 
-                            // Check if this is a live stream
-                            let is_live = json["is_live"].as_bool().unwrap_or(false);
+                        let is_live = json["is_live"].as_bool().unwrap_or(false);
 
-                            if is_live {
-                                // Live streams use HLS with muxed video+audio
-                                tracing::info!("Detected live stream, using HLS playback");
+                        if is_live {
+                            let _ = sender
+                                .send(VideoLoadProgress::Status(
+                                    "Loading live stream...".to_string(),
+                                ))
+                                .await;
 
-                                // Get the best format URL (yt-dlp puts best in "url" field)
-                                let hls_url = json["url"]
-                                    .as_str()
-                                    .ok_or("No URL in yt-dlp output for live stream")?
-                                    .to_string();
+                            let hls_url = match json["url"].as_str() {
+                                Some(u) => u.to_string(),
+                                None => {
+                                    let _ = sender
+                                        .send(VideoLoadProgress::Done(Err(
+                                            "No URL for live stream".to_string(),
+                                        )))
+                                        .await;
+                                    return;
+                                }
+                            };
 
-                                tracing::info!(
-                                    "Got HLS URL: {}...",
-                                    &hls_url[..100.min(hls_url.len())]
-                                );
-
-                                // Use playbin for HLS streams (it handles hlsdemux internally)
+                            let result = tokio::task::spawn_blocking(move || {
                                 let uri = url::Url::parse(&hls_url)
-                                    .map_err(|e| format!("Invalid HLS URL: {}", e))?;
-
-                                // Retry logic for transient Caps errors
+                                    .map_err(|e| format!("Invalid URL: {}", e))?;
                                 let mut last_error = None;
                                 for attempt in 1..=3 {
-                                    tracing::trace!("Live video creation attempt {}/3", attempt);
                                     match Video::new(&uri) {
-                                        Ok(video) => {
-                                            tracing::info!(
-                                                "Live video created successfully on attempt {}",
-                                                attempt
-                                            );
-                                            return Ok(std::sync::Arc::new(video));
-                                        }
+                                        Ok(video) => return Ok(std::sync::Arc::new(video)),
                                         Err(e) => {
-                                            tracing::warn!(
-                                                "Live video creation attempt {} failed: {:?}",
-                                                attempt,
-                                                e
-                                            );
                                             last_error = Some(e);
                                             if attempt < 3 {
                                                 std::thread::sleep(
@@ -1403,114 +1416,116 @@ impl App {
                                         }
                                     }
                                 }
-                                tracing::error!(
-                                    "Live video creation failed after 3 attempts: {:?}",
-                                    last_error
-                                );
                                 Err(format!(
-                                    "Failed to start live video after 3 attempts: {:?}",
+                                    "Failed after 3 attempts: {:?}",
                                     last_error.unwrap()
                                 ))
-                            } else {
-                                // VOD: yt-dlp returns separate video/audio in requested_formats
-                                let requested_formats = json["requested_formats"]
-                                    .as_array()
-                                    .ok_or("No requested_formats in yt-dlp output")?;
+                            })
+                            .await
+                            .map_err(|e| format!("Task join error: {}", e))
+                            .and_then(|r| r);
 
-                                // Find video and audio streams
-                                let video_format = requested_formats
-                                    .iter()
-                                    .find(|f| {
-                                        f["vcodec"].as_str().map(|v| v != "none").unwrap_or(false)
-                                    })
-                                    .ok_or("No video format found")?;
-                                let audio_format = requested_formats
-                                    .iter()
-                                    .find(|f| {
-                                        f["acodec"].as_str().map(|a| a != "none").unwrap_or(false)
-                                    })
-                                    .ok_or("No audio format found")?;
+                            let _ = sender.send(VideoLoadProgress::Done(result)).await;
+                        } else {
+                            // VOD path
+                            let requested_formats = match json["requested_formats"].as_array() {
+                                Some(f) => f,
+                                None => {
+                                    let _ = sender
+                                        .send(VideoLoadProgress::Done(Err(
+                                            "No formats in output".to_string()
+                                        )))
+                                        .await;
+                                    return;
+                                }
+                            };
 
-                                let video_url = video_format["url"]
-                                    .as_str()
-                                    .ok_or("No video URL")?
-                                    .to_string();
-                                let audio_url = audio_format["url"]
-                                    .as_str()
-                                    .ok_or("No audio URL")?
-                                    .to_string();
+                            let video_format = requested_formats.iter().find(|f| {
+                                f["vcodec"].as_str().map(|v| v != "none").unwrap_or(false)
+                            });
+                            let audio_format = requested_formats.iter().find(|f| {
+                                f["acodec"].as_str().map(|a| a != "none").unwrap_or(false)
+                            });
 
-                                tracing::info!(
-                                    "Got video URL: {}...",
-                                    &video_url[..100.min(video_url.len())]
-                                );
-                                tracing::info!(
-                                    "Got audio URL: {}...",
-                                    &audio_url[..100.min(audio_url.len())]
-                                );
+                            let (video_format, audio_format) = match (video_format, audio_format) {
+                                (Some(v), Some(a)) => (v, a),
+                                _ => {
+                                    let _ = sender
+                                        .send(VideoLoadProgress::Done(Err(
+                                            "Missing video/audio format".to_string(),
+                                        )))
+                                        .await;
+                                    return;
+                                }
+                            };
 
-                                // Get headers from video format
-                                let headers_obj = video_format["http_headers"].as_object();
-                                let headers: Vec<(String, String)> = headers_obj
-                                    .map(|h| {
-                                        h.iter()
-                                            .filter_map(|(k, v)| {
-                                                v.as_str().map(|s| (k.clone(), s.to_string()))
-                                            })
-                                            .collect()
-                                    })
-                                    .unwrap_or_default();
+                            let video_url = video_format["url"].as_str().unwrap_or("").to_string();
+                            let audio_url = audio_format["url"].as_str().unwrap_or("").to_string();
 
-                                tracing::info!("Got {} headers", headers.len());
+                            if video_url.is_empty() || audio_url.is_empty() {
+                                let _ = sender
+                                    .send(VideoLoadProgress::Done(Err("Missing URLs".to_string())))
+                                    .await;
+                                return;
+                            }
 
-                                // Wait for available_at timestamp if present (YouTube throttle protection)
-                                if let Some(available_at) = video_format["available_at"].as_i64() {
-                                    let now = std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_secs() as i64;
-                                    let wait_secs = available_at - now;
-                                    if wait_secs > 0 {
-                                        tracing::info!(
-                                            "Waiting {} seconds for YouTube throttle (available_at: {})",
-                                            wait_secs,
-                                            available_at
-                                        );
-                                        std::thread::sleep(std::time::Duration::from_secs(
-                                            wait_secs as u64,
-                                        ));
+                            let headers: Vec<(String, String)> = video_format["http_headers"]
+                                .as_object()
+                                .map(|h| {
+                                    h.iter()
+                                        .filter_map(|(k, v)| {
+                                            v.as_str().map(|s| (k.clone(), s.to_string()))
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+
+                            // Check for throttle wait (can update status from async context!)
+                            if let Some(available_at) = video_format["available_at"].as_i64() {
+                                let now = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs() as i64;
+                                let wait_secs = available_at - now;
+                                if wait_secs > 0 {
+                                    tracing::info!(
+                                        "Waiting {} seconds for YouTube throttle",
+                                        wait_secs
+                                    );
+                                    // Countdown each second
+                                    for remaining in (1..=wait_secs).rev() {
+                                        let _ = sender
+                                            .send(VideoLoadProgress::Status(format!(
+                                                "Waiting {} seconds...",
+                                                remaining
+                                            )))
+                                            .await;
+                                        tokio::time::sleep(tokio::time::Duration::from_secs(1))
+                                            .await;
                                     }
                                 }
+                            }
 
+                            let _ = sender
+                                .send(VideoLoadProgress::Status(
+                                    "Loading video stream...".to_string(),
+                                ))
+                                .await;
+
+                            let result = tokio::task::spawn_blocking(move || {
                                 let header_refs: Vec<(&str, &str)> = headers
                                     .iter()
                                     .map(|(k, v)| (k.as_str(), v.as_str()))
                                     .collect();
-
-                                tracing::info!("Creating video with from_url_with_headers...");
-
-                                // Retry logic for transient Caps errors
                                 let mut last_error = None;
                                 for attempt in 1..=3 {
-                                    tracing::trace!("VOD video creation attempt {}/3", attempt);
                                     match Video::from_url_with_headers(
                                         &video_url,
                                         &audio_url,
                                         &header_refs,
                                     ) {
-                                        Ok(video) => {
-                                            tracing::info!(
-                                                "VOD video created successfully on attempt {}",
-                                                attempt
-                                            );
-                                            return Ok(std::sync::Arc::new(video));
-                                        }
+                                        Ok(video) => return Ok(std::sync::Arc::new(video)),
                                         Err(e) => {
-                                            tracing::warn!(
-                                                "VOD video creation attempt {} failed: {:?}",
-                                                attempt,
-                                                e
-                                            );
                                             last_error = Some(e);
                                             if attempt < 3 {
                                                 std::thread::sleep(
@@ -1520,23 +1535,28 @@ impl App {
                                         }
                                     }
                                 }
-                                tracing::error!(
-                                    "VOD video creation failed after 3 attempts: {:?}",
-                                    last_error
-                                );
                                 Err(format!(
-                                    "Failed to start video after 3 attempts: {:?}",
+                                    "Failed after 3 attempts: {:?}",
                                     last_error.unwrap()
                                 ))
-                            }
-                        })
-                        .await
-                        .map_err(|e| format!("Task join error: {}", e))?
+                            })
+                            .await
+                            .map_err(|e| format!("Task join error: {}", e))
+                            .and_then(|r| r);
+
+                            let _ = sender.send(VideoLoadProgress::Done(result)).await;
+                        }
                     },
-                    Message::VideoLoaded,
-                )
+                );
+
+                Task::run(stream, |progress| match progress {
+                    VideoLoadProgress::Status(s) => Message::VideoLoadingStatus(s),
+                    VideoLoadProgress::Done(result) => Message::VideoLoaded(result),
+                })
             }
             Message::VideoLoaded(result) => {
+                self.video_loading = false;
+                self.video_loading_status = None;
                 match result {
                     Ok(video) => {
                         // Arc::into_inner only works if this is the only reference
@@ -1590,7 +1610,13 @@ impl App {
             }
             Message::VideoError(err) => {
                 trace!("Video error: {}", err);
+                self.video_loading = false;
+                self.video_loading_status = None;
                 self.current_view = self.previous_view;
+                Task::none()
+            }
+            Message::VideoLoadingStatus(status) => {
+                self.video_loading_status = Some(status);
                 Task::none()
             }
             Message::VideoMouseMoved => {

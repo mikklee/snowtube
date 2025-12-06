@@ -2,6 +2,8 @@
 
 use crate::messages::Message;
 use crate::widgets::glass::glass_container_style;
+use crate::widgets::spinner::Circular;
+
 use iced::widget::{button, column, container, row, slider, stack, text};
 use iced::{Color, Element, Font, Length, Padding, Theme};
 use iced_video_player::{Video, VideoPlayer};
@@ -423,5 +425,63 @@ pub fn video_with_controls_fullscreen<'a>(
     stack(layers)
         .width(Length::Fill)
         .height(Length::Fill)
+        .into()
+}
+
+/// Video loading placeholder with black background, spinner, and status text
+/// Used when video is loading to show progress to the user
+/// Uses 16:9 aspect ratio to calculate dimensions
+pub fn video_loading_placeholder<'a>(
+    status: Option<&'a str>,
+    available_width: f32,
+    available_height: f32,
+) -> Element<'a, Message> {
+    // Standard 16:9 aspect ratio
+    const ASPECT_RATIO: f32 = 16.0 / 9.0;
+
+    // Calculate dimensions to fit within available space while maintaining 16:9
+    let available_aspect = available_width / available_height;
+    let (width, height) = if ASPECT_RATIO > available_aspect {
+        // Constrain by width
+        (available_width, available_width / ASPECT_RATIO)
+    } else {
+        // Constrain by height
+        (available_height * ASPECT_RATIO, available_height)
+    };
+
+    // Circular spinner that animates itself
+    let spinner: Element<'a, Message> = Circular::new()
+        .size(48.0)
+        .bar_height(4.0)
+        .bar_color(Color::WHITE)
+        .into();
+
+    let status_text = status.map(|s| {
+        text(s).size(14).color(Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            a: 0.7,
+        })
+    });
+
+    let content = if let Some(status_widget) = status_text {
+        column![spinner, status_widget]
+            .spacing(16)
+            .align_x(iced::Alignment::Center)
+    } else {
+        column![spinner].align_x(iced::Alignment::Center)
+    };
+
+    // Container with black background and centered content, sized to match video dimensions
+    container(content)
+        .width(Length::Fixed(width))
+        .height(Length::Fixed(height))
+        .center_x(Length::Fixed(width))
+        .center_y(Length::Fixed(height))
+        .style(|_| container::Style {
+            background: Some(iced::Background::Color(Color::BLACK)),
+            ..Default::default()
+        })
         .into()
 }

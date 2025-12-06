@@ -8,7 +8,7 @@ license = "GPL-3.0"
 
 [dependencies]
 ytrs-lib = { path = "../ytrs-lib" }
-iced = { git = "https://github.com/iced-rs/iced", branch = "master", features = ["tokio", "image", "lazy", "advanced", "wgpu", "debug"], default-features = false }
+iced = { git = "https://github.com/iced-rs/iced", branch = "master", features = ["tokio", "image", "lazy", "advanced", "wgpu", "debug", "canvas"], default-features = false }
 iced_video_player = { git = "https://github.com/mikklee/iced_video_player", branch = "feat/video-from-pipe" }
 url = "2"
 tokio = { version = "1", features = ["full"] }
@@ -24,3 +24,4 @@ strum = { version = "0.27", features = ["derive"] }
 chrono = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "tracing-log"] }
+lyon_algorithms = "1"
