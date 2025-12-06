@@ -100,6 +100,36 @@ fn control_button_style(
     }
 }
 
+/// Seeking overlay with spinner and status text
+/// Reusable across windowed and fullscreen modes
+pub fn seeking_overlay<'a>() -> Element<'a, Message> {
+    // Use a simple text-based loading indicator to avoid canvas caching issues
+    let loading_dots = text("⟳").size(48).color(Color::WHITE);
+
+    let seeking_content = column![
+        loading_dots,
+        text("Seeking. This may take a minute.")
+            .size(14)
+            .color(Color::WHITE),
+        text("If it takes longer, try reloading the video.")
+            .size(12)
+            .color(Color::WHITE)
+    ]
+    .spacing(16)
+    .align_x(iced::Alignment::Center);
+
+    container(
+        container(seeking_content)
+            .padding(Padding::new(20.0))
+            .style(glass_container_style),
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .center_x(Length::Fill)
+    .center_y(Length::Fill)
+    .into()
+}
+
 /// Format duration as MM:SS or HH:MM:SS
 fn format_duration(duration: Duration) -> String {
     let total_secs = duration.as_secs();
@@ -335,33 +365,7 @@ pub fn video_with_controls<'a>(
 
     // Seeking overlay with spinner
     if is_seeking {
-        let spinner: Element<'a, Message> = Circular::new()
-            .size(48.0)
-            .bar_height(4.0)
-            .bar_color(Color::WHITE)
-            .into();
-
-        let seeking_content = column![
-            spinner,
-            text("Seeking, this may take a moment...")
-                .size(14)
-                .color(Color::WHITE)
-        ]
-        .spacing(16)
-        .align_x(iced::Alignment::Center);
-
-        layers.push(
-            container(
-                container(seeking_content)
-                    .padding(Padding::new(20.0))
-                    .style(glass_container_style),
-            )
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .into(),
-        );
+        layers.push(seeking_overlay());
     }
 
     // Stack sized to scaled video dimensions
@@ -457,33 +461,7 @@ pub fn video_with_controls_fullscreen<'a>(
 
     // Seeking overlay with spinner
     if is_seeking {
-        let spinner: Element<'a, Message> = Circular::new()
-            .size(48.0)
-            .bar_height(4.0)
-            .bar_color(Color::WHITE)
-            .into();
-
-        let seeking_content = column![
-            spinner,
-            text("Seeking, this may take a moment...")
-                .size(14)
-                .color(Color::WHITE)
-        ]
-        .spacing(16)
-        .align_x(iced::Alignment::Center);
-
-        layers.push(
-            container(
-                container(seeking_content)
-                    .padding(Padding::new(20.0))
-                    .style(glass_container_style),
-            )
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .into(),
-        );
+        layers.push(seeking_overlay());
     }
 
     stack(layers)
