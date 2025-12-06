@@ -2,7 +2,7 @@
 
 use crate::messages::Message;
 use crate::widgets::glass::glass_container_style;
-use crate::widgets::spinner::Circular;
+use crate::widgets::spinner::shader_spinner;
 
 use iced::widget::{button, column, container, row, slider, stack, text};
 use iced::{Color, Element, Font, Length, Padding, Theme};
@@ -102,12 +102,8 @@ fn control_button_style(
 
 /// Seeking overlay with spinner and status text
 /// Reusable across windowed and fullscreen modes
-pub fn seeking_overlay<'a>() -> Element<'a, Message> {
-    let spinner: Element<'a, Message> = Circular::new()
-        .id("seeking")
-        .size(48.0)
-        .bar_height(4.0)
-        .into();
+pub fn seeking_overlay(theme: &Theme) -> Element<'static, Message> {
+    let spinner: Element<'static, Message> = shader_spinner(48.0, theme);
 
     let seeking_content = column![
         spinner,
@@ -299,6 +295,7 @@ pub fn video_with_controls<'a>(
     seek_preview: Option<f64>,
     notification: Option<&'a str>,
     is_seeking: bool,
+    theme: &Theme,
 ) -> Element<'a, Message> {
     let (video_width, video_height) = video.size();
 
@@ -382,7 +379,7 @@ pub fn video_with_controls<'a>(
 
     // Seeking overlay with spinner
     if is_seeking {
-        layers.push(seeking_overlay());
+        layers.push(seeking_overlay(theme));
     }
 
     // Stack sized to scaled video dimensions
@@ -403,6 +400,7 @@ pub fn video_with_controls_fullscreen<'a>(
     seek_preview: Option<f64>,
     notification: Option<&'a str>,
     is_seeking: bool,
+    theme: &Theme,
 ) -> Element<'a, Message> {
     let video_widget: Element<'a, Message> = VideoPlayer::new(video)
         .width(Length::Fill)
@@ -478,7 +476,7 @@ pub fn video_with_controls_fullscreen<'a>(
 
     // Seeking overlay with spinner
     if is_seeking {
-        layers.push(seeking_overlay());
+        layers.push(seeking_overlay(theme));
     }
 
     stack(layers)
@@ -495,6 +493,7 @@ pub fn video_loading_placeholder<'a>(
     status: Option<&'a str>,
     available_width: f32,
     available_height: f32,
+    theme: &Theme,
 ) -> Element<'a, Message> {
     // Standard 16:9 aspect ratio
     const ASPECT_RATIO: f32 = 16.0 / 9.0;
@@ -509,12 +508,8 @@ pub fn video_loading_placeholder<'a>(
         (available_height * ASPECT_RATIO, available_height)
     };
 
-    // Circular spinner that animates itself
-    let spinner: Element<'a, Message> = Circular::new()
-        .id("loading")
-        .size(48.0)
-        .bar_height(4.0)
-        .into();
+    // Shader spinner that animates itself
+    let spinner: Element<'a, Message> = shader_spinner(48.0, theme);
 
     let status_text = status.map(|s| {
         text(s).size(14).color(Color {

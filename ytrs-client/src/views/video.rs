@@ -29,6 +29,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 app.video_seek_preview,
                 app.notification.as_deref(),
                 app.video_seeking,
+                &app.current_theme,
             ))
             .width(Length::Fill)
             .height(Length::Fill)
@@ -44,6 +45,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 app.video_loading_status.as_deref(),
                 app.window_width,
                 app.window_height,
+                &app.current_theme,
             ))
             .width(Length::Fill)
             .height(Length::Fill)
@@ -86,6 +88,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             app.video_seek_preview,
             app.notification.as_deref(),
             app.video_seeking,
+            &app.current_theme,
         );
 
         container(
@@ -131,6 +134,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             app.video_loading_status.as_deref(),
             app.window_width,
             VIDEO_HEIGHT,
+            &app.current_theme,
         );
 
         container(
@@ -149,6 +153,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             None,
             app.window_width,
             VIDEO_HEIGHT,
+            &app.current_theme,
         ))
         .width(Length::Fill)
         .height(Length::Fill)
