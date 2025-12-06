@@ -28,6 +28,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 duration,
                 app.video_seek_preview,
                 app.notification.as_deref(),
+                app.video_seeking,
             ))
             .width(Length::Fill)
             .height(Length::Fill)
@@ -68,6 +69,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             VIDEO_HEIGHT,
             app.video_seek_preview,
             app.notification.as_deref(),
+            app.video_seeking,
         ))
         .width(Length::Fill)
         .height(Length::Fill)

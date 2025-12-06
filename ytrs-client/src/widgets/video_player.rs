@@ -251,6 +251,7 @@ pub fn video_with_controls<'a>(
     available_height: f32,
     seek_preview: Option<f64>,
     notification: Option<&'a str>,
+    is_seeking: bool,
 ) -> Element<'a, Message> {
     let (video_width, video_height) = video.size();
 
@@ -332,6 +333,37 @@ pub fn video_with_controls<'a>(
         );
     }
 
+    // Seeking overlay with spinner
+    if is_seeking {
+        let spinner: Element<'a, Message> = Circular::new()
+            .size(48.0)
+            .bar_height(4.0)
+            .bar_color(Color::WHITE)
+            .into();
+
+        let seeking_content = column![
+            spinner,
+            text("Seeking, this may take a moment...")
+                .size(14)
+                .color(Color::WHITE)
+        ]
+        .spacing(16)
+        .align_x(iced::Alignment::Center);
+
+        layers.push(
+            container(
+                container(seeking_content)
+                    .padding(Padding::new(20.0))
+                    .style(glass_container_style),
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .into(),
+        );
+    }
+
     // Stack sized to scaled video dimensions
     stack(layers)
         .width(Length::Fixed(scaled_width))
@@ -349,6 +381,7 @@ pub fn video_with_controls_fullscreen<'a>(
     duration: Duration,
     seek_preview: Option<f64>,
     notification: Option<&'a str>,
+    is_seeking: bool,
 ) -> Element<'a, Message> {
     let video_widget: Element<'a, Message> = VideoPlayer::new(video)
         .width(Length::Fill)
@@ -412,6 +445,37 @@ pub fn video_with_controls_fullscreen<'a>(
             container(
                 container(text(msg).size(14).color(Color::WHITE))
                     .padding(Padding::new(12.0))
+                    .style(glass_container_style),
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .into(),
+        );
+    }
+
+    // Seeking overlay with spinner
+    if is_seeking {
+        let spinner: Element<'a, Message> = Circular::new()
+            .size(48.0)
+            .bar_height(4.0)
+            .bar_color(Color::WHITE)
+            .into();
+
+        let seeking_content = column![
+            spinner,
+            text("Seeking, this may take a moment...")
+                .size(14)
+                .color(Color::WHITE)
+        ]
+        .spacing(16)
+        .align_x(iced::Alignment::Center);
+
+        layers.push(
+            container(
+                container(seeking_content)
+                    .padding(Padding::new(20.0))
                     .style(glass_container_style),
             )
             .width(Length::Fill)

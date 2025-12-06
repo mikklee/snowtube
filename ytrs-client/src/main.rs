@@ -121,6 +121,8 @@ pub struct App {
     pub notification: Option<String>,    // Temporary notification message
     pub video_loading: bool,             // Whether video is currently loading
     pub video_loading_status: Option<String>, // Current loading status message
+    pub video_seeking: bool,             // Whether video is currently seeking
+    pub video_seek_target: Option<std::time::Duration>, // Target position when seeking
 }
 
 impl App {
@@ -181,6 +183,8 @@ impl App {
                 notification: None,
                 video_loading: false,
                 video_loading_status: None,
+                video_seeking: false,
+                video_seek_target: None,
             },
             // Load config asynchronously on startup
             Task::perform(
@@ -1481,16 +1485,20 @@ impl App {
                                 .unwrap_or_default();
 
                             // Check for throttle wait (can update status from async context!)
+                            // GStreamer video player already waits 5 seconds, so we only need
+                            // to wait the remaining time beyond that
+                            const GSTREAMER_WAIT_SECS: i64 = 5;
                             if let Some(available_at) = video_format["available_at"].as_i64() {
                                 let now = std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
                                     .unwrap()
                                     .as_secs() as i64;
-                                let wait_secs = available_at - now;
+                                let wait_secs = (available_at - now - GSTREAMER_WAIT_SECS).max(0);
                                 if wait_secs > 0 {
                                     tracing::info!(
-                                        "Waiting {} seconds for YouTube throttle",
-                                        wait_secs
+                                        "Waiting {} seconds for YouTube throttle (after GStreamer's {}s)",
+                                        wait_secs,
+                                        GSTREAMER_WAIT_SECS
                                     );
                                     // Countdown each second
                                     for remaining in (1..=wait_secs).rev() {
@@ -1658,27 +1666,27 @@ impl App {
                         if let Err(e) = video.seek(target, false) {
                             tracing::error!("Failed to seek video: {:?}", e);
                         }
-                        // Show notification for longer videos
-                        if duration.as_secs() > 600 {
-                            self.notification =
-                                Some("Seeking may take a moment on longer videos...".to_string());
-                            return Task::perform(
-                                async {
-                                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                                },
-                                |_| Message::DismissNotification,
-                            );
-                        }
+                        // Show seeking spinner overlay until playback resumes
+                        self.video_seeking = true;
+                        self.video_seek_target = Some(target);
                     }
                 }
                 Task::none()
             }
-            Message::DismissNotification => {
-                self.notification = None;
-                Task::none()
-            }
             Message::VideoTick => {
-                // Just triggers a re-render to update the progress bar
+                // Check if seeking is complete (position has reached target)
+                if self.video_seeking {
+                    if let (Some(video), Some(target)) = (&self.video, self.video_seek_target) {
+                        let position = video.position();
+                        // Consider seeking done when position is at or past target
+                        // (with small tolerance for timing differences)
+                        if position >= target.saturating_sub(std::time::Duration::from_millis(500))
+                        {
+                            self.video_seeking = false;
+                            self.video_seek_target = None;
+                        }
+                    }
+                }
                 Task::none()
             }
         }
