@@ -4,7 +4,7 @@ use crate::App;
 use crate::messages::Message;
 use crate::widgets::{video_with_controls, video_with_controls_fullscreen};
 use iced::widget::{container, text};
-use iced::{Element, Length};
+use iced::{Color, Element, Length};
 
 pub fn view(app: &App) -> Element<'_, Message> {
     // In fullscreen mode: video with controls fills the screen
@@ -14,14 +14,21 @@ pub fn view(app: &App) -> Element<'_, Message> {
             let title = app.playing_video_title.as_deref();
             let position = video.position();
             let duration = video.duration();
-            return video_with_controls_fullscreen(
+            return container(video_with_controls_fullscreen(
                 video,
                 title,
                 is_paused,
                 app.video_controls_visible,
                 position,
                 duration,
-            );
+            ))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|_| container::Style {
+                background: Some(iced::Background::Color(Color::BLACK)),
+                ..Default::default()
+            })
+            .into();
         } else {
             return container(text("No video loaded"))
                 .width(Length::Fill)
