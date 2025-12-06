@@ -248,6 +248,7 @@ pub fn video_with_controls<'a>(
     available_width: f32,
     available_height: f32,
     seek_preview: Option<f64>,
+    notification: Option<&'a str>,
 ) -> Element<'a, Message> {
     let (video_width, video_height) = video.size();
 
@@ -313,6 +314,22 @@ pub fn video_with_controls<'a>(
         );
     }
 
+    // Notification overlay at center
+    if let Some(msg) = notification {
+        layers.push(
+            container(
+                container(text(msg).size(14).color(Color::WHITE))
+                    .padding(Padding::new(12.0))
+                    .style(glass_container_style),
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .into(),
+        );
+    }
+
     // Stack sized to scaled video dimensions
     stack(layers)
         .width(Length::Fixed(scaled_width))
@@ -329,6 +346,7 @@ pub fn video_with_controls_fullscreen<'a>(
     position: Duration,
     duration: Duration,
     seek_preview: Option<f64>,
+    notification: Option<&'a str>,
 ) -> Element<'a, Message> {
     let video_widget: Element<'a, Message> = VideoPlayer::new(video)
         .width(Length::Fill)
@@ -382,6 +400,22 @@ pub fn video_with_controls_fullscreen<'a>(
             .width(Length::Fill)
             .height(Length::Fill)
             .align_y(iced::alignment::Vertical::Bottom)
+            .into(),
+        );
+    }
+
+    // Notification overlay at center
+    if let Some(msg) = notification {
+        layers.push(
+            container(
+                container(text(msg).size(14).color(Color::WHITE))
+                    .padding(Padding::new(12.0))
+                    .style(glass_container_style),
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
             .into(),
         );
     }

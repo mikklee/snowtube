@@ -118,6 +118,7 @@ pub struct App {
     pub video_controls_visible: bool,
     pub video_last_mouse_move: Option<std::time::Instant>,
     pub video_seek_preview: Option<f64>, // Preview position while dragging slider (0.0 to 1.0)
+    pub notification: Option<String>,    // Temporary notification message
 }
 
 impl App {
@@ -175,6 +176,7 @@ impl App {
                 video_controls_visible: true,
                 video_last_mouse_move: None,
                 video_seek_preview: None,
+                notification: None,
             },
             // Load config asynchronously on startup
             Task::perform(
@@ -1630,8 +1632,23 @@ impl App {
                         if let Err(e) = video.seek(target, false) {
                             tracing::error!("Failed to seek video: {:?}", e);
                         }
+                        // Show notification for longer videos
+                        if duration.as_secs() > 600 {
+                            self.notification =
+                                Some("Seeking may take a moment on longer videos...".to_string());
+                            return Task::perform(
+                                async {
+                                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                                },
+                                |_| Message::DismissNotification,
+                            );
+                        }
                     }
                 }
+                Task::none()
+            }
+            Message::DismissNotification => {
+                self.notification = None;
                 Task::none()
             }
             Message::VideoTick => {

@@ -69,4 +69,5 @@ pub enum Message {
     SeekVideoPreview(f64), // Preview seek position while dragging (0.0 to 1.0)
     SeekVideoRelease,      // Actually seek to the previewed position on release
     VideoTick,             // Periodic tick to update progress bar
+    DismissNotification,   // Dismiss the current notification
 }
