@@ -24,7 +24,6 @@
 //! LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 //! OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //! SOFTWARE.
-
 use iced::advanced::layout;
 use iced::advanced::renderer;
 use iced::advanced::widget::tree::{self, Tree};
@@ -33,7 +32,7 @@ use iced::mouse;
 use iced::time::Instant;
 use iced::widget::canvas;
 use iced::window;
-use iced::{Color, Element, Event, Length, Radians, Rectangle, Renderer, Size, Vector};
+use iced::{Background, Color, Element, Event, Length, Radians, Rectangle, Renderer, Size, Vector};
 
 use super::easing::{self, Easing};
 
@@ -44,69 +43,76 @@ const MIN_ANGLE: Radians = Radians(PI / 8.0);
 const WRAP_ANGLE: Radians = Radians(2.0 * PI - PI / 4.0);
 const BASE_ROTATION_SPEED: u32 = u32::MAX / 80;
 
-/// A circular loading spinner widget
-pub struct Circular<'a> {
+pub struct Circular<'a, Theme>
+where
+    Theme: StyleSheet,
+{
     size: f32,
     bar_height: f32,
-    bar_color: Color,
-    track_color: Color,
+    style: <Theme as StyleSheet>::Style,
     easing: &'a Easing,
     cycle_duration: Duration,
     rotation_duration: Duration,
 }
 
-impl<'a> Circular<'a> {
-    /// Creates a new [`Circular`] spinner
+impl<'a, Theme> Circular<'a, Theme>
+where
+    Theme: StyleSheet,
+{
+    /// Creates a new [`Circular`] with the given content.
     pub fn new() -> Self {
         Circular {
-            size: 48.0,
+            size: 40.0,
             bar_height: 4.0,
-            bar_color: Color::WHITE,
-            track_color: Color::TRANSPARENT,
+            style: <Theme as StyleSheet>::Style::default(),
             easing: &easing::STANDARD,
             cycle_duration: Duration::from_millis(600),
             rotation_duration: Duration::from_secs(2),
         }
     }
 
-    /// Sets the size of the spinner
+    /// Sets the size of the [`Circular`].
     pub fn size(mut self, size: f32) -> Self {
         self.size = size;
         self
     }
 
-    /// Sets the bar height of the spinner
+    /// Sets the bar height of the [`Circular`].
     pub fn bar_height(mut self, bar_height: f32) -> Self {
         self.bar_height = bar_height;
         self
     }
 
-    /// Sets the bar color of the spinner
-    pub fn bar_color(mut self, color: Color) -> Self {
-        self.bar_color = color;
+    /// Sets the style variant of this [`Circular`].
+    pub fn style(mut self, style: <Theme as StyleSheet>::Style) -> Self {
+        self.style = style;
         self
     }
 
-    /// Sets the track color of the spinner
-    pub fn track_color(mut self, color: Color) -> Self {
-        self.track_color = color;
+    /// Sets the easing of this [`Circular`].
+    pub fn easing(mut self, easing: &'a Easing) -> Self {
+        self.easing = easing;
         self
     }
 
-    /// Sets the cycle duration of the spinner
+    /// Sets the cycle duration of this [`Circular`].
     pub fn cycle_duration(mut self, duration: Duration) -> Self {
         self.cycle_duration = duration / 2;
         self
     }
 
-    /// Sets the base rotation duration of the spinner
+    /// Sets the base rotation duration of this [`Circular`]. This is the duration that a full
+    /// rotation would take if the cycle rotation were set to 0.0 (no expanding or contracting)
     pub fn rotation_duration(mut self, duration: Duration) -> Self {
         self.rotation_duration = duration;
         self
     }
 }
 
-impl Default for Circular<'_> {
+impl<Theme> Default for Circular<'_, Theme>
+where
+    Theme: StyleSheet,
+{
     fn default() -> Self {
         Self::new()
     }
@@ -231,9 +237,10 @@ struct State {
     cache: canvas::Cache,
 }
 
-impl<'a, Message, Theme> Widget<Message, Theme, Renderer> for Circular<'a>
+impl<'a, Message, Theme> Widget<Message, Theme, Renderer> for Circular<'a, Theme>
 where
     Message: 'a + Clone,
+    Theme: StyleSheet,
 {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<State>()
@@ -287,7 +294,7 @@ where
         &self,
         tree: &Tree,
         renderer: &mut Renderer,
-        _theme: &Theme,
+        theme: &Theme,
         _style: &renderer::Style,
         layout: Layout<'_>,
         _cursor: mouse::Cursor,
@@ -297,6 +304,7 @@ where
 
         let state = tree.state.downcast_ref::<State>();
         let bounds = layout.bounds();
+        let custom_style = <Theme as StyleSheet>::appearance(theme, &self.style);
 
         let geometry = state.cache.draw(renderer, bounds.size(), |frame| {
             let track_radius = frame.width() / 2.0 - self.bar_height;
@@ -305,7 +313,7 @@ where
             frame.stroke(
                 &track_path,
                 canvas::Stroke::default()
-                    .with_color(self.track_color)
+                    .with_color(custom_style.track_color)
                     .with_width(self.bar_height),
             );
 
@@ -337,7 +345,7 @@ where
             frame.stroke(
                 &bar_path,
                 canvas::Stroke::default()
-                    .with_color(self.bar_color)
+                    .with_color(custom_style.bar_color)
                     .with_width(self.bar_height),
             );
         });
@@ -350,11 +358,55 @@ where
     }
 }
 
-impl<'a, Message, Theme> From<Circular<'a>> for Element<'a, Message, Theme, Renderer>
+impl<'a, Message, Theme> From<Circular<'a, Theme>> for Element<'a, Message, Theme, Renderer>
 where
     Message: Clone + 'a,
+    Theme: StyleSheet + 'a,
 {
-    fn from(circular: Circular<'a>) -> Self {
+    fn from(circular: Circular<'a, Theme>) -> Self {
         Self::new(circular)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Appearance {
+    /// The [`Background`] of the progress indicator.
+    pub background: Option<Background>,
+    /// The track [`Color`] of the progress indicator.
+    pub track_color: Color,
+    /// The bar [`Color`] of the progress indicator.
+    pub bar_color: Color,
+}
+
+impl std::default::Default for Appearance {
+    fn default() -> Self {
+        Self {
+            background: None,
+            track_color: Color::TRANSPARENT,
+            bar_color: Color::BLACK,
+        }
+    }
+}
+
+/// A set of rules that dictate the style of an indicator.
+pub trait StyleSheet {
+    /// The supported style of the [`StyleSheet`].
+    type Style: Default;
+
+    /// Produces the active [`Appearance`] of a indicator.
+    fn appearance(&self, style: &Self::Style) -> Appearance;
+}
+
+impl StyleSheet for iced::Theme {
+    type Style = ();
+
+    fn appearance(&self, _style: &Self::Style) -> Appearance {
+        let palette = self.extended_palette();
+
+        Appearance {
+            background: None,
+            track_color: palette.background.weak.color,
+            bar_color: palette.primary.base.color,
+        }
     }
 }

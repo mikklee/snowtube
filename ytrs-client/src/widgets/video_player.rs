@@ -103,11 +103,10 @@ fn control_button_style(
 /// Seeking overlay with spinner and status text
 /// Reusable across windowed and fullscreen modes
 pub fn seeking_overlay<'a>() -> Element<'a, Message> {
-    // Use a simple text-based loading indicator to avoid canvas caching issues
-    let loading_dots = text("⟳").size(48).color(Color::WHITE);
+    let spinner: Element<'a, Message> = Circular::new().size(48.0).bar_height(4.0).into();
 
     let seeking_content = column![
-        loading_dots,
+        spinner,
         text("Seeking. This may take a minute.")
             .size(14)
             .color(Color::WHITE),
@@ -492,11 +491,7 @@ pub fn video_loading_placeholder<'a>(
     };
 
     // Circular spinner that animates itself
-    let spinner: Element<'a, Message> = Circular::new()
-        .size(48.0)
-        .bar_height(4.0)
-        .bar_color(Color::WHITE)
-        .into();
+    let spinner: Element<'a, Message> = Circular::new().size(48.0).bar_height(4.0).into();
 
     let status_text = status.map(|s| {
         text(s).size(14).color(Color {
