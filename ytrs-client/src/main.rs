@@ -1674,14 +1674,13 @@ impl App {
                 Task::none()
             }
             Message::VideoTick => {
-                // Check if seeking is complete (position has reached target)
+                // Check if seeking is complete (position has advanced past target)
                 if self.video_seeking {
                     if let (Some(video), Some(target)) = (&self.video, self.video_seek_target) {
                         let position = video.position();
-                        // Consider seeking done when position is at or past target
-                        // (with small tolerance for timing differences)
-                        if position >= target.saturating_sub(std::time::Duration::from_millis(500))
-                        {
+                        // Consider seeking done when position is past target by at least 500ms
+                        // This ensures the video is actually playing, not just buffering
+                        if position > target + std::time::Duration::from_millis(500) {
                             self.video_seeking = false;
                             self.video_seek_target = None;
                         }
@@ -1746,10 +1745,10 @@ impl App {
             _ => None,
         });
 
-        // Add a timer tick while video is playing to update progress bar
+        // Add a timer tick while video is playing (or seeking) to update progress bar
         let video_tick = if self.video.is_some()
             && self.current_view == View::Video
-            && !self.video.as_ref().map(|v| v.paused()).unwrap_or(true)
+            && (!self.video.as_ref().map(|v| v.paused()).unwrap_or(true) || self.video_seeking)
         {
             iced::time::every(std::time::Duration::from_millis(250)).map(|_| Message::VideoTick)
         } else {
