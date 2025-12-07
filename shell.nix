@@ -1,5 +1,5 @@
-{
-  pkgs ? import <nixpkgs> { },
+{ pkgs ? import <nixpkgs> { }
+,
 }:
 let
   libPath =
@@ -25,8 +25,7 @@ let
     else
       [
         pkgs.gcc
-        pkgs.cargo
-        pkgs.rustc
+        pkgs.rustup
       ];
 
   gstreamerDeps = with pkgs; [
@@ -64,6 +63,8 @@ let
         OPENSSL_LIB_DIR = "${pkgs.openssl.out}/lib";
         shellHook = ''
           export PATH="$HOME/.cargo/bin:$PATH"
+          rustup update stable
+          rustup default stable
           export GIO_EXTRA_MODULES="${pkgs.glib-networking}/lib/gio/modules:$GIO_EXTRA_MODULES"
         '';
       };
@@ -75,9 +76,6 @@ in
     mkShell (
       {
         buildInputs = [
-          rust-analyzer
-          rustfmt
-          clippy
           nil
           nixd
           mpv
