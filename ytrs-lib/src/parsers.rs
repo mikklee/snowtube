@@ -153,9 +153,10 @@ pub(crate) fn is_short(video: &Value) -> Option<bool> {
     if let Some(url) = video
         .pointer("/navigationEndpoint/commandMetadata/webCommandMetadata/url")
         .and_then(|v| v.as_str())
-        && url.contains("/shorts/") {
-            return Some(true);
-        }
+        && url.contains("/shorts/")
+    {
+        return Some(true);
+    }
 
     // Method 2: Check thumbnail overlay for SHORTS style
     if let Some(overlays) = video
@@ -166,9 +167,10 @@ pub(crate) fn is_short(video: &Value) -> Option<bool> {
             if let Some(style) = overlay
                 .pointer("/thumbnailOverlayTimeStatusRenderer/style")
                 .and_then(|v| v.as_str())
-                && style == "SHORTS" {
-                    return Some(true);
-                }
+                && style == "SHORTS"
+            {
+                return Some(true);
+            }
         }
     }
 
