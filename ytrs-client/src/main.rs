@@ -1093,7 +1093,6 @@ impl App {
             }
             Message::TabSelected(tab_id) => {
                 self.active_tab = tab_id;
-                
 
                 match tab_id {
                     TabId::Search => {
@@ -1172,14 +1171,15 @@ impl App {
                                 .cloned()
                                 .map(|mut v| {
                                     if v.channel.is_none()
-                                        && let Some(ref name) = channel_name {
-                                            v.channel = Some(ytrs_lib::Channel {
-                                                id: Some(channel_id.clone()),
-                                                name: name.clone(),
-                                                url: None,
-                                                thumbnail: None,
-                                            });
-                                        }
+                                        && let Some(ref name) = channel_name
+                                    {
+                                        v.channel = Some(ytrs_lib::Channel {
+                                            id: Some(channel_id.clone()),
+                                            name: name.clone(),
+                                            url: None,
+                                            thumbnail: None,
+                                        });
+                                    }
                                     v
                                 })
                                 .collect();
@@ -1599,12 +1599,25 @@ impl App {
             }
             Message::ToggleFullscreen => {
                 self.video_fullscreen = !self.video_fullscreen;
-                let mode = if self.video_fullscreen {
-                    iced::window::Mode::Fullscreen
-                } else {
-                    iced::window::Mode::Windowed
-                };
-                iced::window::latest().and_then(move |id| iced::window::set_mode(id, mode))
+                // TODO: iced::window::Mode::Fullscreen crashes on macOS due to objc2 bug
+                // Workaround: maximize window instead of true fullscreen on macOS
+                #[cfg(target_os = "macos")]
+                {
+                    if self.video_fullscreen {
+                        iced::window::latest().and_then(|id| iced::window::maximize(id, true))
+                    } else {
+                        iced::window::latest().and_then(|id| iced::window::maximize(id, false))
+                    }
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let mode = if self.video_fullscreen {
+                        iced::window::Mode::Fullscreen
+                    } else {
+                        iced::window::Mode::Windowed
+                    };
+                    iced::window::latest().and_then(move |id| iced::window::set_mode(id, mode))
+                }
             }
             Message::BackFromVideo => {
                 if let Some(ref mut video) = self.video {
@@ -1680,9 +1693,10 @@ impl App {
                 // Only hide if we're in fullscreen and no recent mouse movement
                 if self.video_fullscreen
                     && let Some(last_move) = self.video_last_mouse_move
-                        && last_move.elapsed() >= std::time::Duration::from_secs(3) {
-                            self.video_controls_visible = false;
-                        }
+                    && last_move.elapsed() >= std::time::Duration::from_secs(3)
+                {
+                    self.video_controls_visible = false;
+                }
                 Task::none()
             }
             Message::SeekVideoPreview(percent) => {
@@ -1691,31 +1705,33 @@ impl App {
             }
             Message::SeekVideoRelease => {
                 if let Some(percent) = self.video_seek_preview.take()
-                    && let Some(ref mut video) = self.video {
-                        let duration = video.duration();
-                        let target_nanos = (duration.as_secs_f64() * percent) * 1_000_000_000.0;
-                        let target = std::time::Duration::from_nanos(target_nanos as u64);
-                        if let Err(e) = video.seek(target, false) {
-                            tracing::error!("Failed to seek video: {:?}", e);
-                        }
-                        // Show seeking spinner overlay until playback resumes
-                        self.video_seeking = true;
-                        self.video_seek_target = Some(target);
+                    && let Some(ref mut video) = self.video
+                {
+                    let duration = video.duration();
+                    let target_nanos = (duration.as_secs_f64() * percent) * 1_000_000_000.0;
+                    let target = std::time::Duration::from_nanos(target_nanos as u64);
+                    if let Err(e) = video.seek(target, false) {
+                        tracing::error!("Failed to seek video: {:?}", e);
                     }
+                    // Show seeking spinner overlay until playback resumes
+                    self.video_seeking = true;
+                    self.video_seek_target = Some(target);
+                }
                 Task::none()
             }
             Message::VideoTick => {
                 // Check if seeking is complete (position has advanced past target)
                 if self.video_seeking
-                    && let (Some(video), Some(target)) = (&self.video, self.video_seek_target) {
-                        let position = video.position();
-                        // Consider seeking done when position is past target by at least 500ms
-                        // This ensures the video is actually playing, not just buffering
-                        if position > target + std::time::Duration::from_millis(500) {
-                            self.video_seeking = false;
-                            self.video_seek_target = None;
-                        }
+                    && let (Some(video), Some(target)) = (&self.video, self.video_seek_target)
+                {
+                    let position = video.position();
+                    // Consider seeking done when position is past target by at least 500ms
+                    // This ensures the video is actually playing, not just buffering
+                    if position > target + std::time::Duration::from_millis(500) {
+                        self.video_seeking = false;
+                        self.video_seek_target = None;
                     }
+                }
                 Task::none()
             }
         }
