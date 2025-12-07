@@ -3,7 +3,7 @@
 //! Uses a WGSL shader to render an animated spinner, avoiding canvas caching issues.
 
 use iced::wgpu;
-use iced::widget::shader::{self, Viewport};
+use iced::widget::shader::{self, Pipeline, Viewport};
 use iced::{Color, Element, Length, Rectangle, Renderer, Theme};
 use std::fmt::Debug;
 use std::time::Instant;
@@ -69,30 +69,21 @@ pub struct SpinnerPrimitive {
 }
 
 impl shader::Primitive for SpinnerPrimitive {
-    type Renderer = SpinnerRenderer;
-
-    fn initialize(
-        &self,
-        device: &wgpu::Device,
-        _queue: &wgpu::Queue,
-        format: wgpu::TextureFormat,
-    ) -> Self::Renderer {
-        SpinnerRenderer::new(device, format)
-    }
+    type Pipeline = SpinnerPipeline;
 
     fn prepare(
         &self,
-        renderer: &mut Self::Renderer,
+        pipeline: &mut Self::Pipeline,
         _device: &wgpu::Device,
         queue: &wgpu::Queue,
         _bounds: &Rectangle,
         _viewport: &Viewport,
     ) {
-        renderer.update(queue, self);
+        pipeline.update(queue, self);
     }
 
-    fn draw(&self, renderer: &Self::Renderer, render_pass: &mut wgpu::RenderPass<'_>) -> bool {
-        renderer.draw(render_pass);
+    fn draw(&self, pipeline: &Self::Pipeline, render_pass: &mut wgpu::RenderPass<'_>) -> bool {
+        pipeline.draw(render_pass);
         true
     }
 }
@@ -107,20 +98,20 @@ struct Uniforms {
     bar_color: [f32; 4],
 }
 
-pub struct SpinnerRenderer {
+pub struct SpinnerPipeline {
     pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
 }
 
-impl Debug for SpinnerRenderer {
+impl Debug for SpinnerPipeline {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SpinnerRenderer").finish_non_exhaustive()
+        f.debug_struct("SpinnerPipeline").finish_non_exhaustive()
     }
 }
 
-impl SpinnerRenderer {
-    fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+impl Pipeline for SpinnerPipeline {
+    fn new(device: &wgpu::Device, _queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Spinner Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("spinner.wgsl").into()),
@@ -194,7 +185,9 @@ impl SpinnerRenderer {
             bind_group,
         }
     }
+}
 
+impl SpinnerPipeline {
     fn update(&self, queue: &wgpu::Queue, primitive: &SpinnerPrimitive) {
         let uniforms = Uniforms {
             size: [primitive.bounds.width, primitive.bounds.height],
