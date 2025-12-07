@@ -176,10 +176,13 @@ impl State {
     fn tick(&mut self, now: Instant) -> bool {
         // Check if it's time to start bounce-back
         if let Some(bounce_at) = self.bounce_back_at
-            && now >= bounce_at && self.animation.is_none() && self.bounce_offset.abs() > 0.5 {
-                self.start_bounce_back(now);
-                self.bounce_back_at = None;
-            }
+            && now >= bounce_at
+            && self.animation.is_none()
+            && self.bounce_offset.abs() > 0.5
+        {
+            self.start_bounce_back(now);
+            self.bounce_back_at = None;
+        }
 
         if let Some((ref anim, start, _)) = self.animation {
             self.bounce_offset = anim.interpolate(start, 0.0, now);
@@ -244,13 +247,9 @@ where
                 Size::new(false, true), // compress height, not width
             );
 
-            
-
-            self.content.as_widget_mut().layout(
-                &mut tree.children[0],
-                renderer,
-                &content_limits,
-            )
+            self.content
+                .as_widget_mut()
+                .layout(&mut tree.children[0], renderer, &content_limits)
         });
 
         // Update state with sizes after layout
@@ -296,32 +295,33 @@ where
 
         // Handle scroll wheel - capture this event, don't pass to children
         if let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event
-            && cursor.is_over(bounds) {
-                let state = tree.state.downcast_mut::<State>();
-                let scroll_delta = match delta {
-                    mouse::ScrollDelta::Lines { y, .. } => -y * 40.0,
-                    mouse::ScrollDelta::Pixels { y, .. } => -y,
-                };
+            && cursor.is_over(bounds)
+        {
+            let state = tree.state.downcast_mut::<State>();
+            let scroll_delta = match delta {
+                mouse::ScrollDelta::Lines { y, .. } => -y * 40.0,
+                mouse::ScrollDelta::Pixels { y, .. } => -y,
+            };
 
-                if state.apply_scroll(scroll_delta) {
-                    shell.request_redraw();
-                }
-
-                // Cancel any ongoing animation
-                state.animation = None;
-
-                // Schedule bounce-back at a specific instant
-                if state.bounce_offset.abs() > 0.5 {
-                    let delay = if state.bounce_offset < 0.0 { 30 } else { 100 };
-                    state.bounce_back_at =
-                        Some(Instant::now() + std::time::Duration::from_millis(delay));
-                    shell.request_redraw();
-                } else {
-                    state.bounce_back_at = None;
-                }
-
-                return; // Don't forward scroll events
+            if state.apply_scroll(scroll_delta) {
+                shell.request_redraw();
             }
+
+            // Cancel any ongoing animation
+            state.animation = None;
+
+            // Schedule bounce-back at a specific instant
+            if state.bounce_offset.abs() > 0.5 {
+                let delay = if state.bounce_offset < 0.0 { 30 } else { 100 };
+                state.bounce_back_at =
+                    Some(Instant::now() + std::time::Duration::from_millis(delay));
+                shell.request_redraw();
+            } else {
+                state.bounce_back_at = None;
+            }
+
+            return; // Don't forward scroll events
+        }
 
         // Forward other events to content with adjusted cursor position
         // (same approach as iced's scrollable)

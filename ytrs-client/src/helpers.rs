@@ -38,9 +38,10 @@ pub async fn load_thumb(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>
         let cache_path = cache_dir.join(&cache_key);
 
         if cache_path.exists()
-            && let Ok(bytes) = tokio::fs::read(&cache_path).await {
-                return Ok(bytes);
-            }
+            && let Ok(bytes) = tokio::fs::read(&cache_path).await
+        {
+            return Ok(bytes);
+        }
     }
 
     // Download from URL
@@ -71,9 +72,10 @@ pub async fn load_circular_thumb(
         let cache_path = cache_dir.join(&cache_key);
 
         if cache_path.exists()
-            && let Ok(bytes) = tokio::fs::read(&cache_path).await {
-                return Ok(bytes);
-            }
+            && let Ok(bytes) = tokio::fs::read(&cache_path).await
+        {
+            return Ok(bytes);
+        }
     }
 
     // Download from URL
