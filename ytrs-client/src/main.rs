@@ -1568,6 +1568,10 @@ impl App {
                 })
             }
             Message::VideoLoaded(result) => {
+                // Ignore if user navigated away while loading
+                if !self.video_loading {
+                    return Task::none();
+                }
                 self.video_loading = false;
                 self.video_loading_status = None;
                 match result {
@@ -1625,6 +1629,10 @@ impl App {
                 }
                 self.video = None;
                 self.playing_video_title = None;
+                self.playing_video_id = None;
+                // Clear loading state (stops any pending video from being set)
+                self.video_loading = false;
+                self.video_loading_status = None;
                 // Clear seeking state
                 self.video_seeking = false;
                 self.video_seek_target = None;
@@ -1638,6 +1646,10 @@ impl App {
                 Task::none()
             }
             Message::VideoError(err) => {
+                // Ignore if user navigated away while loading
+                if !self.video_loading {
+                    return Task::none();
+                }
                 tracing::error!("Video error: {}", err);
                 self.video_loading = false;
                 self.video_loading_status = None;
@@ -1646,7 +1658,10 @@ impl App {
                 Task::none()
             }
             Message::VideoLoadingStatus(status) => {
-                self.video_loading_status = Some(status);
+                // Ignore if user navigated away while loading
+                if self.video_loading {
+                    self.video_loading_status = Some(status);
+                }
                 Task::none()
             }
             Message::LaunchInMpv(video_id) => {
