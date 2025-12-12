@@ -1,3 +1,3 @@
 [workspace]
-members = ["ytrs-lib", "ytrs-client", "iced_video_player_ytrs"]
+members = ["ytrs-lib", "ytrs-client", "iceplayer"]
 resolver = "2"

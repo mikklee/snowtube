@@ -38,12 +38,12 @@ pub struct VideoPipeline {
 impl Pipeline for VideoPipeline {
     fn new(device: &wgpu::Device, _queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("iced_video_player shader"),
+            label: Some("iceplayer shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
         let bg0_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("iced_video_player bind group 0 layout"),
+            label: Some("iceplayer bind group 0 layout"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -85,13 +85,13 @@ impl Pipeline for VideoPipeline {
         });
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("iced_video_player pipeline layout"),
+            label: Some("iceplayer pipeline layout"),
             bind_group_layouts: &[&bg0_layout],
             push_constant_ranges: &[],
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("iced_video_player pipeline"),
+            label: Some("iceplayer pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -121,7 +121,7 @@ impl Pipeline for VideoPipeline {
         });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("iced_video_player sampler"),
+            label: Some("iceplayer sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -160,7 +160,7 @@ impl VideoPipeline {
         let stride = stride.unwrap_or(width);
         if let Entry::Vacant(entry) = self.videos.entry(video_id) {
             let texture_y = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("iced_video_player texture"),
+                label: Some("iceplayer texture"),
                 size: wgpu::Extent3d {
                     width,
                     height,
@@ -175,7 +175,7 @@ impl VideoPipeline {
             });
 
             let texture_uv = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("iced_video_player texture"),
+                label: Some("iceplayer texture"),
                 size: wgpu::Extent3d {
                     width: width / 2,
                     height: height / 2,
@@ -190,7 +190,7 @@ impl VideoPipeline {
             });
 
             let view_y = texture_y.create_view(&wgpu::TextureViewDescriptor {
-                label: Some("iced_video_player texture view"),
+                label: Some("iceplayer texture view"),
                 format: None,
                 dimension: None,
                 aspect: wgpu::TextureAspect::All,
@@ -202,7 +202,7 @@ impl VideoPipeline {
             });
 
             let view_uv = texture_uv.create_view(&wgpu::TextureViewDescriptor {
-                label: Some("iced_video_player texture view"),
+                label: Some("iceplayer texture view"),
                 format: None,
                 dimension: None,
                 aspect: wgpu::TextureAspect::All,
@@ -214,14 +214,14 @@ impl VideoPipeline {
             });
 
             let instances = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("iced_video_player uniform buffer"),
+                label: Some("iceplayer uniform buffer"),
                 size: 256 * std::mem::size_of::<Uniforms>() as u64, // max 256 video players per frame
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
                 mapped_at_creation: false,
             });
 
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("iced_video_player bind group"),
+                label: Some("iceplayer bind group"),
                 layout: &self.bg0_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -359,7 +359,7 @@ impl VideoPipeline {
     ) {
         if let Some(video) = self.videos.get(&video_id) {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("iced_video_player render pass"),
+                label: Some("iceplayer render pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: target,
                     resolve_target: None,

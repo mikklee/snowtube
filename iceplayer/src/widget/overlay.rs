@@ -1,0 +1,210 @@
+//! Overlay components for the video player.
+//!
+//! Includes loading placeholder, seeking overlay, title overlay, centered play button, etc.
+
+use super::controls::glass_container_style;
+use super::spinner::spinner;
+use iced::widget::{button, column, container, stack, text};
+use iced::{Color, Element, Font, Length, Padding, Renderer, Theme};
+
+/// Nerd Font for icons
+const NERD_FONT: Font = Font {
+    family: iced::font::Family::Name("JetBrainsMono Nerd Font"),
+    ..Font::DEFAULT
+};
+
+/// Seeking overlay with spinner and status text.
+pub fn seeking_overlay<Message: 'static>(
+    theme: &Theme,
+) -> Element<'static, Message, Theme, Renderer> {
+    let spinner_widget: Element<'static, Message, Theme, Renderer> = spinner(48.0, theme);
+
+    let seeking_content = column![
+        spinner_widget,
+        text("Seeking. This may take a minute.")
+            .size(16)
+            .color(Color::WHITE),
+        text("If it takes longer, try reloading the video.")
+            .size(14)
+            .color(Color::WHITE)
+    ]
+    .spacing(16)
+    .align_x(iced::Alignment::Center);
+
+    container(seeking_content)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(|_| container::Style {
+            background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
+            ..Default::default()
+        })
+        .into()
+}
+
+/// Title overlay at the top of the video with text shadow.
+pub fn title_overlay<'a, Message: 'a>(title: &'a str) -> Element<'a, Message, Theme, Renderer> {
+    let shadow_text = text(title).size(18).color(Color::BLACK);
+    let main_text = text(title).size(18).color(Color::WHITE);
+    let title_with_shadow = stack![
+        container(shadow_text).padding(Padding {
+            top: 1.0,
+            bottom: 0.0,
+            left: 1.0,
+            right: 0.0
+        }),
+        main_text,
+    ];
+
+    container(title_with_shadow)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_y(iced::alignment::Vertical::Top)
+        .align_x(iced::alignment::Horizontal::Left)
+        .padding(Padding::from([15, 20]))
+        .into()
+}
+
+/// Notification overlay in the center of the video.
+pub fn notification_overlay<'a, Message: 'a>(
+    message: &'a str,
+    _theme: &Theme,
+) -> Element<'a, Message, Theme, Renderer> {
+    container(
+        container(text(message).size(14).color(Color::WHITE))
+            .padding(Padding::new(12.0))
+            .style(glass_container_style),
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .center_x(Length::Fill)
+    .center_y(Length::Fill)
+    .into()
+}
+
+/// Centered play button overlay shown when video is loaded but paused.
+/// This is the initial state after loading completes.
+pub fn centered_play_button<'a, Message: Clone + 'a>(
+    on_play: Message,
+    theme: &Theme,
+) -> Element<'a, Message, Theme, Renderer> {
+    let palette = theme.palette();
+
+    let play_icon = text('\u{f04b}'.to_string())
+        .size(48.0)
+        .font(NERD_FONT)
+        .color(Color::WHITE);
+
+    let play_button = button(
+        container(play_icon)
+            .padding(Padding::new(24.0))
+            .center_x(Length::Shrink)
+            .center_y(Length::Shrink),
+    )
+    .on_press(on_play)
+    .style(move |_theme, status| {
+        use iced::widget::button;
+
+        let bg_alpha = match status {
+            button::Status::Hovered => 0.9,
+            button::Status::Pressed => 1.0,
+            _ => 0.7,
+        };
+
+        button::Style {
+            background: Some(iced::Background::Color(Color {
+                r: palette.primary.r,
+                g: palette.primary.g,
+                b: palette.primary.b,
+                a: bg_alpha,
+            })),
+            text_color: Color::WHITE,
+            border: iced::Border {
+                color: Color::TRANSPARENT,
+                width: 0.0,
+                radius: 64.0.into(),
+            },
+            shadow: iced::Shadow {
+                color: Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.3,
+                },
+                offset: iced::Vector::new(0.0, 4.0),
+                blur_radius: 12.0,
+            },
+            snap: false,
+        }
+    });
+
+    container(play_button)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .into()
+}
+
+/// Loading placeholder with spinner and status text.
+/// Shows a black background with centered spinner.
+pub fn loading_placeholder<'a, Message: 'static>(
+    status: Option<&'a str>,
+    theme: &Theme,
+) -> Element<'a, Message, Theme, Renderer> {
+    let spinner_widget: Element<'a, Message, Theme, Renderer> = spinner(48.0, theme);
+
+    let status_text = status.map(|s| {
+        text(s).size(14).color(Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            a: 0.7,
+        })
+    });
+
+    let mut center_content = column![spinner_widget]
+        .spacing(16)
+        .align_x(iced::Alignment::Center);
+
+    if let Some(status_widget) = status_text {
+        center_content = center_content.push(status_widget);
+    }
+
+    container(center_content)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .into()
+}
+
+/// Error overlay with error message.
+pub fn error_overlay<'a, Message: 'a>(
+    error: &'a str,
+    _theme: &Theme,
+) -> Element<'a, Message, Theme, Renderer> {
+    let error_content = column![
+        text('\u{f071}'.to_string()) // Warning icon
+            .size(48.0)
+            .font(NERD_FONT)
+            .color(Color::from_rgb(1.0, 0.4, 0.4)),
+        text("Error loading video").size(18).color(Color::WHITE),
+        text(error).size(14).color(Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            a: 0.7,
+        }),
+    ]
+    .spacing(12)
+    .align_x(iced::Alignment::Center);
+
+    container(error_content)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .into()
+}

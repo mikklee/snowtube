@@ -1,6 +1,6 @@
 //! Shader-based circular spinner widget
 //!
-//! Uses a WGSL shader to render an animated spinner, avoiding canvas caching issues.
+//! Uses a WGSL shader to render an animated spinner.
 
 use iced::wgpu;
 use iced::widget::shader::{self, Pipeline, Viewport};
@@ -218,7 +218,7 @@ impl SpinnerPipeline {
 }
 
 /// Create a shader spinner element with theme colors
-pub fn shader_spinner<Message: 'static>(
+pub fn spinner<Message: 'static>(
     size: f32,
     theme: &Theme,
 ) -> Element<'static, Message, Theme, Renderer> {

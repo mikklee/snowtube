@@ -2,7 +2,7 @@
 
 use crate::config::AppConfig;
 use crate::theme::AppTheme;
-use std::sync::Arc;
+use iceplayer::{PlayerEvent, VideoPlayerMessage};
 use ytrs_lib::{ChannelInfo, ChannelTab, ChannelVideos, SearchResults};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -56,20 +56,11 @@ pub enum Message {
     TabSelected(TabId),
     // Export search results
     ExportSearchResults,
-    // Video player messages
-    PlayVideo(String), // video_id - play with iced_video_player
-    VideoLoaded(Result<Arc<iced_video_player::Video>, String>), // Video loaded from yt-dlp (Arc for Clone)
-    VideoEnded,
-    TogglePlayPause,
-    ToggleFullscreen,
-    BackFromVideo,
-    VideoError(String),
-    VideoMouseMoved,            // Mouse moved over video - show controls
-    VideoControlsTimeout,       // Timer fired - hide controls if no recent activity
-    SeekVideoPreview(f64),      // Preview seek position while dragging (0.0 to 1.0)
-    SeekVideoRelease,           // Actually seek to the previewed position on release
-    VideoTick,                  // Periodic tick to update progress bar
-    VideoLoadingStatus(String), // Update loading status during video load
-    LaunchInMpv(String),        // Launch video in mpv (video_id)
-    CopyVideoUrl(String),       // Copy video URL to clipboard
+    // Video player messages (new high-level API)
+    PlayVideo(String),               // video_id - initiate playback
+    VideoPlayer(VideoPlayerMessage), // Internal player messages
+    VideoEvent(PlayerEvent),         // High-level events from player
+    BackFromVideo,                   // Navigate back from video view
+    LaunchInMpv(String),             // Launch video in mpv (video_id)
+    CopyVideoUrl(String),            // Copy video URL to clipboard
 }

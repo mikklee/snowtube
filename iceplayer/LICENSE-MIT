@@ -1,3 +1,16 @@
+This project contains code under two licenses:
+
+1. The original iced_video_player code by jazzfool is licensed under MIT (see below).
+2. Modifications and additions for ytrs are licensed under GPL-3.0 (see LICENSE-GPL3).
+
+The combined work is licensed under GPL-3.0.
+
+--------------------------------------------------------------------------------
+
+MIT License
+
+Copyright (c) 2021-2024 jazzfool
+
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
 documentation files (the "Software"), to deal in the

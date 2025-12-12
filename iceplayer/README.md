@@ -1,11 +1,8 @@
-# Iced Video Player Widget
+# iceplayer
 
-Composable component to play videos in any Iced application built on the excellent GStreamer library.
+Video player widget for Iced, forked from [iced_video_player](https://github.com/jazzfool/iced_video_player).
 
-<img src=".media/screenshot.png" width="50%" />
-
-## Notice!
-This is a forked version of iced_vide_player modified to work with with ytrs-client
+Built on the excellent GStreamer library.
 
 ## Overview
 
@@ -28,7 +25,7 @@ See the "minimal" example for a demonstration on how you could implement pausing
 ## Example Usage
 
 ```rust
-use iced_video_player::{Video, VideoPlayer};
+use iceplayer::{Video, VideoPlayer};
 
 fn main() -> iced::Result {
     iced::run("Video Player", (), App::view)
