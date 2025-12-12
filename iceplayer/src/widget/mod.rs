@@ -14,13 +14,13 @@ use crate::video::Video;
 use crate::video_player::VideoPlayer;
 use std::sync::Arc;
 
-use controls::{loading_control_bar, video_control_bar};
+use controls::{fullscreen_control_bar, loading_control_bar, ready_control_bar, video_control_bar};
 use overlay::{
     centered_play_button, error_overlay, loading_overlay, loading_placeholder, seeking_overlay,
     title_overlay,
 };
 
-use iced::widget::{container, mouse_area, stack};
+use iced::widget::{column, container, mouse_area, stack};
 use iced::{Color, Element, Length, Renderer, Subscription, Task, Theme};
 use std::time::{Duration, Instant};
 
@@ -55,6 +55,8 @@ pub struct VideoPlayerState {
     pub title: Option<String>,
     /// Optional thumbnail to show while loading.
     pub thumbnail: Option<iced::widget::image::Handle>,
+    /// Optional pre-set duration (from video info before loading).
+    pub preset_duration: Option<Duration>,
     /// Unique ID for this player instance.
     id: u64,
 }
@@ -80,6 +82,7 @@ impl VideoPlayerState {
             fullscreen: false,
             title: None,
             thumbnail: None,
+            preset_duration: None,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
@@ -93,6 +96,12 @@ impl VideoPlayerState {
     /// Set the thumbnail to show while loading.
     pub fn with_thumbnail(mut self, thumbnail: iced::widget::image::Handle) -> Self {
         self.thumbnail = Some(thumbnail);
+        self
+    }
+
+    /// Set the duration (from video info before loading).
+    pub fn with_duration(mut self, duration: Duration) -> Self {
+        self.preset_duration = Some(duration);
         self
     }
 
@@ -115,10 +124,12 @@ impl VideoPlayerState {
     }
 
     /// Get the duration.
+    /// Returns the video duration if loaded, otherwise the preset duration if set.
     pub fn duration(&self) -> Duration {
         self.video
             .as_ref()
             .map(|v| v.duration())
+            .or(self.preset_duration)
             .unwrap_or(Duration::ZERO)
     }
 }
@@ -343,13 +354,20 @@ fn view_loading<'a, Message: Clone + 'static>(
 ) -> Element<'a, Message, Theme, Renderer> {
     // Standard 16:9 aspect ratio
     const ASPECT_RATIO: f32 = 16.0 / 9.0;
+    const CONTROL_BAR_HEIGHT: f32 = 44.0;
+
+    // Reserve space for controls
+    let video_available_height = available_height - CONTROL_BAR_HEIGHT;
 
     // Calculate dimensions to fit within available space while maintaining 16:9
-    let available_aspect = available_width / available_height;
+    let available_aspect = available_width / video_available_height;
     let (width, height) = if ASPECT_RATIO > available_aspect {
         (available_width, available_width / ASPECT_RATIO)
     } else {
-        (available_height * ASPECT_RATIO, available_height)
+        (
+            video_available_height * ASPECT_RATIO,
+            video_available_height,
+        )
     };
 
     // Use thumbnail as background if available, otherwise use loading placeholder
@@ -380,27 +398,31 @@ fn view_loading<'a, Message: Clone + 'static>(
         layers.push(title_overlay(title));
     }
 
-    // Disabled control bar
-    let on_msg = on_message.clone();
-    layers.push(
-        container(loading_control_bar(
-            on_msg(VideoPlayerMessage::TogglePlayPause),
-            theme,
-        ))
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .align_y(iced::alignment::Vertical::Bottom)
-        .into(),
-    );
-
-    container(stack(layers))
+    let video_frame = container(stack(layers))
         .width(Length::Fixed(width))
         .height(Length::Fixed(height))
         .style(|_| container::Style {
             background: Some(iced::Background::Color(Color::BLACK)),
             ..Default::default()
-        })
-        .into()
+        });
+
+    // Disabled control bar below video
+    let on_msg = on_message.clone();
+    let on_msg2 = on_message.clone();
+    let control_bar = loading_control_bar(
+        state.duration(),
+        on_msg(VideoPlayerMessage::TogglePlayPause),
+        on_msg2(VideoPlayerMessage::ToggleFullscreen),
+        theme,
+    );
+
+    // Stack video and controls vertically
+    column![
+        video_frame,
+        container(control_bar).width(Length::Fixed(width)),
+    ]
+    .spacing(0)
+    .into()
 }
 
 fn view_error<'a, Message: 'a>(
@@ -438,12 +460,19 @@ fn view_ready<'a, Message: Clone + 'static>(
 ) -> Element<'a, Message, Theme, Renderer> {
     // Standard 16:9 aspect ratio
     const ASPECT_RATIO: f32 = 16.0 / 9.0;
+    const CONTROL_BAR_HEIGHT: f32 = 44.0;
 
-    let available_aspect = available_width / available_height;
+    // Reserve space for controls
+    let video_available_height = available_height - CONTROL_BAR_HEIGHT;
+
+    let available_aspect = available_width / video_available_height;
     let (width, height) = if ASPECT_RATIO > available_aspect {
         (available_width, available_width / ASPECT_RATIO)
     } else {
-        (available_height * ASPECT_RATIO, available_height)
+        (
+            video_available_height * ASPECT_RATIO,
+            video_available_height,
+        )
     };
 
     // Background: thumbnail or black
@@ -479,14 +508,31 @@ fn view_ready<'a, Message: Clone + 'static>(
         theme,
     ));
 
-    container(stack(layers))
+    let video_frame = container(stack(layers))
         .width(Length::Fixed(width))
         .height(Length::Fixed(height))
         .style(|_| container::Style {
             background: Some(iced::Background::Color(Color::BLACK)),
             ..Default::default()
-        })
-        .into()
+        });
+
+    // Control bar below video (play enabled, seek disabled)
+    let on_msg = on_message.clone();
+    let on_msg2 = on_message.clone();
+    let control_bar = ready_control_bar(
+        state.duration(),
+        on_msg(VideoPlayerMessage::StartPlayback),
+        on_msg2(VideoPlayerMessage::ToggleFullscreen),
+        theme,
+    );
+
+    // Stack video and controls vertically
+    column![
+        video_frame,
+        container(control_bar).width(Length::Fixed(width)),
+    ]
+    .spacing(0)
+    .into()
 }
 
 fn view_playing<'a, Message: Clone + 'static>(
@@ -498,17 +544,54 @@ fn view_playing<'a, Message: Clone + 'static>(
     theme: &'a Theme,
 ) -> Element<'a, Message, Theme, Renderer> {
     let (video_width, video_height) = video.size();
-
-    // Calculate scaled dimensions to fit within available space
     let video_aspect = video_width as f32 / video_height as f32;
-    let available_aspect = available_width / available_height;
 
-    let (scaled_width, scaled_height) = if state.fullscreen {
-        (available_width, available_height)
-    } else if video_aspect > available_aspect {
+    if state.fullscreen {
+        // Fullscreen mode: video fills screen, controls overlay at bottom
+        view_playing_fullscreen(
+            state,
+            video,
+            on_message,
+            available_width,
+            available_height,
+            theme,
+        )
+    } else {
+        // Windowed mode: video with controls below
+        view_playing_windowed(
+            state,
+            video,
+            on_message,
+            available_width,
+            available_height,
+            video_aspect,
+            theme,
+        )
+    }
+}
+
+fn view_playing_windowed<'a, Message: Clone + 'static>(
+    state: &'a VideoPlayerState,
+    video: &'a Video,
+    on_message: impl Fn(VideoPlayerMessage) -> Message + 'a + Clone,
+    available_width: f32,
+    available_height: f32,
+    video_aspect: f32,
+    theme: &'a Theme,
+) -> Element<'a, Message, Theme, Renderer> {
+    // Reserve space for controls (approximately 44px)
+    const CONTROL_BAR_HEIGHT: f32 = 44.0;
+    let video_available_height = available_height - CONTROL_BAR_HEIGHT;
+
+    // Calculate video dimensions to fit in remaining space
+    let available_aspect = available_width / video_available_height;
+    let (scaled_width, scaled_height) = if video_aspect > available_aspect {
         (available_width, available_width / video_aspect)
     } else {
-        (available_height * video_aspect, available_height)
+        (
+            video_available_height * video_aspect,
+            video_available_height,
+        )
     };
 
     let on_msg = on_message.clone();
@@ -516,6 +599,85 @@ fn view_playing<'a, Message: Clone + 'static>(
     let video_widget: Element<'a, Message, Theme, Renderer> = VideoPlayer::new(video)
         .width(scaled_width)
         .height(scaled_height)
+        .content_fit(iced::ContentFit::Contain)
+        .on_end_of_stream(on_msg(VideoPlayerMessage::VideoEnded))
+        .on_double_click(on_message.clone()(VideoPlayerMessage::ToggleFullscreen))
+        .on_seek_complete(on_msg2(VideoPlayerMessage::SeekComplete))
+        .into();
+
+    // Wrap in mouse area for tracking mouse movement
+    let on_msg = on_message.clone();
+    let video_with_mouse =
+        mouse_area(video_widget).on_move(move |_| on_msg(VideoPlayerMessage::MouseMoved));
+
+    // Video layers (for overlays like title, play button, seeking)
+    let mut video_layers: Vec<Element<'a, Message, Theme, Renderer>> =
+        vec![video_with_mouse.into()];
+
+    // Title overlay (only show when controls visible)
+    if state.controls_visible {
+        if let Some(ref title) = state.title {
+            video_layers.push(title_overlay(title));
+        }
+    }
+
+    // If video hasn't started, show centered play button
+    if !state.started {
+        let on_msg = on_message.clone();
+        video_layers.push(centered_play_button(
+            on_msg(VideoPlayerMessage::StartPlayback),
+            theme,
+        ));
+    }
+
+    // Seeking overlay
+    if state.seeking {
+        video_layers.push(seeking_overlay(theme));
+    }
+
+    let video_stack = stack(video_layers)
+        .width(Length::Fixed(scaled_width))
+        .height(Length::Fixed(scaled_height));
+
+    // Control bar below video
+    let on_msg1 = on_message.clone();
+    let on_msg2 = on_message.clone();
+    let on_msg3 = on_message.clone();
+    let on_msg4 = on_message.clone();
+    let control_bar = video_control_bar(
+        state.is_paused(),
+        state.position(),
+        state.duration(),
+        state.seek_preview,
+        on_msg1(VideoPlayerMessage::TogglePlayPause),
+        move |pos| on_msg2(VideoPlayerMessage::SeekPreview(pos)),
+        on_msg3(VideoPlayerMessage::SeekRelease),
+        on_msg4(VideoPlayerMessage::ToggleFullscreen),
+        theme,
+    );
+
+    // Stack video and controls vertically
+    column![
+        video_stack,
+        container(control_bar).width(Length::Fixed(scaled_width)),
+    ]
+    .spacing(0)
+    .into()
+}
+
+fn view_playing_fullscreen<'a, Message: Clone + 'static>(
+    state: &'a VideoPlayerState,
+    video: &'a Video,
+    on_message: impl Fn(VideoPlayerMessage) -> Message + 'a + Clone,
+    available_width: f32,
+    available_height: f32,
+    theme: &'a Theme,
+) -> Element<'a, Message, Theme, Renderer> {
+    let on_msg = on_message.clone();
+    let on_msg2 = on_message.clone();
+    let video_widget: Element<'a, Message, Theme, Renderer> = VideoPlayer::new(video)
+        .width(available_width)
+        .height(available_height)
         .content_fit(iced::ContentFit::Contain)
         .on_end_of_stream(on_msg(VideoPlayerMessage::VideoEnded))
         .on_double_click(on_message.clone()(VideoPlayerMessage::ToggleFullscreen))
@@ -544,12 +706,13 @@ fn view_playing<'a, Message: Clone + 'static>(
             theme,
         ));
     } else if state.controls_visible {
-        // Control bar
+        // Fullscreen control bar at bottom
         let on_msg1 = on_message.clone();
         let on_msg2 = on_message.clone();
         let on_msg3 = on_message.clone();
+        let on_msg4 = on_message.clone();
         layers.push(
-            container(video_control_bar(
+            container(fullscreen_control_bar(
                 state.is_paused(),
                 state.position(),
                 state.duration(),
@@ -557,6 +720,7 @@ fn view_playing<'a, Message: Clone + 'static>(
                 on_msg1(VideoPlayerMessage::TogglePlayPause),
                 move |pos| on_msg2(VideoPlayerMessage::SeekPreview(pos)),
                 on_msg3(VideoPlayerMessage::SeekRelease),
+                on_msg4(VideoPlayerMessage::ToggleFullscreen),
                 theme,
             ))
             .width(Length::Fill)
@@ -572,8 +736,8 @@ fn view_playing<'a, Message: Clone + 'static>(
     }
 
     stack(layers)
-        .width(Length::Fixed(scaled_width))
-        .height(Length::Fixed(scaled_height))
+        .width(Length::Fixed(available_width))
+        .height(Length::Fixed(available_height))
         .into()
 }
 

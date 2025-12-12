@@ -2,7 +2,30 @@
 
 use crate::error::{Error, Result};
 use lingua::{Language, LanguageDetectorBuilder};
+use std::time::Duration;
 use whatlang::{Lang, detect};
+
+/// Parse a duration string like "10:30" or "1:23:45" to Duration.
+/// Returns None if parsing fails.
+pub fn parse_duration_string(s: &str) -> Option<Duration> {
+    let parts: Vec<&str> = s.split(':').collect();
+    match parts.len() {
+        2 => {
+            // MM:SS
+            let minutes: u64 = parts[0].parse().ok()?;
+            let seconds: u64 = parts[1].parse().ok()?;
+            Some(Duration::from_secs(minutes * 60 + seconds))
+        }
+        3 => {
+            // HH:MM:SS
+            let hours: u64 = parts[0].parse().ok()?;
+            let minutes: u64 = parts[1].parse().ok()?;
+            let seconds: u64 = parts[2].parse().ok()?;
+            Some(Duration::from_secs(hours * 3600 + minutes * 60 + seconds))
+        }
+        _ => None,
+    }
+}
 
 /// Get the high-resolution thumbnail URL for a video.
 /// Returns the maxresdefault (1280x720) thumbnail URL.

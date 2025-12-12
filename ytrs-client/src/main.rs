@@ -1294,17 +1294,15 @@ impl App {
                 }
             }
             Message::PlayVideo(video_id) => {
-                // Find the video title from search results, channel results, or subscription videos
-                let title = self
+                // Find the video info from search results, channel results, or subscription videos
+                let video_info = self
                     .search_results
                     .iter()
                     .find(|r| r.video_id.as_ref() == Some(&video_id))
-                    .map(|r| r.title.clone())
                     .or_else(|| {
                         self.channel_results
                             .iter()
                             .find(|r| r.video_id.as_ref() == Some(&video_id))
-                            .map(|r| r.title.clone())
                     })
                     .or_else(|| {
                         // Search in subscription videos
@@ -1312,8 +1310,12 @@ impl App {
                             .values()
                             .flatten()
                             .find(|r| r.video_id.as_ref() == Some(&video_id))
-                            .map(|r| r.title.clone())
                     });
+
+                let title = video_info.map(|r| r.title.clone());
+                let duration = video_info
+                    .and_then(|r| r.duration.as_ref())
+                    .and_then(|d| ytrs_lib::parse_duration_string(d));
 
                 self.playing_video_id = Some(video_id.clone());
                 self.previous_view = self.current_view;
@@ -1324,6 +1326,9 @@ impl App {
                 let mut state = VideoPlayerState::new(source.clone());
                 if let Some(t) = title {
                     state = state.with_title(t);
+                }
+                if let Some(d) = duration {
+                    state = state.with_duration(d);
                 }
                 // Don't set thumbnail here - wait for high-res version
                 self.video_player = Some(state);

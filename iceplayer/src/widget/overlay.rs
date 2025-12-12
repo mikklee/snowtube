@@ -131,18 +131,23 @@ pub fn centered_play_button<'a, Message: Clone + 'a>(
 ) -> Element<'a, Message, Theme, Renderer> {
     let palette = theme.palette();
 
+    // Button size (diameter of the circle)
+    const BUTTON_SIZE: f32 = 80.0;
+
     let play_icon = text('\u{f04b}'.to_string())
-        .size(48.0)
+        .size(32.0)
         .font(NERD_FONT)
         .color(Color::WHITE);
 
     let play_button = button(
         container(play_icon)
-            .padding(Padding::new(24.0))
-            .center_x(Length::Shrink)
-            .center_y(Length::Shrink),
+            .width(Length::Fixed(BUTTON_SIZE))
+            .height(Length::Fixed(BUTTON_SIZE))
+            .center_x(Length::Fixed(BUTTON_SIZE))
+            .center_y(Length::Fixed(BUTTON_SIZE)),
     )
     .on_press(on_play)
+    .padding(0)
     .style(move |_theme, status| {
         use iced::widget::button;
 
@@ -163,7 +168,7 @@ pub fn centered_play_button<'a, Message: Clone + 'a>(
             border: iced::Border {
                 color: Color::TRANSPARENT,
                 width: 0.0,
-                radius: 64.0.into(),
+                radius: (BUTTON_SIZE / 2.0).into(),
             },
             shadow: iced::Shadow {
                 color: Color {
