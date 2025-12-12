@@ -309,7 +309,7 @@ pub fn subscription(state: &VideoPlayerState) -> Subscription<VideoPlayerMessage
     // Position update subscription
     if state.video.is_some() && !state.is_paused() {
         subscriptions
-            .push(iced::time::every(Duration::from_millis(250)).map(|_| VideoPlayerMessage::Tick));
+            .push(iced::time::every(Duration::from_millis(6)).map(|_| VideoPlayerMessage::Tick));
     }
 
     Subscription::batch(subscriptions)
