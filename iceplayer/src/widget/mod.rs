@@ -125,6 +125,8 @@ pub enum VideoPlayerMessage {
     SeekPreview(f64),
     /// Release slider to perform seek.
     SeekRelease,
+    /// Seek operation completed.
+    SeekComplete,
     /// Mouse moved over video.
     MouseMoved,
     /// Controls timeout - hide controls.
@@ -227,12 +229,17 @@ pub fn update(
                     // Perform the seek
                     if let Err(e) = video.seek(target, false) {
                         tracing::error!("Seek failed: {}", e);
+                        state.seeking = false;
                     }
-                    // Resume playback after seek
+                    // Resume playback after seek (SeekDone will clear seeking state)
                     video.set_paused(false);
-                    state.seeking = false;
                 }
             }
+            (None, Task::none())
+        }
+        VideoPlayerMessage::SeekComplete => {
+            state.seeking = false;
+            state.seek_target = None;
             (None, Task::none())
         }
         VideoPlayerMessage::MouseMoved => {
@@ -418,12 +425,14 @@ fn view_playing<'a, Message: Clone + 'static>(
     };
 
     let on_msg = on_message.clone();
+    let on_msg2 = on_message.clone();
     let video_widget: Element<'a, Message, Theme, Renderer> = VideoPlayer::new(video)
         .width(scaled_width)
         .height(scaled_height)
         .content_fit(iced::ContentFit::Contain)
         .on_end_of_stream(on_msg(VideoPlayerMessage::VideoEnded))
         .on_double_click(on_message.clone()(VideoPlayerMessage::ToggleFullscreen))
+        .on_seek_complete(on_msg2(VideoPlayerMessage::SeekComplete))
         .into();
 
     // Wrap in mouse area for tracking mouse movement

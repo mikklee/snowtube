@@ -34,6 +34,7 @@ where
     on_error: Option<ErrorCallback<'a, Message>>,
     on_double_click: Option<Message>,
     on_single_click: Option<Message>,
+    on_seek_complete: Option<Message>,
     _phantom: PhantomData<(Theme, Renderer)>,
 }
 
@@ -54,6 +55,7 @@ where
             on_error: None,
             on_double_click: None,
             on_single_click: None,
+            on_seek_complete: None,
             _phantom: Default::default(),
         }
     }
@@ -132,6 +134,14 @@ where
     pub fn on_single_click(self, on_single_click: Message) -> Self {
         VideoPlayer {
             on_single_click: Some(on_single_click),
+            ..self
+        }
+    }
+
+    /// Message to send when a seek operation completes.
+    pub fn on_seek_complete(self, on_seek_complete: Message) -> Self {
+        VideoPlayer {
+            on_seek_complete: Some(on_seek_complete),
             ..self
         }
     }
@@ -306,10 +316,11 @@ where
                 }
                 let mut eos_pause = false;
 
-                while let Some(msg) = inner
-                    .bus
-                    .pop_filtered(&[gst::MessageType::Error, gst::MessageType::Eos])
-                {
+                while let Some(msg) = inner.bus.pop_filtered(&[
+                    gst::MessageType::Error,
+                    gst::MessageType::Eos,
+                    gst::MessageType::AsyncDone,
+                ]) {
                     match msg.view() {
                         gst::MessageView::Error(err) => {
                             error!("bus returned an error: {err}");
@@ -327,6 +338,11 @@ where
                                 restart_stream = true;
                             } else {
                                 eos_pause = true;
+                            }
+                        }
+                        gst::MessageView::AsyncDone(_) => {
+                            if let Some(on_seek_complete) = self.on_seek_complete.clone() {
+                                shell.publish(on_seek_complete);
                             }
                         }
                         _ => {}
