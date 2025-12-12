@@ -856,8 +856,8 @@ impl Video {
     /// `0.0` = 0% volume, `1.0` = 100% volume.
     ///
     /// This uses a linear scale, for example `0.5` is perceived as half as loud.
-    pub fn set_volume(&mut self, volume: f64) {
-        self.get_mut().source.set_property("volume", volume);
+    pub fn set_volume(&self, volume: f64) {
+        self.write().source.set_property("volume", volume);
         self.set_muted(self.muted()); // for some reason gstreamer unmutes when changing volume?
     }
 
@@ -867,8 +867,8 @@ impl Video {
     }
 
     /// Set if the audio is muted or not, without changing the volume.
-    pub fn set_muted(&mut self, muted: bool) {
-        self.get_mut().source.set_property("mute", muted);
+    pub fn set_muted(&self, muted: bool) {
+        self.write().source.set_property("mute", muted);
     }
 
     /// Get if the audio is muted or not.
@@ -887,13 +887,13 @@ impl Video {
     }
 
     /// Set if the media will loop or not.
-    pub fn set_looping(&mut self, looping: bool) {
-        self.get_mut().looping = looping;
+    pub fn set_looping(&self, looping: bool) {
+        self.write().looping = looping;
     }
 
     /// Set if the media is paused or not.
-    pub fn set_paused(&mut self, paused: bool) {
-        self.get_mut().set_paused(paused)
+    pub fn set_paused(&self, paused: bool) {
+        self.write().set_paused(paused)
     }
 
     /// Get if the media is paused or not.
@@ -904,14 +904,14 @@ impl Video {
     /// Jumps to a specific position in the media.
     /// Passing `true` to the `accurate` parameter will result in more accurate seeking,
     /// however, it is also slower. For most seeks (e.g., scrubbing) this is not needed.
-    pub fn seek(&mut self, position: impl Into<Position>, accurate: bool) -> Result<(), Error> {
-        self.get_mut().seek(position, accurate)
+    pub fn seek(&self, position: impl Into<Position>, accurate: bool) -> Result<(), Error> {
+        self.write().seek(position, accurate)
     }
 
     /// Set the playback speed of the media.
     /// The default speed is `1.0`.
-    pub fn set_speed(&mut self, speed: f64) -> Result<(), Error> {
-        self.get_mut().set_speed(speed)
+    pub fn set_speed(&self, speed: f64) -> Result<(), Error> {
+        self.write().set_speed(speed)
     }
 
     /// Get the current playback speed.

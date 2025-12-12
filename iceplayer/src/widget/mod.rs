@@ -12,6 +12,7 @@ use crate::loader::{LoadProgress, load_video};
 use crate::source::VideoSource;
 use crate::video::Video;
 use crate::video_player::VideoPlayer;
+use std::sync::Arc;
 
 use controls::{loading_control_bar, video_control_bar};
 use overlay::{
@@ -28,7 +29,7 @@ pub struct VideoPlayerState {
     /// The video source being played.
     pub source: VideoSource,
     /// The loaded video, if any.
-    pub video: Option<Video>,
+    pub video: Option<Arc<Video>>,
     /// Whether the video is currently loading.
     pub loading: bool,
     /// Current loading status message.
@@ -160,23 +161,11 @@ pub fn update(
             LoadProgress::Done(video) => {
                 state.loading = false;
                 state.loading_status = None;
-                // Unwrap the Arc - we're the only owner at this point
-                match std::sync::Arc::try_unwrap(video) {
-                    Ok(mut v) => {
-                        // Start paused - user must click play button
-                        v.set_paused(true);
-                        state.video = Some(v);
-                        let duration = state.duration();
-                        (Some(PlayerEvent::Ready { duration }), Task::none())
-                    }
-                    Err(_) => {
-                        state.error = Some("Failed to unwrap video Arc".to_string());
-                        (
-                            Some(PlayerEvent::Error("Failed to unwrap video Arc".to_string())),
-                            Task::none(),
-                        )
-                    }
-                }
+                // Start paused - user must click play button
+                video.set_paused(true);
+                state.video = Some(video);
+                let duration = state.duration();
+                (Some(PlayerEvent::Ready { duration }), Task::none())
             }
             LoadProgress::Error(error) => {
                 state.loading = false;
@@ -186,7 +175,7 @@ pub fn update(
             }
         },
         VideoPlayerMessage::TogglePlayPause => {
-            if let Some(ref mut video) = state.video {
+            if let Some(ref video) = state.video {
                 let new_paused = !video.paused();
                 video.set_paused(new_paused);
                 (
@@ -200,7 +189,7 @@ pub fn update(
             }
         }
         VideoPlayerMessage::StartPlayback => {
-            if let Some(ref mut video) = state.video {
+            if let Some(ref video) = state.video {
                 state.started = true;
                 video.set_paused(false);
                 (
@@ -214,14 +203,14 @@ pub fn update(
         VideoPlayerMessage::SeekPreview(position) => {
             state.seek_preview = Some(position);
             // Pause while seeking for smoother experience
-            if let Some(ref mut video) = state.video {
+            if let Some(ref video) = state.video {
                 video.set_paused(true);
             }
             (None, Task::none())
         }
         VideoPlayerMessage::SeekRelease => {
             if let Some(preview) = state.seek_preview.take() {
-                if let Some(ref mut video) = state.video {
+                if let Some(ref video) = state.video {
                     let duration = video.duration();
                     let target = Duration::from_secs_f64(duration.as_secs_f64() * preview);
                     state.seeking = true;
@@ -231,7 +220,7 @@ pub fn update(
                         tracing::error!("Seek failed: {}", e);
                         state.seeking = false;
                     }
-                    // Resume playback after seek (SeekDone will clear seeking state)
+                    // Resume playback after seek (SeekComplete will clear seeking state)
                     video.set_paused(false);
                 }
             }
