@@ -88,21 +88,29 @@ pub async fn load_circular_thumb(
     // Resize to square
     let img = img.resize_exact(size, size, image::imageops::FilterType::Lanczos3);
 
-    // Create circular mask
+    // Create circular mask with anti-aliasing
     let mut output = ImageBuffer::new(size, size);
     let center = size as f32 / 2.0;
     let radius = center;
 
     for (x, y, pixel) in output.enumerate_pixels_mut() {
-        let dx = x as f32 - center;
-        let dy = y as f32 - center;
+        let dx = x as f32 - center + 0.5;
+        let dy = y as f32 - center + 0.5;
         let distance = (dx * dx + dy * dy).sqrt();
 
-        if distance <= radius {
-            let img_pixel = img.get_pixel(x, y);
-            *pixel = Rgba([img_pixel[0], img_pixel[1], img_pixel[2], img_pixel[3]]);
+        let img_pixel = img.get_pixel(x, y);
+
+        if distance > radius + 0.5 {
+            // Fully outside - transparent
+            *pixel = Rgba([0, 0, 0, 0]);
+        } else if distance > radius - 0.5 {
+            // Edge pixel - anti-alias by blending alpha
+            let alpha = ((radius + 0.5 - distance) * 255.0).clamp(0.0, 255.0) as u8;
+            let blended_alpha = ((img_pixel[3] as u16 * alpha as u16) / 255) as u8;
+            *pixel = Rgba([img_pixel[0], img_pixel[1], img_pixel[2], blended_alpha]);
         } else {
-            *pixel = Rgba([0, 0, 0, 0]); // Transparent
+            // Fully inside - keep original
+            *pixel = Rgba([img_pixel[0], img_pixel[1], img_pixel[2], img_pixel[3]]);
         }
     }
 

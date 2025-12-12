@@ -485,15 +485,19 @@ impl App {
                             Task::none()
                         };
 
-                        // Load channel avatar
-                        let avatar_task = if let Some(thumb) = channel.thumbnails.first() {
+                        // Load channel avatar (circular) if not already cached
+                        let avatar_task = if self.subscription_thumbs.contains_key(&channel.id) {
+                            Task::none()
+                        } else if let Some(thumb) = channel.thumbnails.first() {
                             let url = thumb.url.clone();
                             let id = channel.id.clone();
                             Task::perform(
                                 async move {
-                                    helpers::load_thumb(&url).await.map_err(|e| e.to_string())
+                                    helpers::load_circular_thumb(&url, 80)
+                                        .await
+                                        .map_err(|e| e.to_string())
                                 },
-                                move |r| Message::ThumbLoaded(id.clone(), r),
+                                move |r| Message::SubscriptionChannelThumbLoaded(id.clone(), r),
                             )
                         } else {
                             Task::none()

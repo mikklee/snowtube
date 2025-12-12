@@ -43,7 +43,7 @@ pub fn view(
         content = content.push(banner_image);
 
         // Back button, avatar, and channel info on same row
-        let avatar: Element<Message> = if let Some(h) = app.thumbs.get(&channel.id) {
+        let avatar: Element<Message> = if let Some(h) = app.subscription_thumbs.get(&channel.id) {
             Image::new(h.clone()).width(80).height(80).into()
         } else {
             container(iced::widget::space()).width(80).height(80).into()
