@@ -13,11 +13,15 @@ use std::{marker::PhantomData, sync::atomic::Ordering};
 
 type ErrorCallback<'a, Message> = Box<dyn Fn(&glib::Error) -> Message + 'a>;
 
-/// State for tracking double-clicks
+/// State for tracking clicks
 #[derive(Debug, Clone, Default)]
 pub struct State {
     last_click: Option<Instant>,
+    pending_single_click: Option<Instant>,
 }
+
+/// Double-click detection window in milliseconds
+const DOUBLE_CLICK_MS: u64 = 300;
 
 /// Video player widget which displays the current frame of a [`Video`](crate::Video).
 pub struct VideoPlayer<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer>
@@ -281,24 +285,33 @@ where
             {
                 let now = Instant::now();
 
-                // Check for double-click (within 400ms)
+                // Check for double-click (within detection window)
                 let is_double_click = state
                     .last_click
-                    .map(|last| now.duration_since(last) < Duration::from_millis(400))
+                    .map(|last| now.duration_since(last) < Duration::from_millis(DOUBLE_CLICK_MS))
                     .unwrap_or(false);
 
                 if is_double_click {
-                    // Double-click detected
+                    // Double-click detected - cancel pending single-click
+                    state.pending_single_click = None;
+                    state.last_click = None;
                     if let Some(on_double_click) = self.on_double_click.clone() {
                         shell.publish(on_double_click);
                     }
-                    state.last_click = None; // Reset to avoid triple-click being detected as double
                 } else {
-                    // Single click - store time for potential double-click
+                    // Store click time - single-click will fire after delay if no double-click
                     state.last_click = Some(now);
-                    if let Some(on_single_click) = self.on_single_click.clone() {
-                        shell.publish(on_single_click);
-                    }
+                    state.pending_single_click = Some(now);
+                }
+            }
+        }
+
+        // Check if pending single-click should fire (delay passed without double-click)
+        if let Some(click_time) = state.pending_single_click {
+            if click_time.elapsed() >= Duration::from_millis(DOUBLE_CLICK_MS) {
+                state.pending_single_click = None;
+                if let Some(on_single_click) = self.on_single_click.clone() {
+                    shell.publish(on_single_click);
                 }
             }
         }

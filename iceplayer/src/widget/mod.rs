@@ -407,12 +407,10 @@ fn view_loading<'a, Message: Clone + 'static>(
         });
 
     // Disabled control bar below video
-    let on_msg = on_message.clone();
-    let on_msg2 = on_message.clone();
     let control_bar = loading_control_bar(
         state.duration(),
-        on_msg(VideoPlayerMessage::TogglePlayPause),
-        on_msg2(VideoPlayerMessage::ToggleFullscreen),
+        on_message.clone()(VideoPlayerMessage::TogglePlayPause),
+        on_message.clone()(VideoPlayerMessage::ToggleFullscreen),
         theme,
     );
 
@@ -502,9 +500,8 @@ fn view_ready<'a, Message: Clone + 'static>(
     }
 
     // Centered play button
-    let on_msg = on_message.clone();
     layers.push(centered_play_button(
-        on_msg(VideoPlayerMessage::StartPlayback),
+        on_message.clone()(VideoPlayerMessage::StartPlayback),
         theme,
     ));
 
@@ -517,12 +514,10 @@ fn view_ready<'a, Message: Clone + 'static>(
         });
 
     // Control bar below video (play enabled, seek disabled)
-    let on_msg = on_message.clone();
-    let on_msg2 = on_message.clone();
     let control_bar = ready_control_bar(
         state.duration(),
-        on_msg(VideoPlayerMessage::StartPlayback),
-        on_msg2(VideoPlayerMessage::ToggleFullscreen),
+        on_message.clone()(VideoPlayerMessage::StartPlayback),
+        on_message(VideoPlayerMessage::ToggleFullscreen),
         theme,
     );
 
@@ -594,21 +589,20 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
         )
     };
 
-    let on_msg = on_message.clone();
-    let on_msg2 = on_message.clone();
     let video_widget: Element<'a, Message, Theme, Renderer> = VideoPlayer::new(video)
         .width(scaled_width)
         .height(scaled_height)
         .content_fit(iced::ContentFit::Contain)
-        .on_end_of_stream(on_msg(VideoPlayerMessage::VideoEnded))
+        .on_end_of_stream(on_message.clone()(VideoPlayerMessage::VideoEnded))
+        .on_single_click(on_message.clone()(VideoPlayerMessage::TogglePlayPause))
         .on_double_click(on_message.clone()(VideoPlayerMessage::ToggleFullscreen))
-        .on_seek_complete(on_msg2(VideoPlayerMessage::SeekComplete))
+        .on_seek_complete(on_message.clone()(VideoPlayerMessage::SeekComplete))
         .into();
 
     // Wrap in mouse area for tracking mouse movement
-    let on_msg = on_message.clone();
+    let on_mouse_move = on_message.clone();
     let video_with_mouse =
-        mouse_area(video_widget).on_move(move |_| on_msg(VideoPlayerMessage::MouseMoved));
+        mouse_area(video_widget).on_move(move |_| on_mouse_move(VideoPlayerMessage::MouseMoved));
 
     // Video layers (for overlays like title, play button, seeking)
     let mut video_layers: Vec<Element<'a, Message, Theme, Renderer>> =
@@ -623,9 +617,8 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
 
     // If video hasn't started, show centered play button
     if !state.started {
-        let on_msg = on_message.clone();
         video_layers.push(centered_play_button(
-            on_msg(VideoPlayerMessage::StartPlayback),
+            on_message.clone()(VideoPlayerMessage::StartPlayback),
             theme,
         ));
     }
@@ -640,19 +633,16 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
         .height(Length::Fixed(scaled_height));
 
     // Control bar below video
-    let on_msg1 = on_message.clone();
-    let on_msg2 = on_message.clone();
-    let on_msg3 = on_message.clone();
-    let on_msg4 = on_message.clone();
+    let on_seek_preview = on_message.clone();
     let control_bar = video_control_bar(
         state.is_paused(),
         state.position(),
         state.duration(),
         state.seek_preview,
-        on_msg1(VideoPlayerMessage::TogglePlayPause),
-        move |pos| on_msg2(VideoPlayerMessage::SeekPreview(pos)),
-        on_msg3(VideoPlayerMessage::SeekRelease),
-        on_msg4(VideoPlayerMessage::ToggleFullscreen),
+        on_message.clone()(VideoPlayerMessage::TogglePlayPause),
+        move |pos| on_seek_preview(VideoPlayerMessage::SeekPreview(pos)),
+        on_message.clone()(VideoPlayerMessage::SeekRelease),
+        on_message(VideoPlayerMessage::ToggleFullscreen),
         theme,
     );
 
@@ -673,21 +663,20 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
     available_height: f32,
     theme: &'a Theme,
 ) -> Element<'a, Message, Theme, Renderer> {
-    let on_msg = on_message.clone();
-    let on_msg2 = on_message.clone();
     let video_widget: Element<'a, Message, Theme, Renderer> = VideoPlayer::new(video)
         .width(available_width)
         .height(available_height)
         .content_fit(iced::ContentFit::Contain)
-        .on_end_of_stream(on_msg(VideoPlayerMessage::VideoEnded))
+        .on_end_of_stream(on_message.clone()(VideoPlayerMessage::VideoEnded))
+        .on_single_click(on_message.clone()(VideoPlayerMessage::TogglePlayPause))
         .on_double_click(on_message.clone()(VideoPlayerMessage::ToggleFullscreen))
-        .on_seek_complete(on_msg2(VideoPlayerMessage::SeekComplete))
+        .on_seek_complete(on_message.clone()(VideoPlayerMessage::SeekComplete))
         .into();
 
     // Wrap in mouse area for tracking mouse movement
-    let on_msg = on_message.clone();
+    let on_mouse_move = on_message.clone();
     let video_with_mouse =
-        mouse_area(video_widget).on_move(move |_| on_msg(VideoPlayerMessage::MouseMoved));
+        mouse_area(video_widget).on_move(move |_| on_mouse_move(VideoPlayerMessage::MouseMoved));
 
     let mut layers: Vec<Element<'a, Message, Theme, Renderer>> = vec![video_with_mouse.into()];
 
@@ -700,27 +689,23 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
 
     // If video hasn't started, show centered play button
     if !state.started {
-        let on_msg = on_message.clone();
         layers.push(centered_play_button(
-            on_msg(VideoPlayerMessage::StartPlayback),
+            on_message.clone()(VideoPlayerMessage::StartPlayback),
             theme,
         ));
     } else if state.controls_visible {
         // Fullscreen control bar at bottom
-        let on_msg1 = on_message.clone();
-        let on_msg2 = on_message.clone();
-        let on_msg3 = on_message.clone();
-        let on_msg4 = on_message.clone();
+        let on_seek_preview = on_message.clone();
         layers.push(
             container(fullscreen_control_bar(
                 state.is_paused(),
                 state.position(),
                 state.duration(),
                 state.seek_preview,
-                on_msg1(VideoPlayerMessage::TogglePlayPause),
-                move |pos| on_msg2(VideoPlayerMessage::SeekPreview(pos)),
-                on_msg3(VideoPlayerMessage::SeekRelease),
-                on_msg4(VideoPlayerMessage::ToggleFullscreen),
+                on_message.clone()(VideoPlayerMessage::TogglePlayPause),
+                move |pos| on_seek_preview(VideoPlayerMessage::SeekPreview(pos)),
+                on_message.clone()(VideoPlayerMessage::SeekRelease),
+                on_message.clone()(VideoPlayerMessage::ToggleFullscreen),
                 theme,
             ))
             .width(Length::Fill)
