@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use controls::{loading_control_bar, video_control_bar};
 use overlay::{
-    centered_play_button, error_overlay, loading_placeholder, seeking_overlay, title_overlay,
+    centered_play_button, error_overlay, loading_overlay, loading_placeholder, seeking_overlay,
+    title_overlay,
 };
 
 use iced::widget::{container, mouse_area, stack};
@@ -52,6 +53,8 @@ pub struct VideoPlayerState {
     pub fullscreen: bool,
     /// Optional title to display.
     pub title: Option<String>,
+    /// Optional thumbnail to show while loading.
+    pub thumbnail: Option<iced::widget::image::Handle>,
     /// Unique ID for this player instance.
     id: u64,
 }
@@ -65,8 +68,8 @@ impl VideoPlayerState {
         Self {
             source,
             video: None,
-            loading: true,
-            loading_status: Some("Initializing...".to_string()),
+            loading: false,
+            loading_status: None,
             error: None,
             started: false,
             seeking: false,
@@ -76,6 +79,7 @@ impl VideoPlayerState {
             last_mouse_move: None,
             fullscreen: false,
             title: None,
+            thumbnail: None,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
@@ -83,6 +87,12 @@ impl VideoPlayerState {
     /// Set the title to display.
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
+        self
+    }
+
+    /// Set the thumbnail to show while loading.
+    pub fn with_thumbnail(mut self, thumbnail: iced::widget::image::Handle) -> Self {
+        self.thumbnail = Some(thumbnail);
         self
     }
 
@@ -161,8 +171,9 @@ pub fn update(
             LoadProgress::Done(video) => {
                 state.loading = false;
                 state.loading_status = None;
-                // Start paused - user must click play button
-                video.set_paused(true);
+                // Auto-start playback since user already clicked play
+                state.started = true;
+                video.set_paused(false);
                 state.video = Some(video);
                 let duration = state.duration();
                 (Some(PlayerEvent::Ready { duration }), Task::none())
@@ -190,13 +201,21 @@ pub fn update(
         }
         VideoPlayerMessage::StartPlayback => {
             if let Some(ref video) = state.video {
+                // Video already loaded, just start playing
                 state.started = true;
                 video.set_paused(false);
                 (
                     Some(PlayerEvent::PlayStateChanged { playing: true }),
                     Task::none(),
                 )
+            } else if !state.loading {
+                // No video yet, start loading
+                state.loading = true;
+                state.loading_status = Some("Initializing...".to_string());
+                let load_task = start_loading(state.source.clone());
+                (None, load_task)
             } else {
+                // Already loading, do nothing
                 (None, Task::none())
             }
         }
@@ -293,10 +312,7 @@ pub fn view<'a, Message: Clone + 'static>(
     available_height: f32,
     theme: &'a Theme,
 ) -> Element<'a, Message, Theme, Renderer> {
-    if state.loading {
-        // Loading state
-        view_loading(state, on_message, available_width, available_height, theme)
-    } else if let Some(ref error) = state.error {
+    if let Some(ref error) = state.error {
         // Error state
         view_error(error, available_width, available_height, theme)
     } else if let Some(ref video) = state.video {
@@ -309,9 +325,12 @@ pub fn view<'a, Message: Clone + 'static>(
             available_height,
             theme,
         )
+    } else if state.loading {
+        // Loading state
+        view_loading(state, on_message, available_width, available_height, theme)
     } else {
-        // Should not happen, but show error
-        view_error("No video loaded", available_width, available_height, theme)
+        // Ready to play state - show thumbnail with play button
+        view_ready(state, on_message, available_width, available_height, theme)
     }
 }
 
@@ -333,9 +352,28 @@ fn view_loading<'a, Message: Clone + 'static>(
         (available_height * ASPECT_RATIO, available_height)
     };
 
-    let loading_content = loading_placeholder(state.loading_status.as_deref(), theme);
+    // Use thumbnail as background if available, otherwise use loading placeholder
+    let background: Element<'a, Message, Theme, Renderer> =
+        if let Some(ref thumbnail) = state.thumbnail {
+            container(
+                iced::widget::image(thumbnail.clone())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .content_fit(iced::ContentFit::Cover),
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        } else {
+            loading_placeholder(state.loading_status.as_deref(), theme)
+        };
 
-    let mut layers: Vec<Element<'a, Message, Theme, Renderer>> = vec![loading_content];
+    let mut layers: Vec<Element<'a, Message, Theme, Renderer>> = vec![background];
+
+    // Loading spinner and status overlay (on top of thumbnail)
+    if state.thumbnail.is_some() {
+        layers.push(loading_overlay(state.loading_status.as_deref(), theme));
+    }
 
     // Title overlay
     if let Some(ref title) = state.title {
@@ -382,6 +420,66 @@ fn view_error<'a, Message: 'a>(
     };
 
     container(error_overlay(error, theme))
+        .width(Length::Fixed(width))
+        .height(Length::Fixed(height))
+        .style(|_| container::Style {
+            background: Some(iced::Background::Color(Color::BLACK)),
+            ..Default::default()
+        })
+        .into()
+}
+
+fn view_ready<'a, Message: Clone + 'static>(
+    state: &'a VideoPlayerState,
+    on_message: impl Fn(VideoPlayerMessage) -> Message + 'a + Clone,
+    available_width: f32,
+    available_height: f32,
+    theme: &'a Theme,
+) -> Element<'a, Message, Theme, Renderer> {
+    // Standard 16:9 aspect ratio
+    const ASPECT_RATIO: f32 = 16.0 / 9.0;
+
+    let available_aspect = available_width / available_height;
+    let (width, height) = if ASPECT_RATIO > available_aspect {
+        (available_width, available_width / ASPECT_RATIO)
+    } else {
+        (available_height * ASPECT_RATIO, available_height)
+    };
+
+    // Background: thumbnail or black
+    let background: Element<'a, Message, Theme, Renderer> =
+        if let Some(ref thumbnail) = state.thumbnail {
+            container(
+                iced::widget::image(thumbnail.clone())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .content_fit(iced::ContentFit::Cover),
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        } else {
+            container(iced::widget::Space::new())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        };
+
+    let mut layers: Vec<Element<'a, Message, Theme, Renderer>> = vec![background];
+
+    // Title overlay
+    if let Some(ref title) = state.title {
+        layers.push(title_overlay(title));
+    }
+
+    // Centered play button
+    let on_msg = on_message.clone();
+    layers.push(centered_play_button(
+        on_msg(VideoPlayerMessage::StartPlayback),
+        theme,
+    ));
+
+    container(stack(layers))
         .width(Length::Fixed(width))
         .height(Length::Fixed(height))
         .style(|_| container::Style {

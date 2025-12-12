@@ -4,6 +4,12 @@ use crate::error::{Error, Result};
 use lingua::{Language, LanguageDetectorBuilder};
 use whatlang::{Lang, detect};
 
+/// Get the high-resolution thumbnail URL for a video.
+/// Returns the maxresdefault (1280x720) thumbnail URL.
+pub fn get_hq_thumbnail_url(video_id: &str) -> String {
+    format!("https://i.ytimg.com/vi/{}/maxresdefault.jpg", video_id)
+}
+
 /// Extract video ID from various YouTube URL formats
 pub fn extract_video_id(input: &str) -> Result<String> {
     // If it's already just an ID (11 characters)

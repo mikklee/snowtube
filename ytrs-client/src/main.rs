@@ -5,7 +5,7 @@ mod theme;
 mod views;
 mod widgets;
 
-use iceplayer::{PlayerEvent, VideoPlayerState, VideoSource, start_loading};
+use iceplayer::{PlayerEvent, VideoPlayerState, VideoSource};
 
 use iced::widget::combo_box;
 use iced::{Element, Size, Subscription, Task, Theme, event};
@@ -1320,15 +1320,25 @@ impl App {
                 self.current_view = View::Video;
 
                 // Create video player state with the new high-level API
-                let source = VideoSource::YouTube(video_id);
+                let source = VideoSource::YouTube(video_id.clone());
                 let mut state = VideoPlayerState::new(source.clone());
                 if let Some(t) = title {
                     state = state.with_title(t);
                 }
+                // Don't set thumbnail here - wait for high-res version
                 self.video_player = Some(state);
 
-                // Start loading the video
-                start_loading(source).map(Message::VideoPlayer)
+                // Fetch high-res thumbnail (video loading starts when user clicks play)
+                Task::perform(
+                    async move {
+                        let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                        client
+                            .fetch_hq_thumbnail(&video_id)
+                            .await
+                            .map_err(|e| e.to_string())
+                    },
+                    Message::VideoThumbnailLoaded,
+                )
             }
             Message::VideoPlayer(msg) => {
                 // Delegate to the video player widget's update function
@@ -1346,6 +1356,15 @@ impl App {
                 } else {
                     Task::none()
                 }
+            }
+            Message::VideoThumbnailLoaded(result) => {
+                if let Ok(bytes) = result {
+                    if let Some(ref mut state) = self.video_player {
+                        let handle = iced::widget::image::Handle::from_bytes(bytes);
+                        state.thumbnail = Some(handle);
+                    }
+                }
+                Task::none()
             }
             Message::VideoEvent(event) => {
                 match event {

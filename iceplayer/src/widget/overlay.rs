@@ -13,6 +13,55 @@ const NERD_FONT: Font = Font {
     ..Font::DEFAULT
 };
 
+/// Dark semi-transparent overlay background.
+/// Used for loading and seeking states.
+pub fn dark_overlay<'a, Message: 'a>(
+    content: Element<'a, Message, Theme, Renderer>,
+) -> Element<'a, Message, Theme, Renderer> {
+    container(content)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(|_| container::Style {
+            background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
+            ..Default::default()
+        })
+        .into()
+}
+
+/// Spinner with optional status text, centered.
+/// Used as building block for loading states.
+pub fn spinner_with_text<'a, Message: 'static>(
+    status: Option<&'a str>,
+    theme: &'a Theme,
+) -> Element<'a, Message, Theme, Renderer> {
+    let spinner_widget: Element<'a, Message, Theme, Renderer> = spinner(48.0, theme);
+
+    let mut content = column![spinner_widget]
+        .spacing(16)
+        .align_x(iced::Alignment::Center);
+
+    if let Some(s) = status {
+        content = content.push(text(s).size(14).color(Color::WHITE));
+    }
+
+    container(content)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .into()
+}
+
+/// Loading overlay with spinner, status text, and dark background.
+pub fn loading_overlay<'a, Message: 'static>(
+    status: Option<&'a str>,
+    theme: &'a Theme,
+) -> Element<'a, Message, Theme, Renderer> {
+    dark_overlay(spinner_with_text(status, theme))
+}
+
 /// Seeking overlay with spinner and status text.
 pub fn seeking_overlay<Message: 'static>(
     theme: &Theme,
@@ -31,16 +80,7 @@ pub fn seeking_overlay<Message: 'static>(
     .spacing(16)
     .align_x(iced::Alignment::Center);
 
-    container(seeking_content)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .center_x(Length::Fill)
-        .center_y(Length::Fill)
-        .style(|_| container::Style {
-            background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
-            ..Default::default()
-        })
-        .into()
+    dark_overlay(seeking_content.into())
 }
 
 /// Title overlay at the top of the video with text shadow.
@@ -149,35 +189,13 @@ pub fn centered_play_button<'a, Message: Clone + 'a>(
 
 /// Loading placeholder with spinner and status text.
 /// Shows a black background with centered spinner.
+/// Uses slightly transparent white text (0.7 alpha) for status.
 pub fn loading_placeholder<'a, Message: 'static>(
     status: Option<&'a str>,
-    theme: &Theme,
+    theme: &'a Theme,
 ) -> Element<'a, Message, Theme, Renderer> {
-    let spinner_widget: Element<'a, Message, Theme, Renderer> = spinner(48.0, theme);
-
-    let status_text = status.map(|s| {
-        text(s).size(14).color(Color {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-            a: 0.7,
-        })
-    });
-
-    let mut center_content = column![spinner_widget]
-        .spacing(16)
-        .align_x(iced::Alignment::Center);
-
-    if let Some(status_widget) = status_text {
-        center_content = center_content.push(status_widget);
-    }
-
-    container(center_content)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .center_x(Length::Fill)
-        .center_y(Length::Fill)
-        .into()
+    // Reuse spinner_with_text - the slight color difference (0.7 vs 1.0 alpha) is acceptable
+    spinner_with_text(status, theme)
 }
 
 /// Error overlay with error message.

@@ -57,10 +57,11 @@ pub enum Message {
     // Export search results
     ExportSearchResults,
     // Video player messages (new high-level API)
-    PlayVideo(String),               // video_id - initiate playback
-    VideoPlayer(VideoPlayerMessage), // Internal player messages
-    VideoEvent(PlayerEvent),         // High-level events from player
-    BackFromVideo,                   // Navigate back from video view
-    LaunchInMpv(String),             // Launch video in mpv (video_id)
-    CopyVideoUrl(String),            // Copy video URL to clipboard
+    PlayVideo(String),                             // video_id - initiate playback
+    VideoPlayer(VideoPlayerMessage),               // Internal player messages
+    VideoEvent(PlayerEvent),                       // High-level events from player
+    VideoThumbnailLoaded(Result<Vec<u8>, String>), // High-res thumbnail for player
+    BackFromVideo,                                 // Navigate back from video view
+    LaunchInMpv(String),                           // Launch video in mpv (video_id)
+    CopyVideoUrl(String),                          // Copy video URL to clipboard
 }
