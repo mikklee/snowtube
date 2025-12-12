@@ -1,16 +1,11 @@
 //! TabBar widget with rounded corners, transparency, and icons
 
 use iced::widget::{button, column, container, row, text};
-use iced::{Color, Element, Font, Length, Padding, Theme};
+use iced::{Color, Element, Length, Padding, Theme};
 
 use super::glass::glass_container_style;
+use super::icons::NERD_FONT;
 use crate::messages::{Message, TabId};
-
-/// Nerd Font for icons
-const NERD_FONT: Font = Font {
-    family: iced::font::Family::Name("JetBrainsMono Nerd Font"),
-    ..Font::DEFAULT
-};
 
 /// Configuration for a tab bar item
 pub struct TabItem {

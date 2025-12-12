@@ -193,7 +193,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
                             &title,
                             channel_info,
                             metadata_text,
-                            Message::PlayVideo(vid.clone()),
+                            Message::PlayVideo(
+                                vid.clone(),
+                                Some(channel_name.clone()),
+                                Some(channel_id.clone()),
+                            ),
                         )
                     })
                     .into(),

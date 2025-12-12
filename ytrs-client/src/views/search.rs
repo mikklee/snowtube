@@ -116,12 +116,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
                             on_press: ch.id.clone().map(Message::ViewChannel),
                         });
 
+                        let (ch_name, ch_id) = channel
+                            .as_ref()
+                            .map(|c| (Some(c.name.clone()), c.id.clone()))
+                            .unwrap_or((None, None));
+
                         create_video_tile(
                             thumb_with_overlay,
                             &title,
                             channel_info,
                             metadata_text,
-                            Message::PlayVideo(vid.clone()),
+                            Message::PlayVideo(vid.clone(), ch_name, ch_id),
                         )
                     })
                     .into(),

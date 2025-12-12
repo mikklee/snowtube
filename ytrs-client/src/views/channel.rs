@@ -226,10 +226,13 @@ pub fn view(
                 .spacing(0)
                 .width(240);
 
-                let v = vid.clone();
                 Some(
                     button(card)
-                        .on_press(Message::PlayVideo(v))
+                        .on_press(Message::PlayVideo(
+                            vid.clone(),
+                            Some(channel.name.clone()),
+                            Some(channel.id.clone()),
+                        ))
                         .padding(0)
                         .into(),
                 )
