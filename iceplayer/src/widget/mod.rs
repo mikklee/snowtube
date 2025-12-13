@@ -12,6 +12,7 @@ use crate::loader::{LoadProgress, load_video};
 use crate::source::VideoSource;
 use crate::video::Video;
 use crate::video_player::VideoPlayer;
+use crate::visualizer::Visualizer;
 use std::sync::Arc;
 
 use controls::{
@@ -610,21 +611,36 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
     let mut video_layers: Vec<Element<'a, Message, Theme, Renderer>> =
         vec![video_with_mouse.into()];
 
-    // For audio-only, overlay thumbnail on top of the (invisible) video widget
-    if state.source.is_audio_only()
-        && let Some(ref thumbnail) = state.thumbnail
-    {
-        video_layers.push(
-            container(
-                iced::widget::image(thumbnail.clone())
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .content_fit(iced::ContentFit::Cover),
-            )
-            .width(Length::Fixed(scaled_width))
-            .height(Length::Fixed(scaled_height))
-            .into(),
-        );
+    // For audio-only, overlay thumbnail and visualizer on top of the (invisible) video widget
+    if state.source.is_audio_only() {
+        if let Some(ref thumbnail) = state.thumbnail {
+            video_layers.push(
+                container(
+                    iced::widget::image(thumbnail.clone())
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .content_fit(iced::ContentFit::Cover),
+                )
+                .width(Length::Fixed(scaled_width))
+                .height(Length::Fixed(scaled_height))
+                .into(),
+            );
+        }
+
+        // Add audio visualizer overlay when playing
+        if state.started {
+            if let Some(ref video) = state.video {
+                let spectrum = video.spectrum();
+                let time = state.position().as_secs_f32();
+                video_layers.push(
+                    Visualizer::new(spectrum)
+                        .time(time)
+                        .width(Length::Fixed(scaled_width))
+                        .height(Length::Fixed(scaled_height))
+                        .into(),
+                );
+            }
+        }
     }
 
     // Title overlay (only show when controls visible)

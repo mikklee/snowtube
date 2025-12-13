@@ -67,6 +67,9 @@ impl Frame {
     }
 }
 
+/// Number of frequency bands for audio spectrum analysis.
+pub const SPECTRUM_BANDS: usize = 64;
+
 #[derive(Debug)]
 pub(crate) struct Internal {
     pub(crate) id: u64,
@@ -97,6 +100,9 @@ pub(crate) struct Internal {
 
     /// Child process for yt-dlp streaming (if using from_ytdlp)
     pub(crate) ytdlp_process: Option<Child>,
+
+    /// Audio spectrum data (frequency magnitudes in dB, normalized 0.0-1.0).
+    pub(crate) spectrum: Arc<Mutex<[f32; SPECTRUM_BANDS]>>,
 }
 
 impl Internal {
@@ -364,12 +370,16 @@ impl Video {
             .map(|(_, v)| *v)
             .unwrap_or("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
 
-        // Audio-only pipeline: no video processing
+        // Audio-only pipeline with spectrum analyzer for visualizations
+        // The spectrum element posts bus messages with frequency magnitude data
+        // Using tee to split audio: one path for playback, one for spectrum analysis
         let pipeline_str = format!(
             "souphttpsrc name=audiosrc location=\"{audio_url}\" user-agent=\"{user_agent}\" ! \
              downloadbuffer name=audiobuf max-size-bytes=20971520 max-size-time=60000000000 low-percent=1 high-percent=99 temp-template=/tmp/iced-audio-XXXXXX ! \
              decodebin name=audiodec ! \
-             audioconvert ! audioresample ! autoaudiosink sync=true",
+             audioconvert ! audioresample ! \
+             tee name=t ! queue ! autoaudiosink sync=true \
+             t. ! queue ! spectrum name=spectrum bands={SPECTRUM_BANDS} interval=50000000 threshold=-80 post-messages=true message-magnitude=true ! fakesink sync=true",
         );
 
         log::info!("Creating audio-only pipeline");
@@ -418,6 +428,7 @@ impl Video {
 
         let subtitle_text = Arc::new(Mutex::new(None));
         let upload_text = Arc::new(AtomicBool::new(false));
+        let spectrum = Arc::new(Mutex::new([0.0f32; SPECTRUM_BANDS]));
 
         Ok(Video(RwLock::new(Internal {
             id,
@@ -442,6 +453,7 @@ impl Video {
             subtitle_text,
             upload_text,
             ytdlp_process: None,
+            spectrum,
         })))
     }
 
@@ -704,6 +716,7 @@ impl Video {
             subtitle_text,
             upload_text,
             ytdlp_process,
+            spectrum: Arc::new(Mutex::new([0.0f32; SPECTRUM_BANDS])),
         })))
     }
 
@@ -928,6 +941,7 @@ impl Video {
             subtitle_text,
             upload_text,
             ytdlp_process: None,
+            spectrum: Arc::new(Mutex::new([0.0f32; SPECTRUM_BANDS])),
         })))
     }
 
@@ -951,6 +965,12 @@ impl Video {
     /// Get the framerate of the video as frames per second.
     pub fn framerate(&self) -> f64 {
         self.read().framerate
+    }
+
+    /// Get a clone of the spectrum data arc for audio visualization.
+    /// Returns frequency magnitudes normalized to 0.0-1.0 range.
+    pub fn spectrum(&self) -> Arc<Mutex<[f32; SPECTRUM_BANDS]>> {
+        Arc::clone(&self.read().spectrum)
     }
 
     /// Set the volume multiplier of the audio.

@@ -318,77 +318,98 @@ where
 
         let mut inner = self.video.write();
 
-        if let iced::Event::Window(iced::window::Event::RedrawRequested(_)) = event {
-            if inner.restart_stream || (!inner.is_eos && !inner.paused()) {
-                let mut restart_stream = false;
-                let emit_eos = !inner.restart_stream;
-                if inner.restart_stream {
-                    restart_stream = true;
-                    // Set flag to false to avoid potentially multiple seeks
-                    inner.restart_stream = false;
-                }
-                let mut eos_pause = false;
-
-                while let Some(msg) = inner.bus.pop_filtered(&[
-                    gst::MessageType::Error,
-                    gst::MessageType::Eos,
-                    gst::MessageType::AsyncDone,
-                ]) {
-                    match msg.view() {
-                        gst::MessageView::Error(err) => {
-                            error!("bus returned an error: {err}");
-                            if let Some(ref on_error) = self.on_error {
-                                shell.publish(on_error(&err.error()))
-                            };
-                        }
-                        gst::MessageView::Eos(_eos) => {
-                            if emit_eos
-                                && let Some(on_end_of_stream) = self.on_end_of_stream.clone()
-                            {
-                                shell.publish(on_end_of_stream);
-                            }
-                            if inner.looping {
-                                restart_stream = true;
-                            } else {
-                                eos_pause = true;
-                            }
-                        }
-                        gst::MessageView::AsyncDone(_) => {
-                            if let Some(on_seek_complete) = self.on_seek_complete.clone() {
-                                shell.publish(on_seek_complete);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-
-                // Don't run eos_pause if restart_stream is true; fixes "pausing" after restarting a stream
-                if restart_stream {
-                    if let Err(err) = inner.restart_stream() {
-                        error!("cannot restart stream (can't seek): {err:#?}");
-                    }
-                } else if eos_pause {
-                    inner.is_eos = true;
-                    inner.set_paused(true);
-                }
-
-                if inner.upload_frame.load(Ordering::SeqCst)
-                    && let Some(on_new_frame) = self.on_new_frame.clone()
-                {
-                    shell.publish(on_new_frame);
-                }
-
-                if let Some(on_subtitle_text) = &self.on_subtitle_text
-                    && inner.upload_text.swap(false, Ordering::SeqCst)
-                    && let Ok(text) = inner.subtitle_text.try_lock()
-                {
-                    shell.publish(on_subtitle_text(text.clone()));
-                }
-
-                shell.request_redraw();
-            } else {
-                shell.request_redraw();
+        if inner.restart_stream || (!inner.is_eos && !inner.paused()) {
+            let mut restart_stream = false;
+            let emit_eos = !inner.restart_stream;
+            if inner.restart_stream {
+                restart_stream = true;
+                // Set flag to false to avoid potentially multiple seeks
+                inner.restart_stream = false;
             }
+            let mut eos_pause = false;
+
+            while let Some(msg) = inner.bus.pop_filtered(&[
+                gst::MessageType::Error,
+                gst::MessageType::Eos,
+                gst::MessageType::AsyncDone,
+                gst::MessageType::Element,
+            ]) {
+                match msg.view() {
+                    gst::MessageView::Error(err) => {
+                        error!("bus returned an error: {err}");
+                        if let Some(ref on_error) = self.on_error {
+                            shell.publish(on_error(&err.error()))
+                        };
+                    }
+                    gst::MessageView::Eos(_eos) => {
+                        if emit_eos && let Some(on_end_of_stream) = self.on_end_of_stream.clone() {
+                            shell.publish(on_end_of_stream);
+                        }
+                        if inner.looping {
+                            restart_stream = true;
+                        } else {
+                            eos_pause = true;
+                        }
+                    }
+                    gst::MessageView::AsyncDone(_) => {
+                        if let Some(on_seek_complete) = self.on_seek_complete.clone() {
+                            shell.publish(on_seek_complete);
+                        }
+                    }
+                    gst::MessageView::Element(element) => {
+                        // Handle spectrum analyzer messages
+                        if let Some(structure) = element.structure() {
+                            let name = structure.name();
+                            if name.as_str() == "spectrum" {
+                                // magnitude is a gst::List, not glib::ValueArray
+                                if let Ok(magnitudes) = structure.get::<gst::List>("magnitude") {
+                                    let mut spectrum_data = inner.spectrum.lock().unwrap();
+                                    let threshold = -80.0f32;
+                                    for (i, val) in magnitudes
+                                        .iter()
+                                        .take(crate::video::SPECTRUM_BANDS)
+                                        .enumerate()
+                                    {
+                                        if let Ok(mag) = val.get::<f32>() {
+                                            // Normalize from dB (threshold to 0) to 0.0-1.0
+                                            spectrum_data[i] =
+                                                ((mag - threshold) / -threshold).clamp(0.0, 1.0);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            // Don't run eos_pause if restart_stream is true; fixes "pausing" after restarting a stream
+            if restart_stream {
+                if let Err(err) = inner.restart_stream() {
+                    error!("cannot restart stream (can't seek): {err:#?}");
+                }
+            } else if eos_pause {
+                inner.is_eos = true;
+                inner.set_paused(true);
+            }
+
+            if inner.upload_frame.load(Ordering::SeqCst)
+                && let Some(on_new_frame) = self.on_new_frame.clone()
+            {
+                shell.publish(on_new_frame);
+            }
+
+            if let Some(on_subtitle_text) = &self.on_subtitle_text
+                && inner.upload_text.swap(false, Ordering::SeqCst)
+                && let Ok(text) = inner.subtitle_text.try_lock()
+            {
+                shell.publish(on_subtitle_text(text.clone()));
+            }
+
+            shell.request_redraw();
+        } else {
+            shell.request_redraw();
         }
     }
 }

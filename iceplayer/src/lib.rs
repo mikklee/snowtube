@@ -37,6 +37,7 @@ mod pipeline;
 mod source;
 mod video;
 mod video_player;
+mod visualizer;
 pub mod widget;
 
 use gstreamer as gst;
