@@ -52,6 +52,11 @@ GUI client built with [Iced](https://iced.rs/).
 - Local subscriptions with per-channel language preferences (no account required)
 - Sort filters
 - Embedded video player using iceplayer (GStreamer based, forked from [iced_video_player](https://github.com/jazzfool/iced_video_player))
+- Keyboard shortcuts for video playback:
+  - `Space` - play/pause
+  - `Arrow Left/Right` - seek backward/forward 5 seconds
+  - `Super+F` - toggle fullscreen
+  - `Escape` or `Q` - exit fullscreen
 - Persistent configuration
 - Responsive layout
 - Theme selection (16 themes including Catppuccin, Tokyo Night, Gruvbox, and more)
