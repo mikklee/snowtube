@@ -647,8 +647,8 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
             on_message.clone()(VideoPlayerMessage::StartPlayback),
             theme,
         ));
-    } else if state.position().as_millis() == 0 {
-        // Video started but waiting for first frame
+    } else if state.position().as_millis() == 0 && !state.seeking {
+        // Video started but waiting for first frame (not during seek)
         video_layers.push(loading_overlay(Some("Starting..."), theme));
     }
 
@@ -691,53 +691,46 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
     available_height: f32,
     theme: &'a Theme,
 ) -> Element<'a, Message, Theme, Renderer> {
-    // For audio-only, show thumbnail; otherwise show video widget
-    let content_widget: Element<'a, Message, Theme, Renderer> = if state.source.is_audio_only() {
-        // Audio-only: show thumbnail as background
-        if let Some(ref thumbnail) = state.thumbnail {
-            container(
-                iced::widget::image(thumbnail.clone())
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .content_fit(iced::ContentFit::Cover),
-            )
-            .width(Length::Fixed(available_width))
-            .height(Length::Fixed(available_height))
-            .into()
-        } else {
-            container(iced::widget::Space::new())
-                .width(Length::Fixed(available_width))
-                .height(Length::Fixed(available_height))
-                .style(|_| container::Style {
-                    background: Some(iced::Background::Color(Color::BLACK)),
-                    ..Default::default()
-                })
-                .into()
-        }
-    } else {
-        VideoPlayer::new(video)
-            .width(available_width)
-            .height(available_height)
-            .content_fit(iced::ContentFit::Contain)
-            .on_end_of_stream(on_message.clone()(VideoPlayerMessage::VideoEnded))
-            .on_single_click(on_message.clone()(VideoPlayerMessage::TogglePlayPause))
-            .on_double_click(on_message.clone()(VideoPlayerMessage::ToggleFullscreen))
-            .on_seek_complete(on_message.clone()(VideoPlayerMessage::SeekComplete))
-            .into()
-    };
+    // Always use VideoPlayer widget for event handling (EOS, seek complete, etc.)
+    let video_widget: Element<'a, Message, Theme, Renderer> = VideoPlayer::new(video)
+        .width(available_width)
+        .height(available_height)
+        .content_fit(iced::ContentFit::Contain)
+        .on_end_of_stream(on_message.clone()(VideoPlayerMessage::VideoEnded))
+        .on_single_click(on_message.clone()(VideoPlayerMessage::TogglePlayPause))
+        .on_double_click(on_message.clone()(VideoPlayerMessage::ToggleFullscreen))
+        .on_seek_complete(on_message.clone()(VideoPlayerMessage::SeekComplete))
+        .into();
 
     // Wrap in mouse area for tracking mouse movement
     // Hide cursor when controls are hidden (after inactivity)
     let on_mouse_move = on_message.clone();
-    let content_with_mouse = if state.controls_visible {
-        mouse_area(content_widget).on_move(move |_| on_mouse_move(VideoPlayerMessage::MouseMoved))
+    let video_with_mouse = if state.controls_visible {
+        mouse_area(video_widget).on_move(move |_| on_mouse_move(VideoPlayerMessage::MouseMoved))
     } else {
-        mouse_area(content_widget)
+        mouse_area(video_widget)
             .on_move(move |_| on_mouse_move(VideoPlayerMessage::MouseMoved))
             .interaction(mouse::Interaction::Hidden)
     };
 
-    let mut layers: Vec<Element<'a, Message, Theme, Renderer>> = vec![content_with_mouse.into()];
+    let mut layers: Vec<Element<'a, Message, Theme, Renderer>> = vec![video_with_mouse.into()];
+
+    // For audio-only, overlay thumbnail on top of the (invisible) video widget
+    if state.source.is_audio_only() {
+        if let Some(ref thumbnail) = state.thumbnail {
+            layers.push(
+                container(
+                    iced::widget::image(thumbnail.clone())
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .content_fit(iced::ContentFit::Cover),
+                )
+                .width(Length::Fixed(available_width))
+                .height(Length::Fixed(available_height))
+                .into(),
+            );
+        }
+    }
 
     // Title overlay (only show when controls visible)
     if state.controls_visible
@@ -752,8 +745,8 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
             on_message.clone()(VideoPlayerMessage::StartPlayback),
             theme,
         ));
-    } else if state.position().as_millis() == 0 {
-        // Video started but waiting for first frame
+    } else if state.position().as_millis() == 0 && !state.seeking {
+        // Video started but waiting for first frame (not during seek)
         layers.push(loading_overlay(Some("Starting..."), theme));
     } else if state.controls_visible {
         // Fullscreen control bar at bottom
