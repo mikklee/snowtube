@@ -69,8 +69,9 @@ GUI client built with [Iced](https://iced.rs/).
 ### Settings View
 ![Settings](ytrs-client/screenshots/4.png)
 ### Video View
-![Video loading](ytrs-client/screenshots/5.png)
-![Video playing](ytrs-client/screenshots/6.png)
+![Video ready](ytrs-client/screenshots/5.png)
+![Video loading](ytrs-client/screenshots/6.png)
+![Video playing](ytrs-client/screenshots/7.png)
 
 ## Dependencies
 
@@ -100,5 +101,3 @@ This project is maintained at [Codeberg](https://codeberg.org/mikklee/ytrs) but 
 ## Development
 
 Parts of this project were built with AI assistance (Claude). Code is reviewed and understood before committing.
-
-ytrs-client uses iceplayer (included in this repo), a fork of [iced_video_player](https://github.com/jazzfool/iced_video_player). This was specifically configured to work on a Linux desktop using an AMD GPU. You may need to make some changes to get it to work with your setup.
