@@ -618,20 +618,20 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
         vec![video_with_mouse.into()];
 
     // For audio-only, overlay thumbnail on top of the (invisible) video widget
-    if state.source.is_audio_only() {
-        if let Some(ref thumbnail) = state.thumbnail {
-            video_layers.push(
-                container(
-                    iced::widget::image(thumbnail.clone())
-                        .width(Length::Fill)
-                        .height(Length::Fill)
-                        .content_fit(iced::ContentFit::Cover),
-                )
-                .width(Length::Fixed(scaled_width))
-                .height(Length::Fixed(scaled_height))
-                .into(),
-            );
-        }
+    if state.source.is_audio_only()
+        && let Some(ref thumbnail) = state.thumbnail
+    {
+        video_layers.push(
+            container(
+                iced::widget::image(thumbnail.clone())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .content_fit(iced::ContentFit::Cover),
+            )
+            .width(Length::Fixed(scaled_width))
+            .height(Length::Fixed(scaled_height))
+            .into(),
+        );
     }
 
     // Title overlay (only show when controls visible)
@@ -716,20 +716,20 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
     let mut layers: Vec<Element<'a, Message, Theme, Renderer>> = vec![video_with_mouse.into()];
 
     // For audio-only, overlay thumbnail on top of the (invisible) video widget
-    if state.source.is_audio_only() {
-        if let Some(ref thumbnail) = state.thumbnail {
-            layers.push(
-                container(
-                    iced::widget::image(thumbnail.clone())
-                        .width(Length::Fill)
-                        .height(Length::Fill)
-                        .content_fit(iced::ContentFit::Cover),
-                )
-                .width(Length::Fixed(available_width))
-                .height(Length::Fixed(available_height))
-                .into(),
-            );
-        }
+    if state.source.is_audio_only()
+        && let Some(ref thumbnail) = state.thumbnail
+    {
+        layers.push(
+            container(
+                iced::widget::image(thumbnail.clone())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .content_fit(iced::ContentFit::Cover),
+            )
+            .width(Length::Fixed(available_width))
+            .height(Length::Fixed(available_height))
+            .into(),
+        );
     }
 
     // Title overlay (only show when controls visible)
