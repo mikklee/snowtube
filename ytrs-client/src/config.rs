@@ -352,6 +352,7 @@ mod tests {
                     language: None,
                 }]
                 .to_vec(),
+                show_scrollbar: true,
             },
         };
 
