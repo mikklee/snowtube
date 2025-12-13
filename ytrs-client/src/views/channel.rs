@@ -12,7 +12,7 @@ use crate::App;
 use crate::helpers::{centered_grid_padding, create_thumbnail, create_video_tile, fmt_num};
 use crate::messages::Message;
 use crate::theme::{rounded_button_style, rounded_combo_box_style, rounded_pick_list_style};
-use crate::widgets::{Wrap, bounceable_scrollable};
+use crate::widgets::{Wrap, bounceable_scrollable, subscribe_button};
 
 /// Render the channel view
 pub fn view(
@@ -62,17 +62,7 @@ pub fn view(
             .iter()
             .any(|c| c.channel_id == channel.id && c.subscribed);
 
-        let subscribe_button = if is_subscribed {
-            button(text("Unsubscribe"))
-                .on_press(Message::UnsubscribeFromChannel(channel.id.clone()))
-                .padding(10)
-                .style(rounded_button_style)
-        } else {
-            button(text("Subscribe"))
-                .on_press(Message::SubscribeToChannel)
-                .padding(10)
-                .style(rounded_button_style)
-        };
+        let sub_button = subscribe_button(is_subscribed, channel.id.clone(), 40.0);
 
         let header = row![
             button(text("← Back"))
@@ -81,7 +71,7 @@ pub fn view(
                 .style(rounded_button_style),
             avatar,
             info_column.padding(10),
-            subscribe_button,
+            sub_button,
         ]
         .spacing(10)
         .align_y(Alignment::Center);

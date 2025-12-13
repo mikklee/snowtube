@@ -4,13 +4,9 @@ use crate::App;
 use crate::helpers::channel_name_button;
 use crate::messages::Message;
 use crate::theme::rounded_button_style;
-use crate::widgets::{ICON_COPY, ICON_PLAY, bounceable_scrollable, icon_button};
+use crate::widgets::{ICON_COPY, ICON_PLAY, bounceable_scrollable, icon_button, subscribe_button};
 use iced::widget::{Image, button, column, container, row, text};
 use iced::{Alignment, Border, Color, Element, Length, Theme};
-
-// Star icons (using Unicode stars which are better centered)
-const STAR_OUTLINE: char = '\u{2606}'; // ☆
-const STAR_FILLED: char = '\u{2605}'; // ★
 
 /// Fixed video height for windowed mode (leaves room for info box below)
 const VIDEO_HEIGHT: f32 = 600.0;
@@ -207,24 +203,13 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
         .width(Length::Fill);
 
     // Subscribe button - check if subscribed
-    let is_subscribed = channel_id.as_ref().map_or(false, |cid| {
-        app.config
+    let sub_button: Element<Message> = if let Some(cid) = channel_id {
+        let is_subscribed = app
+            .config
             .channels
             .iter()
-            .any(|c| &c.channel_id == cid && c.subscribed)
-    });
-
-    let subscribe_button: Element<Message> = if let Some(cid) = channel_id {
-        let (icon, tip, msg) = if is_subscribed {
-            (
-                STAR_FILLED,
-                "Unsubscribe",
-                Message::UnsubscribeFromChannel(cid),
-            )
-        } else {
-            (STAR_OUTLINE, "Subscribe", Message::SubscribeToChannel)
-        };
-        icon_button(icon, 40.0, tip, false, msg)
+            .any(|c| c.channel_id == cid && c.subscribed);
+        subscribe_button(is_subscribed, cid, 40.0)
     } else {
         iced::widget::space::Space::new().into()
     };
@@ -247,7 +232,7 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
 
     let action_buttons = row![
         iced::widget::space::Space::new().width(Length::Fill),
-        subscribe_button,
+        sub_button,
         copy_button,
         mpv_button
     ]
