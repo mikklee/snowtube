@@ -26,21 +26,22 @@ pub fn icon_button<'a, Message: Clone + 'a>(
     on_press: Message,
 ) -> Element<'a, Message, Theme> {
     let icon_size = size * 0.5;
-    let inner_size = size * 0.5;
 
     let icon_text = if use_nerd_font {
-        text(icon.to_string()).size(icon_size).font(NERD_FONT)
+        text(icon.to_string())
+            .size(icon_size)
+            .font(NERD_FONT)
+            .center()
     } else {
-        text(icon.to_string()).size(icon_size)
+        text(icon.to_string()).size(icon_size).center()
     };
 
     tooltip(
         button(
             container(icon_text)
-                .width(inner_size)
-                .height(inner_size)
-                .center_x(Length::Fill)
-                .center_y(Length::Fill),
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center(Length::Fill),
         )
         .width(size)
         .height(size)
