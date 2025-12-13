@@ -5,7 +5,7 @@ use crate::helpers::channel_name_button;
 use crate::messages::Message;
 use crate::theme::rounded_button_style;
 use crate::widgets::{
-    ICON_COPY, ICON_HEADPHONES, ICON_PLAY, ICON_VIDEO, bounceable_scrollable, icon_button,
+    bounceable_scrollable, icon_button, icon_copy, icon_headphones, icon_play, icon_video,
     subscribe_button,
 };
 use iced::widget::{Image, button, column, container, row, text};
@@ -224,13 +224,13 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
         .map(|p| p.source.is_audio_only())
         .unwrap_or(false);
 
+    let icon_size = 20.0;
     let mode_toggle_button = if is_audio_only {
         // Currently audio-only, show video button to switch to video
         icon_button(
-            ICON_VIDEO,
+            icon_video(icon_size).into(),
             40.0,
             "Switch to Video",
-            true,
             Message::PlayVideo(
                 video_id.clone(),
                 app.playing_channel_name.clone(),
@@ -240,10 +240,9 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
     } else {
         // Currently video, show headphones button to switch to audio-only
         icon_button(
-            ICON_HEADPHONES,
+            icon_headphones(icon_size).into(),
             40.0,
             "Audio Only",
-            true,
             Message::PlayAudioOnly(
                 video_id.clone(),
                 app.playing_channel_name.clone(),
@@ -252,17 +251,15 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
         )
     };
     let copy_button = icon_button(
-        ICON_COPY,
+        icon_copy(icon_size).into(),
         40.0,
         "Copy URL",
-        true,
         Message::CopyVideoUrl(video_id.clone()),
     );
     let mpv_button = icon_button(
-        ICON_PLAY,
+        icon_play(icon_size).into(),
         40.0,
         "Open in MPV",
-        true,
         Message::LaunchInMpv(video_id),
     );
 
