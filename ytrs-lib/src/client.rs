@@ -382,6 +382,21 @@ impl InnerTube {
         channel_videos.detected_locale = Some((hl.to_string(), gl.to_string()));
         Ok(channel_videos)
     }
+
+    /// Fetch the high-resolution thumbnail for a video.
+    /// Returns the image bytes if successful.
+    pub async fn fetch_hq_thumbnail(&self, video_id: &str) -> Result<Vec<u8>> {
+        let url = utils::get_hq_thumbnail_url(video_id);
+        let response = self.client.get(&url).send().await?;
+        if response.status().is_success() {
+            Ok(response.bytes().await?.to_vec())
+        } else {
+            Err(Error::DataNotFound(format!(
+                "Thumbnail not found for {}",
+                video_id
+            )))
+        }
+    }
 }
 
 impl Default for InnerTube {

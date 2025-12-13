@@ -5,7 +5,7 @@ mod theme;
 mod views;
 mod widgets;
 
-use iced_video_player::Video;
+use iceplayer::{PlayerEvent, VideoPlayerState, VideoSource};
 
 use iced::widget::combo_box;
 use iced::{Element, Size, Subscription, Task, Theme, event};
@@ -34,6 +34,20 @@ fn get_language_by_locale(hl: &str, gl: &str) -> Option<&'static LanguageOption>
             .collect()
     });
     map.get(&(hl.to_string(), gl.to_string())).copied()
+}
+
+/// Helper to create a task that saves the config to disk
+fn save_config(config: AppConfig) -> Task<Message> {
+    Task::perform(
+        async move {
+            let new_config = YtrsConfig {
+                config,
+                ..Default::default()
+            };
+            new_config.save().await.map_err(|e| e.to_string())
+        },
+        Message::ConfigSaved,
+    )
 }
 
 fn main() -> iced::Result {
@@ -111,20 +125,12 @@ pub struct App {
     pub available_sort_filters: Vec<SortFilter>,
     pub selected_sort_label: Option<String>,
 
-    // Video player state
-    pub video: Option<Video>,
-    pub playing_video_title: Option<String>,
-    pub video_fullscreen: bool,
-    pub video_controls_visible: bool,
-    pub video_last_mouse_move: Option<std::time::Instant>,
-    pub video_seek_preview: Option<f64>, // Preview position while dragging slider (0.0 to 1.0)
-    pub notification: Option<String>,    // Temporary notification message
-    pub video_loading: bool,             // Whether video is currently loading
-    pub video_loading_status: Option<String>, // Current loading status message
-    pub video_seeking: bool,             // Whether video is currently seeking
-    pub video_seek_target: Option<std::time::Duration>, // Target position when seeking
-    pub video_error: Option<String>,     // Error message if video failed to load
+    // Video player state (using new high-level API)
+    pub video_player: Option<iceplayer::VideoPlayerState>,
     pub playing_video_id: Option<String>, // Current video ID (for actions like mpv, copy URL)
+    pub playing_video_info: Option<SearchResult>, // Full video info for display
+    pub playing_channel_name: Option<String>, // Channel name passed from tile
+    pub playing_channel_id: Option<String>, // Channel ID passed from tile
 }
 
 impl App {
@@ -175,20 +181,12 @@ impl App {
                 available_sort_filters: Vec::new(),
                 selected_sort_label: None,
 
-                // Video player state
-                video: None,
-                playing_video_title: None,
-                video_fullscreen: false,
-                video_controls_visible: true,
-                video_last_mouse_move: None,
-                video_seek_preview: None,
-                notification: None,
-                video_loading: false,
-                video_loading_status: None,
-                video_seeking: false,
-                video_seek_target: None,
-                video_error: None,
+                // Video player state (using new high-level API)
+                video_player: None,
                 playing_video_id: None,
+                playing_video_info: None,
+                playing_channel_name: None,
+                playing_channel_id: None,
             },
             // Load config asynchronously on startup
             Task::perform(
@@ -501,15 +499,19 @@ impl App {
                             Task::none()
                         };
 
-                        // Load channel avatar
-                        let avatar_task = if let Some(thumb) = channel.thumbnails.first() {
+                        // Load channel avatar (circular) if not already cached
+                        let avatar_task = if self.subscription_thumbs.contains_key(&channel.id) {
+                            Task::none()
+                        } else if let Some(thumb) = channel.thumbnails.first() {
                             let url = thumb.url.clone();
                             let id = channel.id.clone();
                             Task::perform(
                                 async move {
-                                    helpers::load_thumb(&url).await.map_err(|e| e.to_string())
+                                    helpers::load_circular_thumb(&url, 80)
+                                        .await
+                                        .map_err(|e| e.to_string())
                                 },
-                                move |r| Message::ThumbLoaded(id.clone(), r),
+                                move |r| Message::SubscriptionChannelThumbLoaded(id.clone(), r),
                             )
                         } else {
                             Task::none()
@@ -860,15 +862,7 @@ impl App {
                                 });
                             }
 
-                            // Save config
-                            let new_config = YtrsConfig {
-                                config: self.config.clone(),
-                                ..Default::default()
-                            };
-                            let save_task = Task::perform(
-                                async move { new_config.save().await.map_err(|e| e.to_string()) },
-                                Message::ConfigSaved,
-                            );
+                            let save_task = save_config(self.config.clone());
 
                             self.channel_results.clear();
                             self.channel_continuation = None;
@@ -934,17 +928,7 @@ impl App {
                             self.config.default_language = None;
                         }
 
-                        let config = self.config.clone();
-                        Task::perform(
-                            async move {
-                                let new_config = YtrsConfig {
-                                    config,
-                                    ..Default::default()
-                                };
-                                new_config.save().await.map_err(|e| e.to_string())
-                            },
-                            Message::ConfigSaved,
-                        )
+                        save_config(self.config.clone())
                     }
                     View::Video => {
                         // No action needed for video view
@@ -984,18 +968,11 @@ impl App {
             Message::ThemeChanged(new_theme) => {
                 self.current_theme = new_theme.to_iced_theme();
                 self.config.theme = new_theme;
-
-                let config = self.config.clone();
-                Task::perform(
-                    async move {
-                        let new_config = YtrsConfig {
-                            config,
-                            ..Default::default()
-                        };
-                        new_config.save().await.map_err(|e| e.to_string())
-                    },
-                    Message::ConfigSaved,
-                )
+                save_config(self.config.clone())
+            }
+            Message::ShowScrollbarToggled(show) => {
+                self.config.show_scrollbar = show;
+                save_config(self.config.clone())
             }
             Message::Resized(width, height) => {
                 self.window_width = width;
@@ -1040,16 +1017,7 @@ impl App {
                         self.config.channels.push(channel_config);
                     }
 
-                    // Save config
-                    let new_config = YtrsConfig {
-                        config: self.config.clone(),
-                        ..Default::default()
-                    };
-
-                    return Task::perform(
-                        async move { new_config.save().await.map_err(|e| e.to_string()) },
-                        Message::ConfigSaved,
-                    );
+                    return save_config(self.config.clone());
                 }
                 Task::none()
             }
@@ -1070,19 +1038,7 @@ impl App {
                     }
                 }
 
-                // Remove thumbnail from cache
-                self.subscription_thumbs.remove(&channel_id);
-
-                // Save config
-                let new_config = YtrsConfig {
-                    config: self.config.clone(),
-                    ..Default::default()
-                };
-
-                Task::perform(
-                    async move { new_config.save().await.map_err(|e| e.to_string()) },
-                    Message::ConfigSaved,
-                )
+                save_config(self.config.clone())
             }
             Message::SubscriptionChannelThumbLoaded(channel_id, res) => {
                 if let Ok(bytes) = res {
@@ -1093,6 +1049,12 @@ impl App {
             }
             Message::TabSelected(tab_id) => {
                 self.active_tab = tab_id;
+
+                // If leaving video view, clean up video player
+                if self.current_view == View::Video {
+                    self.video_player = None;
+                    self.playing_video_id = None;
+                }
 
                 match tab_id {
                     TabId::Search => {
@@ -1315,18 +1277,16 @@ impl App {
                     Task::none()
                 }
             }
-            Message::PlayVideo(video_id) => {
-                // Find the video title from search results, channel results, or subscription videos
-                let title = self
+            Message::PlayVideo(video_id, channel_name, channel_id) => {
+                // Find the video info from search results, channel results, or subscription videos
+                let video_info = self
                     .search_results
                     .iter()
                     .find(|r| r.video_id.as_ref() == Some(&video_id))
-                    .map(|r| r.title.clone())
                     .or_else(|| {
                         self.channel_results
                             .iter()
                             .find(|r| r.video_id.as_ref() == Some(&video_id))
-                            .map(|r| r.title.clone())
                     })
                     .or_else(|| {
                         // Search in subscription videos
@@ -1334,335 +1294,153 @@ impl App {
                             .values()
                             .flatten()
                             .find(|r| r.video_id.as_ref() == Some(&video_id))
-                            .map(|r| r.title.clone())
-                    });
+                    })
+                    .cloned();
 
-                self.playing_video_title = title;
-                self.video_error = None;
+                let title = video_info.as_ref().map(|r| r.title.clone());
+                let duration = video_info
+                    .as_ref()
+                    .and_then(|r| r.duration.as_ref())
+                    .and_then(|d| ytrs_lib::parse_duration_string(d));
+
+                // Store the video info and channel info passed from tile
+                self.playing_video_info = video_info;
+                self.playing_channel_name = channel_name;
+                self.playing_channel_id = channel_id.clone();
+
                 self.playing_video_id = Some(video_id.clone());
                 self.previous_view = self.current_view;
                 self.current_view = View::Video;
-                self.video_loading = true;
-                self.video_loading_status = Some("Fetching video info...".to_string());
 
-                // Use yt-dlp to get direct URL with headers for seekable playback
-                let url = format!("https://www.youtube.com/watch?v={}", video_id);
-
-                // Use a stream to send status updates during loading
-                use iced::futures::SinkExt;
-
-                enum VideoLoadProgress {
-                    Status(String),
-                    Done(Result<std::sync::Arc<Video>, String>),
+                // Create video player state with the new high-level API
+                let source = VideoSource::YouTube(video_id.clone());
+                let mut state = VideoPlayerState::new(source.clone());
+                if let Some(t) = title {
+                    state = state.with_title(t);
                 }
+                if let Some(d) = duration {
+                    state = state.with_duration(d);
+                }
+                // Don't set thumbnail here - wait for high-res version
+                self.video_player = Some(state);
 
-                let stream = iced::stream::channel(
-                    10,
-                    move |mut sender: iced::futures::channel::mpsc::Sender<VideoLoadProgress>| async move {
-                        // Phase 1: Run yt-dlp (blocking)
-                        let yt_dlp_result = tokio::task::spawn_blocking(move || {
-                            tracing::info!("Starting yt-dlp for URL: {}", url);
-                            let output = std::process::Command::new("yt-dlp")
-                                .args(["--dump-single-json", &url])
-                                .output()
-                                .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
-
-                            if !output.status.success() {
-                                let stderr = String::from_utf8_lossy(&output.stderr);
-                                return Err(format!("yt-dlp failed: {}", stderr));
-                            }
-
-                            serde_json::from_slice(&output.stdout)
-                                .map_err(|e| format!("Failed to parse yt-dlp JSON: {}", e))
-                        })
-                        .await
-                        .map_err(|e| format!("Task join error: {}", e))
-                        .and_then(|r| r);
-
-                        let json: serde_json::Value = match yt_dlp_result {
-                            Ok(j) => j,
-                            Err(e) => {
-                                let _ = sender.send(VideoLoadProgress::Done(Err(e))).await;
-                                return;
-                            }
-                        };
-
-                        let is_live = json["is_live"].as_bool().unwrap_or(false);
-
-                        if is_live {
-                            let _ = sender
-                                .send(VideoLoadProgress::Status(
-                                    "Loading live stream...".to_string(),
-                                ))
-                                .await;
-
-                            let hls_url = match json["url"].as_str() {
-                                Some(u) => u.to_string(),
-                                None => {
-                                    let _ = sender
-                                        .send(VideoLoadProgress::Done(Err(
-                                            "No URL for live stream".to_string(),
-                                        )))
-                                        .await;
-                                    return;
-                                }
-                            };
-
-                            let result = tokio::task::spawn_blocking(move || {
-                                let uri = url::Url::parse(&hls_url)
-                                    .map_err(|e| format!("Invalid URL: {}", e))?;
-                                let mut last_error = None;
-                                for attempt in 1..=3 {
-                                    match Video::new(&uri) {
-                                        Ok(video) => return Ok(std::sync::Arc::new(video)),
-                                        Err(e) => {
-                                            last_error = Some(e);
-                                            if attempt < 3 {
-                                                std::thread::sleep(
-                                                    std::time::Duration::from_millis(500),
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(format!(
-                                    "Failed after 3 attempts: {:?}",
-                                    last_error.unwrap()
-                                ))
-                            })
-                            .await
-                            .map_err(|e| format!("Task join error: {}", e))
-                            .and_then(|r| r);
-
-                            let _ = sender.send(VideoLoadProgress::Done(result)).await;
-                        } else {
-                            // VOD path
-                            let requested_formats = match json["requested_formats"].as_array() {
-                                Some(f) => f,
-                                None => {
-                                    let _ = sender
-                                        .send(VideoLoadProgress::Done(Err(
-                                            "No formats in output".to_string()
-                                        )))
-                                        .await;
-                                    return;
-                                }
-                            };
-
-                            let video_format = requested_formats.iter().find(|f| {
-                                f["vcodec"].as_str().map(|v| v != "none").unwrap_or(false)
-                            });
-                            let audio_format = requested_formats.iter().find(|f| {
-                                f["acodec"].as_str().map(|a| a != "none").unwrap_or(false)
-                            });
-
-                            let (video_format, audio_format) = match (video_format, audio_format) {
-                                (Some(v), Some(a)) => (v, a),
-                                _ => {
-                                    let _ = sender
-                                        .send(VideoLoadProgress::Done(Err(
-                                            "Missing video/audio format".to_string(),
-                                        )))
-                                        .await;
-                                    return;
-                                }
-                            };
-
-                            let video_url = video_format["url"].as_str().unwrap_or("").to_string();
-                            let audio_url = audio_format["url"].as_str().unwrap_or("").to_string();
-
-                            if video_url.is_empty() || audio_url.is_empty() {
-                                let _ = sender
-                                    .send(VideoLoadProgress::Done(Err("Missing URLs".to_string())))
-                                    .await;
-                                return;
-                            }
-
-                            let headers: Vec<(String, String)> = video_format["http_headers"]
-                                .as_object()
-                                .map(|h| {
-                                    h.iter()
-                                        .filter_map(|(k, v)| {
-                                            v.as_str().map(|s| (k.clone(), s.to_string()))
-                                        })
-                                        .collect()
-                                })
-                                .unwrap_or_default();
-
-                            // Check for throttle wait (can update status from async context!)
-                            // GStreamer video player already waits 5 seconds, so we only need
-                            // to wait the remaining time beyond that
-                            const GSTREAMER_WAIT_SECS: i64 = 5;
-                            if let Some(available_at) = video_format["available_at"].as_i64() {
-                                let now = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_secs() as i64;
-                                let wait_secs = (available_at - now - GSTREAMER_WAIT_SECS).max(0);
-                                if wait_secs > 0 {
-                                    tracing::info!(
-                                        "Waiting {} seconds for YouTube throttle (after GStreamer's {}s)",
-                                        wait_secs,
-                                        GSTREAMER_WAIT_SECS
-                                    );
-                                    // Countdown each second
-                                    for remaining in (1..=wait_secs).rev() {
-                                        let _ = sender
-                                            .send(VideoLoadProgress::Status(format!(
-                                                "Waiting {} seconds...",
-                                                remaining
-                                            )))
-                                            .await;
-                                        tokio::time::sleep(tokio::time::Duration::from_secs(1))
-                                            .await;
-                                    }
-                                }
-                            }
-
-                            let _ = sender
-                                .send(VideoLoadProgress::Status(
-                                    "Loading video stream...".to_string(),
-                                ))
-                                .await;
-
-                            let result = tokio::task::spawn_blocking(move || {
-                                let header_refs: Vec<(&str, &str)> = headers
-                                    .iter()
-                                    .map(|(k, v)| (k.as_str(), v.as_str()))
-                                    .collect();
-                                let mut last_error = None;
-                                for attempt in 1..=3 {
-                                    match Video::from_url_with_headers(
-                                        &video_url,
-                                        &audio_url,
-                                        &header_refs,
-                                    ) {
-                                        Ok(video) => return Ok(std::sync::Arc::new(video)),
-                                        Err(e) => {
-                                            last_error = Some(e);
-                                            if attempt < 3 {
-                                                std::thread::sleep(
-                                                    std::time::Duration::from_millis(500),
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(format!(
-                                    "Failed after 3 attempts: {:?}",
-                                    last_error.unwrap()
-                                ))
-                            })
-                            .await
-                            .map_err(|e| format!("Task join error: {}", e))
-                            .and_then(|r| r);
-
-                            let _ = sender.send(VideoLoadProgress::Done(result)).await;
+                // Fetch high-res video thumbnail
+                let thumb_task = Task::perform(
+                    {
+                        let video_id = video_id.clone();
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client
+                                .fetch_hq_thumbnail(&video_id)
+                                .await
+                                .map_err(|e| e.to_string())
                         }
                     },
+                    Message::VideoThumbnailLoaded,
                 );
 
-                Task::run(stream, |progress| match progress {
-                    VideoLoadProgress::Status(s) => Message::VideoLoadingStatus(s),
-                    VideoLoadProgress::Done(result) => Message::VideoLoaded(result),
-                })
+                // Fetch channel avatar if not already cached
+                let channel_thumb_task = if let Some(ref cid) = channel_id {
+                    if self.thumbs.contains_key(cid) || self.subscription_thumbs.contains_key(cid) {
+                        Task::none()
+                    } else {
+                        // Fetch channel info to get thumbnail URL
+                        let cid_for_async = cid.clone();
+                        let cid_for_msg = cid.clone();
+                        Task::perform(
+                            async move {
+                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                                let channel_info = client
+                                    .get_channel(&cid_for_async)
+                                    .await
+                                    .map_err(|e: ytrs_lib::Error| e.to_string())?;
+                                if let Some(thumb) = channel_info.thumbnails.first() {
+                                    helpers::load_circular_thumb(&thumb.url, 48)
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                } else {
+                                    Err("No channel thumbnail".to_string())
+                                }
+                            },
+                            move |res| Message::ThumbLoaded(cid_for_msg, res),
+                        )
+                    }
+                } else {
+                    Task::none()
+                };
+
+                Task::batch([thumb_task, channel_thumb_task])
             }
-            Message::VideoLoaded(result) => {
-                // Ignore if user navigated away while loading
-                if !self.video_loading {
-                    return Task::none();
+            Message::VideoPlayer(msg) => {
+                // Delegate to the video player widget's update function
+                if let Some(ref mut state) = self.video_player {
+                    let (event, task) = iceplayer::widget::update(state, msg);
+
+                    // Handle any events emitted by the player
+                    let event_task = if let Some(ev) = event {
+                        Task::done(Message::VideoEvent(ev))
+                    } else {
+                        Task::none()
+                    };
+
+                    Task::batch([task.map(Message::VideoPlayer), event_task])
+                } else {
+                    Task::none()
                 }
-                self.video_loading = false;
-                self.video_loading_status = None;
-                match result {
-                    Ok(video) => {
-                        // Arc::into_inner only works if this is the only reference
-                        // Since we just created it, this should always succeed
-                        match std::sync::Arc::try_unwrap(video) {
-                            Ok(v) => self.video = Some(v),
-                            Err(_) => {
-                                return Task::perform(
-                                    async { "Failed to unwrap video Arc".to_string() },
-                                    Message::VideoError,
-                                );
+            }
+            Message::VideoThumbnailLoaded(result) => {
+                if let Ok(bytes) = result
+                    && let Some(ref mut state) = self.video_player
+                {
+                    let handle = iced::widget::image::Handle::from_bytes(bytes);
+                    state.thumbnail = Some(handle);
+                }
+                Task::none()
+            }
+
+            Message::VideoEvent(event) => {
+                match event {
+                    PlayerEvent::FullscreenChanged(fullscreen) => {
+                        // Handle window fullscreen mode
+                        #[cfg(target_os = "macos")]
+                        {
+                            if fullscreen {
+                                iced::window::latest()
+                                    .and_then(|id| iced::window::maximize(id, true))
+                            } else {
+                                iced::window::latest()
+                                    .and_then(|id| iced::window::maximize(id, false))
                             }
                         }
+                        #[cfg(not(target_os = "macos"))]
+                        {
+                            let mode = if fullscreen {
+                                iced::window::Mode::Fullscreen
+                            } else {
+                                iced::window::Mode::Windowed
+                            };
+                            iced::window::latest()
+                                .and_then(move |id| iced::window::set_mode(id, mode))
+                        }
                     }
-                    Err(e) => {
-                        return Task::perform(async move { e }, Message::VideoError);
+                    PlayerEvent::Ready { duration: _ } => Task::none(),
+                    PlayerEvent::Ended => Task::none(),
+                    PlayerEvent::Error(err) => {
+                        tracing::error!("Video error: {}", err);
+                        Task::none()
                     }
-                }
-                Task::none()
-            }
-            Message::VideoEnded => Task::none(),
-            Message::TogglePlayPause => {
-                if let Some(ref mut video) = self.video {
-                    video.set_paused(!video.paused());
-                }
-                Task::none()
-            }
-            Message::ToggleFullscreen => {
-                self.video_fullscreen = !self.video_fullscreen;
-                // TODO: iced::window::Mode::Fullscreen crashes on macOS due to objc2 bug
-                // Workaround: maximize window instead of true fullscreen on macOS
-                #[cfg(target_os = "macos")]
-                {
-                    if self.video_fullscreen {
-                        iced::window::latest().and_then(|id| iced::window::maximize(id, true))
-                    } else {
-                        iced::window::latest().and_then(|id| iced::window::maximize(id, false))
-                    }
-                }
-                #[cfg(not(target_os = "macos"))]
-                {
-                    let mode = if self.video_fullscreen {
-                        iced::window::Mode::Fullscreen
-                    } else {
-                        iced::window::Mode::Windowed
-                    };
-                    iced::window::latest().and_then(move |id| iced::window::set_mode(id, mode))
+                    PlayerEvent::PlayStateChanged { playing: _ } => Task::none(),
                 }
             }
             Message::BackFromVideo => {
-                if let Some(ref mut video) = self.video {
-                    video.set_paused(true);
-                }
-                self.video = None;
-                self.playing_video_title = None;
+                // Clean up video player state
+                self.video_player = None;
                 self.playing_video_id = None;
-                // Clear loading state (stops any pending video from being set)
-                self.video_loading = false;
-                self.video_loading_status = None;
-                // Clear seeking state
-                self.video_seeking = false;
-                self.video_seek_target = None;
                 self.current_view = self.previous_view;
+
                 // Exit fullscreen if we were in it
-                if self.video_fullscreen {
-                    self.video_fullscreen = false;
-                    return iced::window::latest()
-                        .and_then(|id| iced::window::set_mode(id, iced::window::Mode::Windowed));
-                }
-                Task::none()
-            }
-            Message::VideoError(err) => {
-                // Ignore if user navigated away while loading
-                if !self.video_loading {
-                    return Task::none();
-                }
-                tracing::error!("Video error: {}", err);
-                self.video_loading = false;
-                self.video_loading_status = None;
-                self.video_error = Some(err);
-                // Stay on video view to show error with mpv fallback option
-                Task::none()
-            }
-            Message::VideoLoadingStatus(status) => {
-                // Ignore if user navigated away while loading
-                if self.video_loading {
-                    self.video_loading_status = Some(status);
-                }
-                Task::none()
+                iced::window::latest()
+                    .and_then(|id| iced::window::set_mode(id, iced::window::Mode::Windowed))
             }
             Message::LaunchInMpv(video_id) => {
                 // Launch video in mpv
@@ -1689,66 +1467,6 @@ impl App {
                 let url = format!("https://www.youtube.com/watch?v={}", video_id);
                 iced::clipboard::write(url)
             }
-            Message::VideoMouseMoved => {
-                // Only process in fullscreen video mode
-                if self.current_view != View::Video || !self.video_fullscreen {
-                    return Task::none();
-                }
-                self.video_controls_visible = true;
-                self.video_last_mouse_move = Some(std::time::Instant::now());
-                // Start a timer to hide controls after 3 seconds
-                Task::perform(
-                    async {
-                        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-                    },
-                    |_| Message::VideoControlsTimeout,
-                )
-            }
-            Message::VideoControlsTimeout => {
-                // Only hide if we're in fullscreen and no recent mouse movement
-                if self.video_fullscreen
-                    && let Some(last_move) = self.video_last_mouse_move
-                    && last_move.elapsed() >= std::time::Duration::from_secs(3)
-                {
-                    self.video_controls_visible = false;
-                }
-                Task::none()
-            }
-            Message::SeekVideoPreview(percent) => {
-                self.video_seek_preview = Some(percent);
-                Task::none()
-            }
-            Message::SeekVideoRelease => {
-                if let Some(percent) = self.video_seek_preview.take()
-                    && let Some(ref mut video) = self.video
-                {
-                    let duration = video.duration();
-                    let target_nanos = (duration.as_secs_f64() * percent) * 1_000_000_000.0;
-                    let target = std::time::Duration::from_nanos(target_nanos as u64);
-                    if let Err(e) = video.seek(target, false) {
-                        tracing::error!("Failed to seek video: {:?}", e);
-                    }
-                    // Show seeking spinner overlay until playback resumes
-                    self.video_seeking = true;
-                    self.video_seek_target = Some(target);
-                }
-                Task::none()
-            }
-            Message::VideoTick => {
-                // Check if seeking is complete (position has advanced past target)
-                if self.video_seeking
-                    && let (Some(video), Some(target)) = (&self.video, self.video_seek_target)
-                {
-                    let position = video.position();
-                    // Consider seeking done when position is past target by at least 500ms
-                    // This ensures the video is actually playing, not just buffering
-                    if position > target + std::time::Duration::from_millis(500) {
-                        self.video_seeking = false;
-                        self.video_seek_target = None;
-                    }
-                }
-                Task::none()
-            }
         }
     }
 
@@ -1764,8 +1482,11 @@ impl App {
             View::Video => views::video::view(self),
         };
 
-        // In video view, skip the tab bar entirely
-        if self.current_view == View::Video {
+        // In video view fullscreen, skip the tab bar entirely
+        if self.current_view == View::Video
+            && let Some(ref state) = self.video_player
+            && state.fullscreen
+        {
             return container(content)
                 .width(Length::Fill)
                 .height(Length::Fill)
@@ -1799,23 +1520,16 @@ impl App {
                 modifiers,
                 ..
             }) if modifiers.control() && c.as_ref() == "e" => Some(Message::ExportSearchResults),
-            // Track all mouse movement - filter in handler based on view state
-            iced::Event::Mouse(iced::mouse::Event::CursorMoved { .. }) => {
-                Some(Message::VideoMouseMoved)
-            }
             _ => None,
         });
 
-        // Add a timer tick while video is playing (or seeking) to update progress bar
-        let video_tick = if self.video.is_some()
-            && self.current_view == View::Video
-            && (!self.video.as_ref().map(|v| v.paused()).unwrap_or(true) || self.video_seeking)
-        {
-            iced::time::every(std::time::Duration::from_millis(250)).map(|_| Message::VideoTick)
+        // Video player subscription (controls timeout, position updates)
+        let video_sub = if let Some(ref state) = self.video_player {
+            iceplayer::widget::subscription(state).map(Message::VideoPlayer)
         } else {
             Subscription::none()
         };
 
-        Subscription::batch([events, video_tick])
+        Subscription::batch([events, video_sub])
     }
 }

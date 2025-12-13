@@ -6,13 +6,13 @@ use iced::{
     Element, Length, Theme,
     widget::{Image, button, column, combo_box, container, pick_list, row, text},
 };
-use ytrs_lib::ChannelTab;
+use ytrs_lib::{ChannelTab, format_relative_time, parse_relative_time};
 
 use crate::App;
-use crate::helpers::{centered_grid_padding, create_thumbnail, fmt_num, truncate_title_smart};
+use crate::helpers::{centered_grid_padding, create_thumbnail, create_video_tile, fmt_num};
 use crate::messages::Message;
 use crate::theme::{rounded_button_style, rounded_combo_box_style, rounded_pick_list_style};
-use crate::widgets::{Wrap, bounceable_scrollable};
+use crate::widgets::{Wrap, bounceable_scrollable, subscribe_button};
 
 /// Render the channel view
 pub fn view(
@@ -43,7 +43,7 @@ pub fn view(
         content = content.push(banner_image);
 
         // Back button, avatar, and channel info on same row
-        let avatar: Element<Message> = if let Some(h) = app.thumbs.get(&channel.id) {
+        let avatar: Element<Message> = if let Some(h) = app.subscription_thumbs.get(&channel.id) {
             Image::new(h.clone()).width(80).height(80).into()
         } else {
             container(iced::widget::space()).width(80).height(80).into()
@@ -62,17 +62,7 @@ pub fn view(
             .iter()
             .any(|c| c.channel_id == channel.id && c.subscribed);
 
-        let subscribe_button = if is_subscribed {
-            button(text("Unsubscribe"))
-                .on_press(Message::UnsubscribeFromChannel(channel.id.clone()))
-                .padding(10)
-                .style(rounded_button_style)
-        } else {
-            button(text("Subscribe"))
-                .on_press(Message::SubscribeToChannel)
-                .padding(10)
-                .style(rounded_button_style)
-        };
+        let sub_button = subscribe_button(is_subscribed, channel.id.clone(), 40.0);
 
         let header = row![
             button(text("← Back"))
@@ -81,7 +71,7 @@ pub fn view(
                 .style(rounded_button_style),
             avatar,
             info_column.padding(10),
-            subscribe_button,
+            sub_button,
         ]
         .spacing(10)
         .align_y(Alignment::Center);
@@ -103,7 +93,7 @@ pub fn view(
         ]
         .spacing(10);
 
-        // Language and Sort controls on the same row
+        // Language and Sort controls
         // Find the auto-detected language name to display in placeholder (O(1) HashMap lookup)
         let auto_detected_name =
             get_language_by_locale(&app.channel_locale.0, &app.channel_locale.1)
@@ -112,7 +102,7 @@ pub fn view(
 
         let placeholder = format!("Auto-detected: {}", auto_detected_name);
 
-        let mut controls_row = row![
+        let language_control = row![
             text("Language:").size(14),
             combo_box(
                 &app.language_combo_state,
@@ -126,15 +116,15 @@ pub fn view(
         .align_y(Center)
         .spacing(10);
 
-        // Add sort dropdown if we have sort filters available
-        if !app.available_sort_filters.is_empty() {
+        // Build sort dropdown if we have sort filters available
+        let sort_control: Option<Element<Message>> = if !app.available_sort_filters.is_empty() {
             let filter_labels: Vec<String> = app
                 .available_sort_filters
                 .iter()
                 .map(|f| f.label.clone())
                 .collect();
 
-            controls_row = controls_row.push(
+            Some(
                 row![
                     text("Sort by:").size(14),
                     pick_list(
@@ -146,24 +136,49 @@ pub fn view(
                     .style(rounded_pick_list_style)
                 ]
                 .spacing(10)
-                .padding(10)
-                .align_y(Alignment::Center),
-            );
+                .align_y(Alignment::Center)
+                .into(),
+            )
+        } else {
+            None
+        };
+
+        // Controls row
+        let mut controls_row = row![language_control].spacing(10);
+        if let Some(sort) = sort_control {
+            controls_row = controls_row.push(sort);
         }
+
+        // Responsive layout: if window is narrow, put controls in a new row with wrap
+        let is_narrow = app.window_width < 800.0;
+
+        let controls_section: Element<Message> = if is_narrow {
+            column![header, tabs, controls_row.wrap()]
+                .spacing(10)
+                .width(Length::Fill)
+                .into()
+        } else {
+            let tabs_and_controls = row![
+                tabs,
+                iced::widget::space::horizontal().width(Length::Fill),
+                controls_row
+            ]
+            .align_y(Alignment::Center);
+            column![header, tabs_and_controls]
+                .spacing(10)
+                .width(Length::Fill)
+                .into()
+        };
 
         // Add controls section with background and 2px bottom border
         let controls_with_border = column![
-            container(row![
-                column![header, tabs].spacing(10).width(Length::Fill),
-                column![iced::widget::space::vertical(), controls_row]
-            ])
-            .padding(10)
-            .height(150)
-            .width(Length::Fill)
-            .style(|theme: &Theme| container::Style {
-                background: Some(iced::Background::Color(theme.palette().background)),
-                ..Default::default()
-            }),
+            container(controls_section)
+                .padding(10)
+                .width(Length::Fill)
+                .style(|theme: &Theme| container::Style {
+                    background: Some(iced::Background::Color(theme.palette().background)),
+                    ..Default::default()
+                }),
             // 2px bottom border line
             container(iced::widget::space())
                 .width(Length::Fill)
@@ -190,8 +205,6 @@ pub fn view(
                 let h = app.thumbs.get(vid)?;
 
                 let thumb = Image::new(h.clone()).width(240).height(135);
-
-                // Create thumbnail
                 let thumb_with_overlay = create_thumbnail(thumb, false, 0);
 
                 let mut meta = vec![];
@@ -201,38 +214,20 @@ pub fn view(
                 if let Some(ref d) = r.duration {
                     meta.push(d.clone());
                 }
-                if let Some(ref p) = r.published_text {
-                    meta.push(p.clone());
-                }
+                let seconds = parse_relative_time(r.published_text.as_deref());
+                meta.push(format_relative_time(seconds));
 
-                let full_title = r.title.clone();
-                let display_title = truncate_title_smart(&r.title, 25, 50);
-
-                let title_widget = iced::widget::tooltip(
-                    text(display_title).size(14),
-                    container(text(full_title))
-                        .style(container::dark)
-                        .padding(10),
-                    iced::widget::tooltip::Position::FollowCursor,
-                );
-
-                let card = column![
+                Some(create_video_tile(
                     thumb_with_overlay,
-                    container(column![title_widget, text(meta.join(" • ")).size(12),].spacing(4))
-                        .padding(8)
-                        .width(240)
-                        .height(Length::Fixed(100.0))
-                ]
-                .spacing(0)
-                .width(240);
-
-                let v = vid.clone();
-                Some(
-                    button(card)
-                        .on_press(Message::PlayVideo(v))
-                        .padding(0)
-                        .into(),
-                )
+                    &r.title,
+                    None,
+                    Some(meta.join(" • ")),
+                    Message::PlayVideo(
+                        vid.clone(),
+                        Some(channel.name.clone()),
+                        Some(channel.id.clone()),
+                    ),
+                ))
             })
             .collect();
 
@@ -295,6 +290,7 @@ pub fn view(
 
             bounceable_scrollable(container(video_content).padding(grid_padding))
                 .id("channel")
+                .visible_scrollbar(app.config.show_scrollbar)
                 .into()
         };
 

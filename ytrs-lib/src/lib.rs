@@ -43,4 +43,4 @@ pub use error::{Error, Result};
 pub use locale_map::{LanguageOption, get_all_languages, get_language_by_locale};
 pub use models::*;
 pub use relative_time::{format_relative_time, parse_relative_time};
-pub use utils::contains_asian_characters;
+pub use utils::{contains_asian_characters, get_hq_thumbnail_url, parse_duration_string};

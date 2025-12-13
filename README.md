@@ -51,7 +51,7 @@ GUI client built with [Iced](https://iced.rs/).
 - Channel browsing (videos/shorts/streams tabs)
 - Local subscriptions with per-channel language preferences (no account required)
 - Sort filters
-- Embedded video player using [iced_video_player](https://github.com/jazzfool/iced_video_player) (GStreamer based)
+- Embedded video player using iceplayer (GStreamer based, forked from [iced_video_player](https://github.com/jazzfool/iced_video_player))
 - Persistent configuration
 - Responsive layout
 - Theme selection (16 themes including Catppuccin, Tokyo Night, Gruvbox, and more)
@@ -69,8 +69,9 @@ GUI client built with [Iced](https://iced.rs/).
 ### Settings View
 ![Settings](ytrs-client/screenshots/4.png)
 ### Video View
-![Video loading](ytrs-client/screenshots/5.png)
-![Video playing](ytrs-client/screenshots/6.png)
+![Video ready](ytrs-client/screenshots/5.png)
+![Video loading](ytrs-client/screenshots/6.png)
+![Video playing](ytrs-client/screenshots/7.png)
 
 ## Dependencies
 
@@ -100,5 +101,3 @@ This project is maintained at [Codeberg](https://codeberg.org/mikklee/ytrs) but 
 ## Development
 
 Parts of this project were built with AI assistance (Claude). Code is reviewed and understood before committing.
-
-ytrs-client uses a [forked](https://github.com/mikklee/iced_video_player/tree/feat/video-from-pipe) version of iced_video_player to support playing the videos. This was specifially configured to work on a Linux desktop using an AMD GPU. You may have to fork that project and make some changes to get it to work with your setup.

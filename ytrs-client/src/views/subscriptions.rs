@@ -116,7 +116,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 .align_x(Center),
         )
         .id("subscriptions-channels")
-        .width(Length::Fixed(190.0));
+        .width(Length::Fixed(190.0))
+        .visible_scrollbar(app.config.show_scrollbar);
 
         // RIGHT COLUMN: Video grid (like search/channel view)
         // Collect all videos with their channel info and sort by publish date (newest first)
@@ -193,7 +194,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
                             &title,
                             channel_info,
                             metadata_text,
-                            Message::PlayVideo(vid.clone()),
+                            Message::PlayVideo(
+                                vid.clone(),
+                                Some(channel_name.clone()),
+                                Some(channel_id.clone()),
+                            ),
                         )
                     })
                     .into(),
@@ -240,6 +245,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 .padding(grid_padding),
             )
             .id("subscriptions-videos")
+            .visible_scrollbar(app.config.show_scrollbar)
             .into()
         };
 

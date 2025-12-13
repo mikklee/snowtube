@@ -1,0 +1,61 @@
+[package]
+name = "iceplayer"
+description = "A video player widget for Iced, forked from iced_video_player"
+homepage = "https://codeberg.org/mikklee/ytrs"
+repository = "https://codeberg.org/mikklee/ytrs"
+readme = "README.md"
+keywords = ["gui", "iced", "video"]
+categories = ["gui", "multimedia"]
+version = "0.3.0"
+authors = ["jazzfool", "mikklee"]
+edition = "2024"
+resolver = "2"
+license = "GPL-3.0 AND MIT/Apache 2.0"
+exclude = [
+    ".media/test.mp4"
+]
+
+[dependencies]
+iced = { version = "0.14", features = ["image", "advanced", "wgpu", "tokio"] }
+iced_wgpu = "0.14"
+gstreamer = "0.23"
+gstreamer-app = "0.23" # appsink
+gstreamer-base = "0.23" # basesrc
+gstreamer-video = "0.23" # VideoMeta
+glib = "0.20" # gobject traits and error type
+log = "0.4"
+thiserror = "1"
+url = "2" # media uri
+bytemuck = { version = "1", features = ["derive"] } # shader uniforms
+tokio = { version = "1", features = ["time", "process", "rt-multi-thread"] } # async loading
+serde_json = "1" # yt-dlp JSON parsing
+tracing = "0.1" # logging
+futures = "0.3" # stream utilities
+
+[package.metadata.nix]
+systems = ["x86_64-linux"]
+app = true
+build = true
+runtimeLibs = [
+    "vulkan-loader",
+    "wayland",
+    "wayland-protocols",
+    "libxkbcommon",
+    "xorg.libX11",
+    "xorg.libXrandr",
+    "xorg.libXi", "gst_all_1.gstreamer", "gst_all_1.gstreamermm", "gst_all_1.gst-plugins-bad", "gst_all_1.gst-plugins-ugly", "gst_all_1.gst-plugins-good", "gst_all_1.gst-plugins-base",
+]
+buildInputs = ["libxkbcommon", "gst_all_1.gstreamer", "gst_all_1.gstreamermm", "gst_all_1.gst-plugins-bad", "gst_all_1.gst-plugins-ugly", "gst_all_1.gst-plugins-good", "gst_all_1.gst-plugins-base"]
+
+[[example]]
+name = "minimal"
+path = "examples/minimal.rs"
+
+[[example]]
+name = "youtube"
+path = "examples/youtube.rs"
+
+[package.metadata.docs.rs]
+rustc-args = ["--cfg", "docsrs"]
+rustdoc-args = ["--cfg", "docsrs"]
+targets = ["wasm32-unknown-unknown"]

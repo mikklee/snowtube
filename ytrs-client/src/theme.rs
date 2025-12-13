@@ -88,6 +88,16 @@ pub fn rounded_button_style(theme: &Theme, status: button::Status) -> button::St
     style
 }
 
+/// Circular button style for icon buttons
+pub fn circular_button_style(theme: &Theme, status: button::Status) -> button::Style {
+    let mut style = button::primary(theme, status);
+    style.border = Border {
+        radius: 50.0.into(),
+        ..style.border
+    };
+    style
+}
+
 /// Rounded text input style with transparent background
 pub fn rounded_text_input_style(theme: &Theme, status: text_input::Status) -> text_input::Style {
     let mut style = text_input::default(theme, status);

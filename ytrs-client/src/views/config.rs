@@ -2,7 +2,7 @@
 
 use iced::{
     Alignment, Background, Color, Element, Length, Theme,
-    widget::{column, combo_box, container, pick_list, row, text},
+    widget::{column, combo_box, container, pick_list, row, text, toggler},
 };
 
 use crate::widgets::bounceable_scrollable;
@@ -111,12 +111,26 @@ pub fn view(app: &App) -> Element<'_, Message> {
     ]
     .spacing(5);
 
+    // Scrollbar Section
+    let scrollbar_section_title = text("Scrollbar").size(20);
+
+    let scrollbar_row = row![
+        text("Show scrollbar").size(14),
+        toggler(app.config.show_scrollbar).on_toggle(Message::ShowScrollbarToggled),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+
+    let scrollbar_section = column![scrollbar_section_title, scrollbar_row,].spacing(15);
+
     let content = column![
         container(
             column![
                 language_section,
                 iced::widget::space::vertical().height(30),
                 theme_section,
+                iced::widget::space::vertical().height(30),
+                scrollbar_section,
             ]
             .padding(20)
         )
@@ -130,5 +144,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
         right: 0.0,
     }))
     .id("config")
+    .visible_scrollbar(app.config.show_scrollbar)
     .into()
 }
