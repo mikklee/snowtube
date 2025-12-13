@@ -1397,6 +1397,31 @@ impl App {
                     Task::done(Message::VideoPlayer(VideoPlayerMessage::SeekRelease)),
                 ])
             }
+            Message::SeekRelative(seconds) => {
+                // Seek relative to current position
+                if let Some(ref state) = self.video_player {
+                    let position = state.position().as_secs_f64();
+                    let duration = state.duration().as_secs_f64();
+                    if duration > 0.0 {
+                        let new_pos = if seconds >= 0 {
+                            (position + seconds as f64).min(duration) / duration
+                        } else {
+                            (position + seconds as f64).max(0.0) / duration
+                        };
+                        return Task::done(Message::SeekTo(new_pos));
+                    }
+                }
+                Task::none()
+            }
+            Message::ExitFullscreen => {
+                // Only exit fullscreen if currently in fullscreen
+                if let Some(ref state) = self.video_player
+                    && state.fullscreen
+                {
+                    return Task::done(Message::VideoPlayer(VideoPlayerMessage::ToggleFullscreen));
+                }
+                Task::none()
+            }
             Message::VideoThumbnailLoaded(result) => {
                 if let Ok(bytes) = result
                     && let Some(ref mut state) = self.video_player
@@ -1539,50 +1564,54 @@ impl App {
             Subscription::none()
         };
 
-        // Video player keyboard shortcuts
-        let video_keys = if let Some(ref state) = self.video_player {
-            let fullscreen = state.fullscreen;
+        // Video player keyboard shortcuts (only active when viewing video)
+        let video_keys = if self.current_view == View::Video
+            && let Some(ref state) = self.video_player
+        {
             let position_ms = state.position().as_millis() as u64;
             let duration_ms = state.duration().as_millis() as u64;
-            iced::keyboard::listen()
-                .with((fullscreen, position_ms, duration_ms))
-                .map(|((fullscreen, position_ms, duration_ms), event)| {
-                    let position = position_ms as f64 / 1000.0;
-                    let duration = duration_ms as f64 / 1000.0;
-                    if let iced::keyboard::Event::KeyPressed { key, .. } = event {
+            event::listen().with((position_ms, duration_ms)).filter_map(
+                |((_position_ms, _duration_ms), ev)| {
+                    if let iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                        key,
+                        modifiers,
+                        ..
+                    }) = ev
+                    {
                         match key {
                             iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) => {
-                                return Message::VideoPlayer(VideoPlayerMessage::TogglePlayPause);
+                                return Some(Message::VideoPlayer(
+                                    VideoPlayerMessage::TogglePlayPause,
+                                ));
                             }
-                            iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape)
-                                if fullscreen =>
-                            {
-                                return Message::VideoPlayer(VideoPlayerMessage::ToggleFullscreen);
-                            }
+                            // Super+F to toggle fullscreen
                             iced::keyboard::Key::Character(ref c)
-                                if fullscreen && c.as_str() == "q" =>
+                                if modifiers.logo() && c.as_str() == "f" =>
                             {
-                                return Message::VideoPlayer(VideoPlayerMessage::ToggleFullscreen);
+                                return Some(Message::VideoPlayer(
+                                    VideoPlayerMessage::ToggleFullscreen,
+                                ));
                             }
-                            // Arrow right: seek forward 5 seconds
+                            // Escape or Q to exit fullscreen
+                            iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) => {
+                                return Some(Message::ExitFullscreen);
+                            }
+                            iced::keyboard::Key::Character(ref c) if c.as_str() == "q" => {
+                                return Some(Message::ExitFullscreen);
+                            }
+                            // Arrow right/left: seek (position calculated in SeekTo handler)
                             iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => {
-                                if duration > 0.0 {
-                                    let new_pos = (position + 5.0).min(duration) / duration;
-                                    return Message::SeekTo(new_pos);
-                                }
+                                return Some(Message::SeekRelative(5));
                             }
-                            // Arrow left: seek backward 5 seconds
                             iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
-                                if duration > 0.0 {
-                                    let new_pos = ((position - 5.0).max(0.0)) / duration;
-                                    return Message::SeekTo(new_pos);
-                                }
+                                return Some(Message::SeekRelative(-5));
                             }
                             _ => {}
                         }
                     }
-                    Message::NoOp
-                })
+                    None
+                },
+            )
         } else {
             Subscription::none()
         };
