@@ -24,7 +24,7 @@ use overlay::{
 };
 
 use iced::widget::{column, container, mouse_area, stack};
-use iced::{Color, Element, Length, Renderer, Subscription, Task, Theme};
+use iced::{Color, Element, Length, Renderer, Subscription, Task, Theme, mouse};
 use std::time::{Duration, Instant};
 
 /// Internal state for the video player widget.
@@ -677,9 +677,15 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
         .into();
 
     // Wrap in mouse area for tracking mouse movement
+    // Hide cursor when controls are hidden (after inactivity)
     let on_mouse_move = on_message.clone();
-    let video_with_mouse =
-        mouse_area(video_widget).on_move(move |_| on_mouse_move(VideoPlayerMessage::MouseMoved));
+    let video_with_mouse = if state.controls_visible {
+        mouse_area(video_widget).on_move(move |_| on_mouse_move(VideoPlayerMessage::MouseMoved))
+    } else {
+        mouse_area(video_widget)
+            .on_move(move |_| on_mouse_move(VideoPlayerMessage::MouseMoved))
+            .interaction(mouse::Interaction::Hidden)
+    };
 
     let mut layers: Vec<Element<'a, Message, Theme, Renderer>> = vec![video_with_mouse.into()];
 
