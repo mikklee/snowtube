@@ -182,27 +182,28 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
     });
 
     let avatar: Element<Message> = if let Some(handle) = avatar_handle {
-        container(Image::new(handle.clone()).width(48).height(48))
-            .style(avatar_style)
-            .into()
+        container(Image::new(handle.clone()).width(48).height(48)).style(avatar_style)
     } else {
         // Placeholder avatar
-        container(iced::widget::space::Space::new().width(48).height(48))
-            .style(|theme: &Theme| container::Style {
+        container(iced::widget::space::Space::new().width(48).height(48)).style(|theme: &Theme| {
+            container::Style {
                 background: Some(iced::Background::Color(theme.palette().primary)),
                 border: Border {
                     radius: 24.0.into(),
                     ..Default::default()
                 },
                 ..Default::default()
-            })
-            .into()
-    };
+            }
+        })
+    }
+    .into();
 
     let title_text = text(title).size(18);
     let channel_text = text(channel_name).size(14);
 
-    let title_column = column![title_text, channel_text].spacing(4);
+    let title_column = column![title_text, channel_text]
+        .spacing(4)
+        .width(Length::Fill);
 
     // Subscribe button - check if subscribed
     let is_subscribed = channel_id.as_ref().map_or(false, |cid| {
@@ -249,14 +250,13 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
         copy_button,
         mpv_button
     ]
-    .spacing(8);
+    .spacing(8)
+    .width(Length::Fixed(200.0));
 
     // Always two rows: title on top, buttons below (right-aligned)
-    let top_row = row![avatar, title_column]
+    let info_content = row![avatar, title_column, action_buttons]
         .spacing(12)
         .align_y(Alignment::Center);
-
-    let info_content: Element<Message> = column![top_row, action_buttons].spacing(12).into();
 
     container(info_content)
         .width(Length::Fixed(video_width))
