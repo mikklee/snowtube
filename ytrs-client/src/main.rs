@@ -1051,6 +1051,12 @@ impl App {
 
                 // If leaving video view, clean up video player
                 if self.current_view == View::Video {
+                    // Abort any in-progress loading
+                    if let Some(ref player) = self.video_player {
+                        if let Some(ref handle) = player.loading_handle {
+                            handle.abort();
+                        }
+                    }
                     self.video_player = None;
                     self.playing_video_id = None;
                 }
@@ -1314,6 +1320,13 @@ impl App {
                 }
                 self.current_view = View::Video;
 
+                // Abort any in-progress loading from the previous player
+                if let Some(ref player) = self.video_player {
+                    if let Some(ref handle) = player.loading_handle {
+                        handle.abort();
+                    }
+                }
+
                 // Create video player state with the new high-level API
                 let source = VideoSource::YouTube(video_id.clone());
                 let mut state = VideoPlayerState::new(source.clone());
@@ -1408,6 +1421,13 @@ impl App {
                 }
                 self.current_view = View::Video;
 
+                // Abort any in-progress loading from the previous player
+                if let Some(ref player) = self.video_player {
+                    if let Some(ref handle) = player.loading_handle {
+                        handle.abort();
+                    }
+                }
+
                 // Create video player state with audio-only source and auto-start loading
                 let source = VideoSource::youtube_audio_only(video_id.clone());
                 let mut state = VideoPlayerState::new(source.clone());
@@ -1420,10 +1440,12 @@ impl App {
                 // Auto-start loading since user clicked from an active video view
                 state.loading = true;
                 state.loading_status = Some("Initializing...".to_string());
+                let (load_task, load_handle) = iceplayer::widget::start_loading(source);
+                state.loading_handle = Some(load_handle);
                 self.video_player = Some(state);
 
                 // Start loading the audio
-                let load_task = iceplayer::widget::start_loading(source).map(Message::VideoPlayer);
+                let load_task = load_task.map(Message::VideoPlayer);
 
                 // Fetch high-res video thumbnail (shows while audio plays)
                 let thumb_task = Task::perform(
@@ -1567,6 +1589,12 @@ impl App {
                 }
             }
             Message::BackFromVideo => {
+                // Abort any in-progress loading
+                if let Some(ref player) = self.video_player {
+                    if let Some(ref handle) = player.loading_handle {
+                        handle.abort();
+                    }
+                }
                 // Clean up video player state
                 self.video_player = None;
                 self.playing_video_id = None;

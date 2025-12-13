@@ -28,7 +28,6 @@ use iced::{Color, Element, Length, Renderer, Subscription, Task, Theme, mouse};
 use std::time::{Duration, Instant};
 
 /// Internal state for the video player widget.
-#[derive(Debug)]
 pub struct VideoPlayerState {
     /// The video source being played.
     pub source: VideoSource,
@@ -60,16 +59,13 @@ pub struct VideoPlayerState {
     pub thumbnail: Option<iced::widget::image::Handle>,
     /// Optional pre-set duration (from video info before loading).
     pub preset_duration: Option<Duration>,
-    /// Unique ID for this player instance.
-    id: u64,
+    /// Handle to abort the loading task.
+    pub loading_handle: Option<iced::task::Handle>,
 }
 
 impl VideoPlayerState {
     /// Create a new video player state for the given source.
     pub fn new(source: VideoSource) -> Self {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-
         Self {
             source,
             video: None,
@@ -86,7 +82,7 @@ impl VideoPlayerState {
             title: None,
             thumbnail: None,
             preset_duration: None,
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            loading_handle: None,
         }
     }
 
@@ -106,11 +102,6 @@ impl VideoPlayerState {
     pub fn with_duration(mut self, duration: Duration) -> Self {
         self.preset_duration = Some(duration);
         self
-    }
-
-    /// Get the unique ID for this player instance.
-    pub fn id(&self) -> u64 {
-        self.id
     }
 
     /// Check if the video is paused.
@@ -167,8 +158,9 @@ pub enum VideoPlayerMessage {
 
 /// Create a Task to start loading a video.
 /// Call this when creating a new VideoPlayerState to initiate loading.
-pub fn start_loading(source: VideoSource) -> Task<VideoPlayerMessage> {
-    Task::run(load_video(source), VideoPlayerMessage::LoadProgress)
+/// Returns the task and an abort handle that can be used to cancel loading.
+pub fn start_loading(source: VideoSource) -> (Task<VideoPlayerMessage>, iced::task::Handle) {
+    Task::run(load_video(source), VideoPlayerMessage::LoadProgress).abortable()
 }
 
 /// Update the video player state based on a message.
@@ -227,7 +219,8 @@ pub fn update(
                 // No video yet, start loading
                 state.loading = true;
                 state.loading_status = Some("Initializing...".to_string());
-                let load_task = start_loading(state.source.clone());
+                let (load_task, handle) = start_loading(state.source.clone());
+                state.loading_handle = Some(handle);
                 (None, load_task)
             } else {
                 // Already loading, do nothing
