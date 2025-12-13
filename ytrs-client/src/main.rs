@@ -1564,11 +1564,12 @@ impl App {
             Subscription::none()
         };
 
-        // Video player keyboard shortcuts (only active when video is loaded and playing)
+        // Video player keyboard shortcuts (only active when video is loaded and actually playing)
         let video_keys = if self.current_view == View::Video
             && let Some(ref state) = self.video_player
             && state.video.is_some()
             && state.started
+            && state.position().as_millis() > 0
         {
             let position_ms = state.position().as_millis() as u64;
             let duration_ms = state.duration().as_millis() as u64;
