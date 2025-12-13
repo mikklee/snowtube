@@ -93,7 +93,7 @@ pub fn view(
         ]
         .spacing(10);
 
-        // Language and Sort controls on the same row
+        // Language and Sort controls
         // Find the auto-detected language name to display in placeholder (O(1) HashMap lookup)
         let auto_detected_name =
             get_language_by_locale(&app.channel_locale.0, &app.channel_locale.1)
@@ -102,7 +102,7 @@ pub fn view(
 
         let placeholder = format!("Auto-detected: {}", auto_detected_name);
 
-        let mut controls_row = row![
+        let language_control = row![
             text("Language:").size(14),
             combo_box(
                 &app.language_combo_state,
@@ -116,15 +116,15 @@ pub fn view(
         .align_y(Center)
         .spacing(10);
 
-        // Add sort dropdown if we have sort filters available
-        if !app.available_sort_filters.is_empty() {
+        // Build sort dropdown if we have sort filters available
+        let sort_control: Option<Element<Message>> = if !app.available_sort_filters.is_empty() {
             let filter_labels: Vec<String> = app
                 .available_sort_filters
                 .iter()
                 .map(|f| f.label.clone())
                 .collect();
 
-            controls_row = controls_row.push(
+            Some(
                 row![
                     text("Sort by:").size(14),
                     pick_list(
@@ -136,24 +136,49 @@ pub fn view(
                     .style(rounded_pick_list_style)
                 ]
                 .spacing(10)
-                .padding(10)
-                .align_y(Alignment::Center),
-            );
+                .align_y(Alignment::Center)
+                .into(),
+            )
+        } else {
+            None
+        };
+
+        // Controls row
+        let mut controls_row = row![language_control].spacing(10);
+        if let Some(sort) = sort_control {
+            controls_row = controls_row.push(sort);
         }
+
+        // Responsive layout: if window is narrow, put controls in a new row with wrap
+        let is_narrow = app.window_width < 800.0;
+
+        let controls_section: Element<Message> = if is_narrow {
+            column![header, tabs, controls_row.wrap()]
+                .spacing(10)
+                .width(Length::Fill)
+                .into()
+        } else {
+            let tabs_and_controls = row![
+                tabs,
+                iced::widget::space::horizontal().width(Length::Fill),
+                controls_row
+            ]
+            .align_y(Alignment::Center);
+            column![header, tabs_and_controls]
+                .spacing(10)
+                .width(Length::Fill)
+                .into()
+        };
 
         // Add controls section with background and 2px bottom border
         let controls_with_border = column![
-            container(row![
-                column![header, tabs].spacing(10).width(Length::Fill),
-                column![iced::widget::space::vertical(), controls_row]
-            ])
-            .padding(10)
-            .height(150)
-            .width(Length::Fill)
-            .style(|theme: &Theme| container::Style {
-                background: Some(iced::Background::Color(theme.palette().background)),
-                ..Default::default()
-            }),
+            container(controls_section)
+                .padding(10)
+                .width(Length::Fill)
+                .style(|theme: &Theme| container::Style {
+                    background: Some(iced::Background::Color(theme.palette().background)),
+                    ..Default::default()
+                }),
             // 2px bottom border line
             container(iced::widget::space())
                 .width(Length::Fill)
