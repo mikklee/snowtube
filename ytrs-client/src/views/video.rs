@@ -4,7 +4,9 @@ use crate::App;
 use crate::helpers::channel_name_button;
 use crate::messages::Message;
 use crate::theme::rounded_button_style;
-use crate::widgets::{ICON_COPY, ICON_PLAY, bounceable_scrollable, icon_button, subscribe_button};
+use crate::widgets::{
+    ICON_COPY, ICON_HEADPHONES, ICON_PLAY, bounceable_scrollable, icon_button, subscribe_button,
+};
 use iced::widget::{Image, button, column, container, row, text};
 use iced::{Alignment, Border, Color, Element, Length, Theme};
 
@@ -214,7 +216,18 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
         iced::widget::space::Space::new().into()
     };
 
-    // Action buttons (Copy URL, Open in MPV)
+    // Action buttons (Audio Only, Copy URL, Open in MPV)
+    let audio_button = icon_button(
+        ICON_HEADPHONES,
+        40.0,
+        "Audio Only",
+        true,
+        Message::PlayAudioOnly(
+            video_id.clone(),
+            app.playing_channel_name.clone(),
+            app.playing_channel_id.clone(),
+        ),
+    );
     let copy_button = icon_button(
         ICON_COPY,
         40.0,
@@ -233,11 +246,12 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
     let action_buttons = row![
         iced::widget::space::Space::new().width(Length::Fill),
         sub_button,
+        audio_button,
         copy_button,
         mpv_button
     ]
     .spacing(8)
-    .width(Length::Fixed(200.0));
+    .width(Length::Fixed(240.0));
 
     // Always two rows: title on top, buttons below (right-aligned)
     let info_content = row![avatar, title_column, action_buttons]

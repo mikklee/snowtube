@@ -1371,6 +1371,101 @@ impl App {
 
                 Task::batch([thumb_task, channel_thumb_task])
             }
+            Message::PlayAudioOnly(video_id, channel_name, channel_id) => {
+                // Similar to PlayVideo but uses audio-only source
+                let video_info = self
+                    .search_results
+                    .iter()
+                    .find(|r| r.video_id.as_ref() == Some(&video_id))
+                    .or_else(|| {
+                        self.channel_results
+                            .iter()
+                            .find(|r| r.video_id.as_ref() == Some(&video_id))
+                    })
+                    .or_else(|| {
+                        self.subscription_videos
+                            .values()
+                            .flatten()
+                            .find(|r| r.video_id.as_ref() == Some(&video_id))
+                    })
+                    .cloned();
+
+                let title = video_info.as_ref().map(|r| r.title.clone());
+                let duration = video_info
+                    .as_ref()
+                    .and_then(|r| r.duration.as_ref())
+                    .and_then(|d| ytrs_lib::parse_duration_string(d));
+
+                self.playing_video_info = video_info;
+                self.playing_channel_name = channel_name;
+                self.playing_channel_id = channel_id.clone();
+                self.playing_video_id = Some(video_id.clone());
+                self.previous_view = self.current_view;
+                self.current_view = View::Video;
+
+                // Create video player state with audio-only source and auto-start loading
+                let source = VideoSource::youtube_audio_only(video_id.clone());
+                let mut state = VideoPlayerState::new(source.clone());
+                if let Some(t) = title {
+                    state = state.with_title(t);
+                }
+                if let Some(d) = duration {
+                    state = state.with_duration(d);
+                }
+                // Auto-start loading since user clicked from an active video view
+                state.loading = true;
+                state.loading_status = Some("Initializing...".to_string());
+                self.video_player = Some(state);
+
+                // Start loading the audio
+                let load_task = iceplayer::widget::start_loading(source).map(Message::VideoPlayer);
+
+                // Fetch high-res video thumbnail (shows while audio plays)
+                let thumb_task = Task::perform(
+                    {
+                        let video_id = video_id.clone();
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client
+                                .fetch_hq_thumbnail(&video_id)
+                                .await
+                                .map_err(|e| e.to_string())
+                        }
+                    },
+                    Message::VideoThumbnailLoaded,
+                );
+
+                // Fetch channel avatar if not already cached
+                let channel_thumb_task = if let Some(ref cid) = channel_id {
+                    if self.thumbs.contains_key(cid) || self.subscription_thumbs.contains_key(cid) {
+                        Task::none()
+                    } else {
+                        let cid_for_async = cid.clone();
+                        let cid_for_msg = cid.clone();
+                        Task::perform(
+                            async move {
+                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                                let channel_info = client
+                                    .get_channel(&cid_for_async)
+                                    .await
+                                    .map_err(|e: ytrs_lib::Error| e.to_string())?;
+                                if let Some(thumb) = channel_info.thumbnails.first() {
+                                    helpers::load_circular_thumb(&thumb.url, 48)
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                } else {
+                                    Err("No channel thumbnail".to_string())
+                                }
+                            },
+                            move |res| Message::ThumbLoaded(cid_for_msg, res),
+                        )
+                    }
+                } else {
+                    Task::none()
+                };
+
+                Task::batch([load_task, thumb_task, channel_thumb_task])
+            }
             Message::VideoPlayer(msg) => {
                 // Delegate to the video player widget's update function
                 if let Some(ref mut state) = self.video_player {

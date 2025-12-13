@@ -28,6 +28,9 @@ pub fn load_video(
             VideoSource::YouTube(video_id) => {
                 load_youtube(&mut sender, &video_id).await;
             }
+            VideoSource::YouTubeAudioOnly(video_id) => {
+                load_youtube_audio_only(&mut sender, &video_id).await;
+            }
             VideoSource::DirectUrl(url) => {
                 load_direct_url(&mut sender, &url).await;
             }
@@ -212,6 +215,108 @@ async fn load_youtube(
             Err(e) => {
                 let _ = sender.send(LoadProgress::Error(e)).await;
             }
+        }
+    }
+}
+
+async fn load_youtube_audio_only(
+    sender: &mut iced::futures::channel::mpsc::Sender<LoadProgress>,
+    video_id: &str,
+) {
+    use iced::futures::SinkExt;
+
+    tracing::info!("load_youtube_audio_only called for video_id: {}", video_id);
+
+    let _ = sender
+        .send(LoadProgress::Status("Fetching audio info...".to_string()))
+        .await;
+
+    let url = format!("https://www.youtube.com/watch?v={}", video_id);
+
+    // Phase 1: Run yt-dlp with audio-only format
+    let yt_dlp_result = tokio::task::spawn_blocking(move || {
+        tracing::info!("Starting yt-dlp (audio-only) for URL: {}", url);
+        let output = std::process::Command::new("yt-dlp")
+            .args(["-f", "bestaudio", "--dump-single-json", &url])
+            .output()
+            .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("yt-dlp failed: {}", stderr));
+        }
+
+        serde_json::from_slice(&output.stdout)
+            .map_err(|e| format!("Failed to parse yt-dlp JSON: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))
+    .and_then(|r| r);
+
+    let json: serde_json::Value = match yt_dlp_result {
+        Ok(j) => j,
+        Err(e) => {
+            let _ = sender.send(LoadProgress::Error(e)).await;
+            return;
+        }
+    };
+
+    // For audio-only, we get the URL directly from the root
+    let audio_url = match json["url"].as_str() {
+        Some(u) => u.to_string(),
+        None => {
+            let _ = sender
+                .send(LoadProgress::Error("No audio URL found".to_string()))
+                .await;
+            return;
+        }
+    };
+
+    let headers: Vec<(String, String)> = json["http_headers"]
+        .as_object()
+        .map(|h| {
+            h.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let _ = sender
+        .send(LoadProgress::Status("Loading audio stream...".to_string()))
+        .await;
+
+    let result = tokio::task::spawn_blocking(move || {
+        let header_refs: Vec<(&str, &str)> = headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        let mut last_error = None;
+        for attempt in 1..=3 {
+            match Video::from_audio_url_only(&audio_url, &header_refs) {
+                Ok(video) => return Ok(Arc::new(video)),
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < 3 {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                    }
+                }
+            }
+        }
+        Err(format!(
+            "Failed after 3 attempts: {:?}",
+            last_error.unwrap()
+        ))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))
+    .and_then(|r| r);
+
+    match result {
+        Ok(video) => {
+            let _ = sender.send(LoadProgress::Done(video)).await;
+        }
+        Err(e) => {
+            let _ = sender.send(LoadProgress::Error(e)).await;
         }
     }
 }

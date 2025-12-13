@@ -344,6 +344,107 @@ impl Video {
         Self::from_gst_pipeline(pipeline, video_sink, None)
     }
 
+    /// Create an audio-only player from a direct audio URL with custom HTTP headers.
+    ///
+    /// This is useful for playing YouTube audio without video (lower bandwidth,
+    /// background listening). No video frames are produced.
+    ///
+    /// # Arguments
+    /// * `audio_url` - The direct audio stream URL
+    /// * `headers` - HTTP headers as key-value pairs (e.g., User-Agent, Accept, etc.)
+    pub fn from_audio_url_only(audio_url: &str, headers: &[(&str, &str)]) -> Result<Self, Error> {
+        gst::init()?;
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
+
+        // Extract User-Agent from headers (YouTube requires this)
+        let user_agent = headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("User-Agent"))
+            .map(|(_, v)| *v)
+            .unwrap_or("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+
+        // Audio-only pipeline: no video processing
+        let pipeline_str = format!(
+            "souphttpsrc name=audiosrc location=\"{audio_url}\" user-agent=\"{user_agent}\" ! \
+             downloadbuffer name=audiobuf max-size-bytes=20971520 max-size-time=60000000000 low-percent=1 high-percent=99 temp-template=/tmp/iced-audio-XXXXXX ! \
+             decodebin name=audiodec ! \
+             audioconvert ! audioresample ! autoaudiosink sync=true",
+        );
+
+        log::info!("Creating audio-only pipeline");
+
+        let pipeline = gst::parse::launch(&pipeline_str)?
+            .downcast::<gst::Pipeline>()
+            .map_err(|_| Error::Cast)?;
+
+        let bus = pipeline.bus().ok_or(Error::Bus)?;
+
+        // We need to ensure we stop the pipeline if we hit an error
+        macro_rules! cleanup {
+            ($expr:expr) => {
+                $expr.map_err(|e| {
+                    let _ = pipeline.set_state(gst::State::Null);
+                    e
+                })
+            };
+        }
+
+        cleanup!(pipeline.set_state(gst::State::Playing))?;
+
+        // Wait for up to 5 seconds until the pipeline is ready
+        cleanup!(pipeline.state(gst::ClockTime::from_seconds(5)).0)?;
+
+        // Get duration (may not be available immediately for streams)
+        let duration = Duration::from_nanos(
+            pipeline
+                .query_duration::<gst::ClockTime>()
+                .map(|duration| duration.nseconds())
+                .unwrap_or(0),
+        );
+
+        // Audio-only: use 1080p dimensions for proper 16:9 aspect ratio
+        let width = 1920;
+        let height = 1080;
+        let framerate = 1.0;
+
+        let sync_av = pipeline.has_property("av-offset", None);
+
+        // Empty frame (no video)
+        let frame = Arc::new(Mutex::new(Frame::empty()));
+        let upload_frame = Arc::new(AtomicBool::new(false));
+        let alive = Arc::new(AtomicBool::new(true));
+        let last_frame_time = Arc::new(Mutex::new(Instant::now()));
+
+        let subtitle_text = Arc::new(Mutex::new(None));
+        let upload_text = Arc::new(AtomicBool::new(false));
+
+        Ok(Video(RwLock::new(Internal {
+            id,
+            bus,
+            source: pipeline,
+            alive,
+            worker: None, // No worker thread needed for audio-only
+            width,
+            height,
+            framerate,
+            duration,
+            speed: 1.0,
+            sync_av,
+            frame,
+            upload_frame,
+            last_frame_time,
+            looping: false,
+            is_eos: false,
+            restart_stream: false,
+            sync_av_avg: 0,
+            sync_av_counter: 0,
+            subtitle_text,
+            upload_text,
+            ytdlp_process: None,
+        })))
+    }
+
     /// Create a new video player that streams from yt-dlp.
     ///
     /// This spawns yt-dlp as a subprocess, streaming video data to stdout,
@@ -931,7 +1032,18 @@ impl Video {
 
     /// Get the media duration.
     pub fn duration(&self) -> Duration {
-        self.read().duration
+        let stored = self.read().duration;
+        if stored > Duration::ZERO {
+            stored
+        } else {
+            // Query dynamically if stored duration is 0 (e.g., audio-only streams)
+            Duration::from_nanos(
+                self.read()
+                    .source
+                    .query_duration::<gst::ClockTime>()
+                    .map_or(0, |d| d.nseconds()),
+            )
+        }
     }
 
     /// Restarts a stream; seeks to the first frame and unpauses, sets the `eos` flag to false.
