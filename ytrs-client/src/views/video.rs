@@ -199,9 +199,29 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
     .into();
 
     let title_text = text(title).size(18);
-    let channel_text = text(channel_name).size(14);
 
-    let title_column = column![title_text, channel_text]
+    // Make channel name clickable if we have a channel_id
+    let channel_element: Element<Message> = if let Some(ref cid) = channel_id {
+        button(text(channel_name).size(14))
+            .on_press(Message::ViewChannel(cid.clone()))
+            .padding(0)
+            .style(|theme: &Theme, status| {
+                let color = match status {
+                    button::Status::Hovered | button::Status::Pressed => theme.palette().primary,
+                    _ => theme.palette().text,
+                };
+                button::Style {
+                    background: None,
+                    text_color: color,
+                    ..Default::default()
+                }
+            })
+            .into()
+    } else {
+        text(channel_name).size(14).into()
+    };
+
+    let title_column = column![title_text, channel_element]
         .spacing(4)
         .width(Length::Fill);
 
