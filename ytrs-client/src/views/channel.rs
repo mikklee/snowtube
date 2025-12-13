@@ -6,10 +6,10 @@ use iced::{
     Element, Length, Theme,
     widget::{Image, button, column, combo_box, container, pick_list, row, text},
 };
-use ytrs_lib::ChannelTab;
+use ytrs_lib::{ChannelTab, format_relative_time, parse_relative_time};
 
 use crate::App;
-use crate::helpers::{centered_grid_padding, create_thumbnail, fmt_num, truncate_title_smart};
+use crate::helpers::{centered_grid_padding, create_thumbnail, create_video_tile, fmt_num};
 use crate::messages::Message;
 use crate::theme::{rounded_button_style, rounded_combo_box_style, rounded_pick_list_style};
 use crate::widgets::{Wrap, bounceable_scrollable};
@@ -190,8 +190,6 @@ pub fn view(
                 let h = app.thumbs.get(vid)?;
 
                 let thumb = Image::new(h.clone()).width(240).height(135);
-
-                // Create thumbnail
                 let thumb_with_overlay = create_thumbnail(thumb, false, 0);
 
                 let mut meta = vec![];
@@ -201,41 +199,20 @@ pub fn view(
                 if let Some(ref d) = r.duration {
                     meta.push(d.clone());
                 }
-                if let Some(ref p) = r.published_text {
-                    meta.push(p.clone());
-                }
+                let seconds = parse_relative_time(r.published_text.as_deref());
+                meta.push(format_relative_time(seconds));
 
-                let full_title = r.title.clone();
-                let display_title = truncate_title_smart(&r.title, 25, 50);
-
-                let title_widget = iced::widget::tooltip(
-                    text(display_title).size(14),
-                    container(text(full_title))
-                        .style(container::dark)
-                        .padding(10),
-                    iced::widget::tooltip::Position::FollowCursor,
-                );
-
-                let card = column![
+                Some(create_video_tile(
                     thumb_with_overlay,
-                    container(column![title_widget, text(meta.join(" • ")).size(12),].spacing(4))
-                        .padding(8)
-                        .width(240)
-                        .height(Length::Fixed(100.0))
-                ]
-                .spacing(0)
-                .width(240);
-
-                Some(
-                    button(card)
-                        .on_press(Message::PlayVideo(
-                            vid.clone(),
-                            Some(channel.name.clone()),
-                            Some(channel.id.clone()),
-                        ))
-                        .padding(0)
-                        .into(),
-                )
+                    &r.title,
+                    None,
+                    Some(meta.join(" • ")),
+                    Message::PlayVideo(
+                        vid.clone(),
+                        Some(channel.name.clone()),
+                        Some(channel.id.clone()),
+                    ),
+                ))
             })
             .collect();
 
