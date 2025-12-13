@@ -1038,9 +1038,6 @@ impl App {
                     }
                 }
 
-                // Remove thumbnail from cache
-                self.subscription_thumbs.remove(&channel_id);
-
                 save_config(self.config.clone())
             }
             Message::SubscriptionChannelThumbLoaded(channel_id, res) => {
