@@ -34,20 +34,12 @@ struct App {
 
 impl App {
     fn new() -> (Self, Task<Message>) {
+        // Get the manifest directory at compile time
+        let media_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".media/test.mp4");
+
         (
             App {
-                video: Video::new(
-                    &url::Url::from_file_path(
-                        std::path::PathBuf::from(file!())
-                            .parent()
-                            .unwrap()
-                            .join("../.media/test.mp4")
-                            .canonicalize()
-                            .unwrap(),
-                    )
-                    .unwrap(),
-                )
-                .unwrap(),
+                video: Video::new(&url::Url::from_file_path(&media_path).unwrap()).unwrap(),
                 position: 0.0,
                 dragging: false,
             },
