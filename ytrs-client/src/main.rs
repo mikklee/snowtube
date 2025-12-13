@@ -5,7 +5,7 @@ mod theme;
 mod views;
 mod widgets;
 
-use iceplayer::{PlayerEvent, VideoPlayerState, VideoSource};
+use iceplayer::{PlayerEvent, VideoPlayerMessage, VideoPlayerState, VideoSource};
 
 use iced::widget::combo_box;
 use iced::{Element, Size, Subscription, Task, Theme, event};
@@ -1530,6 +1530,36 @@ impl App {
             Subscription::none()
         };
 
-        Subscription::batch([events, video_sub])
+        // Video player keyboard shortcuts
+        let video_keys = if let Some(ref state) = self.video_player {
+            let fullscreen = state.fullscreen;
+            iced::keyboard::listen()
+                .with(fullscreen)
+                .map(|(fullscreen, event)| {
+                    if let iced::keyboard::Event::KeyPressed { key, .. } = event {
+                        match key {
+                            iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) => {
+                                return Message::VideoPlayer(VideoPlayerMessage::TogglePlayPause);
+                            }
+                            iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape)
+                                if fullscreen =>
+                            {
+                                return Message::VideoPlayer(VideoPlayerMessage::ToggleFullscreen);
+                            }
+                            iced::keyboard::Key::Character(ref c)
+                                if fullscreen && c.as_str() == "q" =>
+                            {
+                                return Message::VideoPlayer(VideoPlayerMessage::ToggleFullscreen);
+                            }
+                            _ => {}
+                        }
+                    }
+                    Message::NoOp
+                })
+        } else {
+            Subscription::none()
+        };
+
+        Subscription::batch([events, video_sub, video_keys])
     }
 }
