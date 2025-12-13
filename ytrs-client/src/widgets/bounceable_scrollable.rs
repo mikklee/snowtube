@@ -8,7 +8,7 @@ use iced::advanced::{Clipboard, Shell};
 use iced::animation::{Animation, Easing};
 use iced::mouse::{self, Cursor};
 use iced::time::Instant;
-use iced::{Element, Event, Length, Padding, Rectangle, Size, Vector};
+use iced::{Color, Element, Event, Length, Padding, Rectangle, Size, Vector};
 
 /// A scrollable container with elastic bounce at edges
 pub struct BounceableScrollable<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer>
@@ -20,6 +20,7 @@ where
     width: Length,
     height: Length,
     padding: Padding,
+    visible_scrollbar: bool,
 }
 
 impl<'a, Message, Theme, Renderer> BounceableScrollable<'a, Message, Theme, Renderer>
@@ -34,6 +35,7 @@ where
             width: Length::Fill,
             height: Length::Fill,
             padding: Padding::ZERO,
+            visible_scrollbar: true,
         }
     }
 
@@ -61,6 +63,12 @@ where
         self.padding = padding.into();
         self
     }
+
+    /// Sets whether the scrollbar is visible.
+    pub fn visible_scrollbar(mut self, visible: bool) -> Self {
+        self.visible_scrollbar = visible;
+        self
+    }
 }
 
 /// Internal state for the bounceable scrollable
@@ -80,6 +88,10 @@ pub struct State {
     viewport_height: f32,
     /// Scheduled time to start bounce-back animation
     bounce_back_at: Option<Instant>,
+    /// Whether we're currently dragging the scrollbar
+    dragging_scrollbar: bool,
+    /// Y offset within thumb when drag started
+    drag_offset: f32,
 }
 
 impl Default for State {
@@ -92,6 +104,8 @@ impl Default for State {
             content_height: 0.0,
             viewport_height: 0.0,
             bounce_back_at: None,
+            dragging_scrollbar: false,
+            drag_offset: 0.0,
         }
     }
 }
@@ -102,12 +116,53 @@ impl State {
         self.bounce_offset = 0.0;
         self.animation = None;
         self.bounce_back_at = None;
+        self.dragging_scrollbar = false;
+        self.drag_offset = 0.0;
     }
 }
+
+const SCROLLBAR_WIDTH: f32 = 6.0;
+const SCROLLBAR_MARGIN: f32 = 2.0;
+const SCROLLBAR_HIT_WIDTH: f32 = 20.0; // Wider hit area for easier grabbing
+const MIN_THUMB_HEIGHT: f32 = 30.0;
 
 impl State {
     fn max_scroll(&self) -> f32 {
         (self.content_height - self.viewport_height).max(0.0)
+    }
+
+    fn thumb_height(&self) -> f32 {
+        let thumb_ratio = self.viewport_height / self.content_height;
+        (self.viewport_height * thumb_ratio).max(MIN_THUMB_HEIGHT)
+    }
+
+    fn thumb_y(&self, bounds_y: f32) -> f32 {
+        let max_scroll = self.max_scroll();
+        let scroll_progress = if max_scroll > 0.0 {
+            (self.scroll_offset / max_scroll).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let available_track = self.viewport_height - self.thumb_height();
+        bounds_y + scroll_progress * available_track
+    }
+
+    fn scrollbar_hit_bounds(&self, bounds: Rectangle) -> Rectangle {
+        Rectangle {
+            x: bounds.x + bounds.width - SCROLLBAR_HIT_WIDTH,
+            y: bounds.y,
+            width: SCROLLBAR_HIT_WIDTH,
+            height: bounds.height,
+        }
+    }
+
+    fn thumb_bounds(&self, bounds: Rectangle) -> Rectangle {
+        Rectangle {
+            x: bounds.x + bounds.width - SCROLLBAR_WIDTH - SCROLLBAR_MARGIN,
+            y: self.thumb_y(bounds.y),
+            width: SCROLLBAR_WIDTH,
+            height: self.thumb_height(),
+        }
     }
 
     fn at_top(&self) -> bool {
@@ -293,6 +348,72 @@ where
             }
         }
 
+        // Handle scrollbar dragging (only if scrollbar is visible)
+        let is_scrollable = {
+            let state = tree.state.downcast_ref::<State>();
+            state.content_height > state.viewport_height
+        };
+
+        if self.visible_scrollbar && is_scrollable {
+            // Handle mouse button press - start dragging if on scrollbar
+            if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event {
+                if let Some(cursor_pos) = cursor.position() {
+                    let state = tree.state.downcast_mut::<State>();
+                    let thumb = state.thumb_bounds(bounds);
+                    let hit_area = state.scrollbar_hit_bounds(bounds);
+
+                    if thumb.contains(cursor_pos) {
+                        // Clicked on thumb - start dragging
+                        state.dragging_scrollbar = true;
+                        state.drag_offset = cursor_pos.y - thumb.y;
+                        state.bounce_offset = 0.0;
+                        state.animation = None;
+                        shell.request_redraw();
+                        return;
+                    } else if hit_area.contains(cursor_pos) {
+                        // Clicked on track - jump to position
+                        let thumb_height = state.thumb_height();
+                        let available_track = state.viewport_height - thumb_height;
+                        let relative_y = cursor_pos.y - bounds.y - thumb_height / 2.0;
+                        let progress = (relative_y / available_track).clamp(0.0, 1.0);
+                        state.scroll_offset = progress * state.max_scroll();
+                        state.dragging_scrollbar = true;
+                        state.drag_offset = thumb_height / 2.0;
+                        state.bounce_offset = 0.0;
+                        state.animation = None;
+                        shell.request_redraw();
+                        return;
+                    }
+                }
+            }
+
+            // Handle mouse move while dragging
+            if let Event::Mouse(mouse::Event::CursorMoved { .. }) = event {
+                let state = tree.state.downcast_mut::<State>();
+                if state.dragging_scrollbar {
+                    if let Some(cursor_pos) = cursor.position() {
+                        let thumb_height = state.thumb_height();
+                        let available_track = state.viewport_height - thumb_height;
+                        let relative_y = cursor_pos.y - bounds.y - state.drag_offset;
+                        let progress = (relative_y / available_track).clamp(0.0, 1.0);
+                        state.scroll_offset = progress * state.max_scroll();
+                        shell.request_redraw();
+                    }
+                    return;
+                }
+            }
+
+            // Handle mouse button release - stop dragging
+            if let Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) = event {
+                let state = tree.state.downcast_mut::<State>();
+                if state.dragging_scrollbar {
+                    state.dragging_scrollbar = false;
+                    shell.request_redraw();
+                    return;
+                }
+            }
+        }
+
         // Handle scroll wheel - capture this event, don't pass to children
         if let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event
             && cursor.is_over(bounds)
@@ -396,6 +517,28 @@ where
                 );
             });
         });
+
+        // Draw scrollbar if content is scrollable and scrollbar is visible
+        if self.visible_scrollbar && state.content_height > state.viewport_height {
+            let scrollbar_bounds = state.thumb_bounds(bounds);
+
+            // Brighter when dragging for visual feedback
+            let alpha = if state.dragging_scrollbar { 0.6 } else { 0.3 };
+
+            // Draw rounded scrollbar thumb
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: scrollbar_bounds,
+                    border: iced::Border {
+                        radius: (SCROLLBAR_WIDTH / 2.0).into(),
+                        ..Default::default()
+                    },
+                    shadow: Default::default(),
+                    snap: true,
+                },
+                Color::from_rgba(1.0, 1.0, 1.0, alpha),
+            );
+        }
     }
 
     fn mouse_interaction(
@@ -406,6 +549,24 @@ where
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
+        let state = tree.state.downcast_ref::<State>();
+        let bounds = layout.bounds();
+
+        // Show grabbing cursor when dragging scrollbar (only if scrollbar is visible)
+        if self.visible_scrollbar && state.dragging_scrollbar {
+            return mouse::Interaction::Grabbing;
+        }
+
+        // Show grab cursor when hovering over scrollbar (only if scrollbar is visible)
+        if self.visible_scrollbar && state.content_height > state.viewport_height {
+            if let Some(cursor_pos) = cursor.position() {
+                let hit_area = state.scrollbar_hit_bounds(bounds);
+                if hit_area.contains(cursor_pos) {
+                    return mouse::Interaction::Grab;
+                }
+            }
+        }
+
         self.content.as_widget().mouse_interaction(
             &tree.children[0],
             layout.children().next().unwrap(),

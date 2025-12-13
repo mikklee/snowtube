@@ -41,6 +41,7 @@ pub enum Message {
     ConfigLoaded(Result<AppConfig, String>),
     ConfigSaved(Result<(), String>),
     ThemeChanged(AppTheme),
+    ShowScrollbarToggled(bool),
     // Window events
     Resized(f32, f32), // width, height
     // Subscription-related messages

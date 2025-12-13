@@ -298,6 +298,7 @@ pub fn view(
 
             bounceable_scrollable(container(video_content).padding(grid_padding))
                 .id("channel")
+                .visible_scrollbar(app.config.show_scrollbar)
                 .into()
         };
 

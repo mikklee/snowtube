@@ -174,6 +174,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
         bounceable_scrollable(container(search_content).padding(grid_padding))
             .id("search")
+            .visible_scrollbar(app.config.show_scrollbar)
             .into()
     };
 

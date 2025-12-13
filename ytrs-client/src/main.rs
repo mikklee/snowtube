@@ -36,6 +36,20 @@ fn get_language_by_locale(hl: &str, gl: &str) -> Option<&'static LanguageOption>
     map.get(&(hl.to_string(), gl.to_string())).copied()
 }
 
+/// Helper to create a task that saves the config to disk
+fn save_config(config: AppConfig) -> Task<Message> {
+    Task::perform(
+        async move {
+            let new_config = YtrsConfig {
+                config,
+                ..Default::default()
+            };
+            new_config.save().await.map_err(|e| e.to_string())
+        },
+        Message::ConfigSaved,
+    )
+}
+
 fn main() -> iced::Result {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -848,15 +862,7 @@ impl App {
                                 });
                             }
 
-                            // Save config
-                            let new_config = YtrsConfig {
-                                config: self.config.clone(),
-                                ..Default::default()
-                            };
-                            let save_task = Task::perform(
-                                async move { new_config.save().await.map_err(|e| e.to_string()) },
-                                Message::ConfigSaved,
-                            );
+                            let save_task = save_config(self.config.clone());
 
                             self.channel_results.clear();
                             self.channel_continuation = None;
@@ -922,17 +928,7 @@ impl App {
                             self.config.default_language = None;
                         }
 
-                        let config = self.config.clone();
-                        Task::perform(
-                            async move {
-                                let new_config = YtrsConfig {
-                                    config,
-                                    ..Default::default()
-                                };
-                                new_config.save().await.map_err(|e| e.to_string())
-                            },
-                            Message::ConfigSaved,
-                        )
+                        save_config(self.config.clone())
                     }
                     View::Video => {
                         // No action needed for video view
@@ -972,18 +968,11 @@ impl App {
             Message::ThemeChanged(new_theme) => {
                 self.current_theme = new_theme.to_iced_theme();
                 self.config.theme = new_theme;
-
-                let config = self.config.clone();
-                Task::perform(
-                    async move {
-                        let new_config = YtrsConfig {
-                            config,
-                            ..Default::default()
-                        };
-                        new_config.save().await.map_err(|e| e.to_string())
-                    },
-                    Message::ConfigSaved,
-                )
+                save_config(self.config.clone())
+            }
+            Message::ShowScrollbarToggled(show) => {
+                self.config.show_scrollbar = show;
+                save_config(self.config.clone())
             }
             Message::Resized(width, height) => {
                 self.window_width = width;
@@ -1028,16 +1017,7 @@ impl App {
                         self.config.channels.push(channel_config);
                     }
 
-                    // Save config
-                    let new_config = YtrsConfig {
-                        config: self.config.clone(),
-                        ..Default::default()
-                    };
-
-                    return Task::perform(
-                        async move { new_config.save().await.map_err(|e| e.to_string()) },
-                        Message::ConfigSaved,
-                    );
+                    return save_config(self.config.clone());
                 }
                 Task::none()
             }
@@ -1061,16 +1041,7 @@ impl App {
                 // Remove thumbnail from cache
                 self.subscription_thumbs.remove(&channel_id);
 
-                // Save config
-                let new_config = YtrsConfig {
-                    config: self.config.clone(),
-                    ..Default::default()
-                };
-
-                Task::perform(
-                    async move { new_config.save().await.map_err(|e| e.to_string()) },
-                    Message::ConfigSaved,
-                )
+                save_config(self.config.clone())
             }
             Message::SubscriptionChannelThumbLoaded(channel_id, res) => {
                 if let Ok(bytes) = res {

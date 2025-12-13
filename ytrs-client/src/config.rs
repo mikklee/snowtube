@@ -110,6 +110,7 @@ impl From<AppConfigV01> for AppConfig {
         Self {
             default_language: old.default_language,
             theme: old.theme,
+            show_scrollbar: true,
             channels: old
                 .subscriptions
                 .into_iter()
@@ -205,9 +206,16 @@ pub struct AppConfig {
     /// Selected theme
     #[serde(default)]
     pub theme: AppTheme,
+    /// Whether to show scrollbars in scrollable views
+    #[serde(default = "default_show_scrollbar")]
+    pub show_scrollbar: bool,
     /// Saved channel configurations (subscriptions and/or language overrides)
     #[serde(default)]
     pub channels: Vec<ytrs_lib::ChannelConfig>,
+}
+
+fn default_show_scrollbar() -> bool {
+    true
 }
 
 /// Top-level configuration file with version for future migrations
