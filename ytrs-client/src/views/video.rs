@@ -5,7 +5,8 @@ use crate::helpers::channel_name_button;
 use crate::messages::Message;
 use crate::theme::rounded_button_style;
 use crate::widgets::{
-    ICON_COPY, ICON_HEADPHONES, ICON_PLAY, bounceable_scrollable, icon_button, subscribe_button,
+    ICON_COPY, ICON_HEADPHONES, ICON_PLAY, ICON_VIDEO, bounceable_scrollable, icon_button,
+    subscribe_button,
 };
 use iced::widget::{Image, button, column, container, row, text};
 use iced::{Alignment, Border, Color, Element, Length, Theme};
@@ -216,18 +217,40 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
         iced::widget::space::Space::new().into()
     };
 
-    // Action buttons (Audio Only, Copy URL, Open in MPV)
-    let audio_button = icon_button(
-        ICON_HEADPHONES,
-        40.0,
-        "Audio Only",
-        true,
-        Message::PlayAudioOnly(
-            video_id.clone(),
-            app.playing_channel_name.clone(),
-            app.playing_channel_id.clone(),
-        ),
-    );
+    // Action buttons (Audio/Video toggle, Copy URL, Open in MPV)
+    let is_audio_only = app
+        .video_player
+        .as_ref()
+        .map(|p| p.source.is_audio_only())
+        .unwrap_or(false);
+
+    let mode_toggle_button = if is_audio_only {
+        // Currently audio-only, show video button to switch to video
+        icon_button(
+            ICON_VIDEO,
+            40.0,
+            "Switch to Video",
+            true,
+            Message::PlayVideo(
+                video_id.clone(),
+                app.playing_channel_name.clone(),
+                app.playing_channel_id.clone(),
+            ),
+        )
+    } else {
+        // Currently video, show headphones button to switch to audio-only
+        icon_button(
+            ICON_HEADPHONES,
+            40.0,
+            "Audio Only",
+            true,
+            Message::PlayAudioOnly(
+                video_id.clone(),
+                app.playing_channel_name.clone(),
+                app.playing_channel_id.clone(),
+            ),
+        )
+    };
     let copy_button = icon_button(
         ICON_COPY,
         40.0,
@@ -246,7 +269,7 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
     let action_buttons = row![
         iced::widget::space::Space::new().width(Length::Fill),
         sub_button,
-        audio_button,
+        mode_toggle_button,
         copy_button,
         mpv_button
     ]
