@@ -356,34 +356,34 @@ where
 
         if self.visible_scrollbar && is_scrollable {
             // Handle mouse button press - start dragging if on scrollbar
-            if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event {
-                if let Some(cursor_pos) = cursor.position() {
-                    let state = tree.state.downcast_mut::<State>();
-                    let thumb = state.thumb_bounds(bounds);
-                    let hit_area = state.scrollbar_hit_bounds(bounds);
+            if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event
+                && let Some(cursor_pos) = cursor.position()
+            {
+                let state = tree.state.downcast_mut::<State>();
+                let thumb = state.thumb_bounds(bounds);
+                let hit_area = state.scrollbar_hit_bounds(bounds);
 
-                    if thumb.contains(cursor_pos) {
-                        // Clicked on thumb - start dragging
-                        state.dragging_scrollbar = true;
-                        state.drag_offset = cursor_pos.y - thumb.y;
-                        state.bounce_offset = 0.0;
-                        state.animation = None;
-                        shell.request_redraw();
-                        return;
-                    } else if hit_area.contains(cursor_pos) {
-                        // Clicked on track - jump to position
-                        let thumb_height = state.thumb_height();
-                        let available_track = state.viewport_height - thumb_height;
-                        let relative_y = cursor_pos.y - bounds.y - thumb_height / 2.0;
-                        let progress = (relative_y / available_track).clamp(0.0, 1.0);
-                        state.scroll_offset = progress * state.max_scroll();
-                        state.dragging_scrollbar = true;
-                        state.drag_offset = thumb_height / 2.0;
-                        state.bounce_offset = 0.0;
-                        state.animation = None;
-                        shell.request_redraw();
-                        return;
-                    }
+                if thumb.contains(cursor_pos) {
+                    // Clicked on thumb - start dragging
+                    state.dragging_scrollbar = true;
+                    state.drag_offset = cursor_pos.y - thumb.y;
+                    state.bounce_offset = 0.0;
+                    state.animation = None;
+                    shell.request_redraw();
+                    return;
+                } else if hit_area.contains(cursor_pos) {
+                    // Clicked on track - jump to position
+                    let thumb_height = state.thumb_height();
+                    let available_track = state.viewport_height - thumb_height;
+                    let relative_y = cursor_pos.y - bounds.y - thumb_height / 2.0;
+                    let progress = (relative_y / available_track).clamp(0.0, 1.0);
+                    state.scroll_offset = progress * state.max_scroll();
+                    state.dragging_scrollbar = true;
+                    state.drag_offset = thumb_height / 2.0;
+                    state.bounce_offset = 0.0;
+                    state.animation = None;
+                    shell.request_redraw();
+                    return;
                 }
             }
 
@@ -558,12 +558,13 @@ where
         }
 
         // Show grab cursor when hovering over scrollbar (only if scrollbar is visible)
-        if self.visible_scrollbar && state.content_height > state.viewport_height {
-            if let Some(cursor_pos) = cursor.position() {
-                let hit_area = state.scrollbar_hit_bounds(bounds);
-                if hit_area.contains(cursor_pos) {
-                    return mouse::Interaction::Grab;
-                }
+        if self.visible_scrollbar
+            && state.content_height > state.viewport_height
+            && let Some(cursor_pos) = cursor.position()
+        {
+            let hit_area = state.scrollbar_hit_bounds(bounds);
+            if hit_area.contains(cursor_pos) {
+                return mouse::Interaction::Grab;
             }
         }
 

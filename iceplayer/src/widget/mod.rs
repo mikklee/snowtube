@@ -14,7 +14,10 @@ use crate::video::Video;
 use crate::video_player::VideoPlayer;
 use std::sync::Arc;
 
-use controls::{fullscreen_control_bar, loading_control_bar, ready_control_bar, video_control_bar};
+use controls::{
+    ControlBarParams, fullscreen_control_bar, loading_control_bar, ready_control_bar,
+    video_control_bar,
+};
 use overlay::{
     centered_play_button, error_overlay, loading_overlay, loading_placeholder, seeking_overlay,
     title_overlay,
@@ -239,20 +242,20 @@ pub fn update(
             (None, Task::none())
         }
         VideoPlayerMessage::SeekRelease => {
-            if let Some(preview) = state.seek_preview.take() {
-                if let Some(ref video) = state.video {
-                    let duration = video.duration();
-                    let target = Duration::from_secs_f64(duration.as_secs_f64() * preview);
-                    state.seeking = true;
-                    state.seek_target = Some(target);
-                    // Perform the seek
-                    if let Err(e) = video.seek(target, false) {
-                        tracing::error!("Seek failed: {}", e);
-                        state.seeking = false;
-                    }
-                    // Resume playback after seek (SeekComplete will clear seeking state)
-                    video.set_paused(false);
+            if let Some(preview) = state.seek_preview.take()
+                && let Some(ref video) = state.video
+            {
+                let duration = video.duration();
+                let target = Duration::from_secs_f64(duration.as_secs_f64() * preview);
+                state.seeking = true;
+                state.seek_target = Some(target);
+                // Perform the seek
+                if let Err(e) = video.seek(target, false) {
+                    tracing::error!("Seek failed: {}", e);
+                    state.seeking = false;
                 }
+                // Resume playback after seek (SeekComplete will clear seeking state)
+                video.set_paused(false);
             }
             (None, Task::none())
         }
@@ -268,10 +271,11 @@ pub fn update(
         }
         VideoPlayerMessage::ControlsTimeout => {
             // Hide controls if no mouse movement for 3 seconds
-            if let Some(last_move) = state.last_mouse_move {
-                if last_move.elapsed() > Duration::from_secs(3) && !state.is_paused() {
-                    state.controls_visible = false;
-                }
+            if let Some(last_move) = state.last_mouse_move
+                && last_move.elapsed() > Duration::from_secs(3)
+                && !state.is_paused()
+            {
+                state.controls_visible = false;
             }
             (None, Task::none())
         }
@@ -609,10 +613,10 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
         vec![video_with_mouse.into()];
 
     // Title overlay (only show when controls visible)
-    if state.controls_visible {
-        if let Some(ref title) = state.title {
-            video_layers.push(title_overlay(title));
-        }
+    if state.controls_visible
+        && let Some(ref title) = state.title
+    {
+        video_layers.push(title_overlay(title));
     }
 
     // If video hasn't started, show centered play button
@@ -634,17 +638,16 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
 
     // Control bar below video
     let on_seek_preview = on_message.clone();
-    let control_bar = video_control_bar(
-        state.is_paused(),
-        state.position(),
-        state.duration(),
-        state.seek_preview,
-        on_message.clone()(VideoPlayerMessage::TogglePlayPause),
-        move |pos| on_seek_preview(VideoPlayerMessage::SeekPreview(pos)),
-        on_message.clone()(VideoPlayerMessage::SeekRelease),
-        on_message(VideoPlayerMessage::ToggleFullscreen),
-        theme,
-    );
+    let control_bar = video_control_bar(ControlBarParams {
+        is_paused: state.is_paused(),
+        position: state.position(),
+        duration: state.duration(),
+        seek_preview: state.seek_preview,
+        on_toggle_play: on_message.clone()(VideoPlayerMessage::TogglePlayPause),
+        on_seek_preview: Box::new(move |pos| on_seek_preview(VideoPlayerMessage::SeekPreview(pos))),
+        on_seek_release: on_message.clone()(VideoPlayerMessage::SeekRelease),
+        on_toggle_fullscreen: on_message(VideoPlayerMessage::ToggleFullscreen),
+    });
 
     // Stack video and controls vertically
     column![
@@ -681,10 +684,10 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
     let mut layers: Vec<Element<'a, Message, Theme, Renderer>> = vec![video_with_mouse.into()];
 
     // Title overlay (only show when controls visible)
-    if state.controls_visible {
-        if let Some(ref title) = state.title {
-            layers.push(title_overlay(title));
-        }
+    if state.controls_visible
+        && let Some(ref title) = state.title
+    {
+        layers.push(title_overlay(title));
     }
 
     // If video hasn't started, show centered play button
@@ -697,17 +700,18 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
         // Fullscreen control bar at bottom
         let on_seek_preview = on_message.clone();
         layers.push(
-            container(fullscreen_control_bar(
-                state.is_paused(),
-                state.position(),
-                state.duration(),
-                state.seek_preview,
-                on_message.clone()(VideoPlayerMessage::TogglePlayPause),
-                move |pos| on_seek_preview(VideoPlayerMessage::SeekPreview(pos)),
-                on_message.clone()(VideoPlayerMessage::SeekRelease),
-                on_message.clone()(VideoPlayerMessage::ToggleFullscreen),
-                theme,
-            ))
+            container(fullscreen_control_bar(ControlBarParams {
+                is_paused: state.is_paused(),
+                position: state.position(),
+                duration: state.duration(),
+                seek_preview: state.seek_preview,
+                on_toggle_play: on_message.clone()(VideoPlayerMessage::TogglePlayPause),
+                on_seek_preview: Box::new(move |pos| {
+                    on_seek_preview(VideoPlayerMessage::SeekPreview(pos))
+                }),
+                on_seek_release: on_message.clone()(VideoPlayerMessage::SeekRelease),
+                on_toggle_fullscreen: on_message.clone()(VideoPlayerMessage::ToggleFullscreen),
+            }))
             .width(Length::Fill)
             .height(Length::Fill)
             .align_y(iced::alignment::Vertical::Bottom)

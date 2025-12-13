@@ -1389,11 +1389,11 @@ impl App {
                 }
             }
             Message::VideoThumbnailLoaded(result) => {
-                if let Ok(bytes) = result {
-                    if let Some(ref mut state) = self.video_player {
-                        let handle = iced::widget::image::Handle::from_bytes(bytes);
-                        state.thumbnail = Some(handle);
-                    }
+                if let Ok(bytes) = result
+                    && let Some(ref mut state) = self.video_player
+                {
+                    let handle = iced::widget::image::Handle::from_bytes(bytes);
+                    state.thumbnail = Some(handle);
                 }
                 Task::none()
             }
@@ -1483,15 +1483,14 @@ impl App {
         };
 
         // In video view fullscreen, skip the tab bar entirely
-        if self.current_view == View::Video {
-            if let Some(ref state) = self.video_player {
-                if state.fullscreen {
-                    return container(content)
-                        .width(Length::Fill)
-                        .height(Length::Fill)
-                        .into();
-                }
-            }
+        if self.current_view == View::Video
+            && let Some(ref state) = self.video_player
+            && state.fullscreen
+        {
+            return container(content)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into();
         }
 
         // Create iOS-style tab bar at the bottom

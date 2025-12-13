@@ -307,12 +307,12 @@ where
         }
 
         // Check if pending single-click should fire (delay passed without double-click)
-        if let Some(click_time) = state.pending_single_click {
-            if click_time.elapsed() >= Duration::from_millis(DOUBLE_CLICK_MS) {
-                state.pending_single_click = None;
-                if let Some(on_single_click) = self.on_single_click.clone() {
-                    shell.publish(on_single_click);
-                }
+        if let Some(click_time) = state.pending_single_click
+            && click_time.elapsed() >= Duration::from_millis(DOUBLE_CLICK_MS)
+        {
+            state.pending_single_click = None;
+            if let Some(on_single_click) = self.on_single_click.clone() {
+                shell.publish(on_single_click);
             }
         }
 

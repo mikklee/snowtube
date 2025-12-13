@@ -4,11 +4,29 @@ use iced::widget::{button, container, row, slider, text};
 use iced::{Color, Element, Font, Length, Padding, Renderer, Theme};
 use std::time::Duration;
 
+/// Parameters for rendering a control bar
+pub struct ControlBarParams<'a, Message: Clone + 'a> {
+    pub is_paused: bool,
+    pub position: Duration,
+    pub duration: Duration,
+    pub seek_preview: Option<f64>,
+    pub on_toggle_play: Message,
+    pub on_seek_preview: Box<dyn Fn(f64) -> Message + 'a>,
+    pub on_seek_release: Message,
+    pub on_toggle_fullscreen: Message,
+}
+
 /// Nerd Font for icons
 const NERD_FONT: Font = Font {
     family: iced::font::Family::Name("JetBrainsMono Nerd Font"),
     ..Font::DEFAULT
 };
+
+// Icon constants
+const ICON_PLAY: char = '\u{f04b}';
+const ICON_PAUSE: char = '\u{f04c}';
+const ICON_FULLSCREEN: char = '\u{eb4c}';
+const ICON_EXIT_FULLSCREEN: char = '\u{eb4d}';
 
 /// Style for the glass container effect (frosted glass simulation)
 pub fn glass_container_style(theme: &Theme) -> container::Style {
@@ -194,40 +212,37 @@ fn icon_button<'a, Message: Clone + 'a>(
 ///
 /// Layout: |play/pause| 00:00 ----slider---- 00:00 |fullscreen|
 pub fn video_control_bar<'a, Message: Clone + 'a>(
-    is_paused: bool,
-    position: Duration,
-    duration: Duration,
-    seek_preview: Option<f64>,
-    on_toggle_play: Message,
-    on_seek_preview: impl Fn(f64) -> Message + 'a,
-    on_seek_release: Message,
-    on_toggle_fullscreen: Message,
-    _theme: &Theme,
+    params: ControlBarParams<'a, Message>,
 ) -> Element<'a, Message, Theme, Renderer> {
-    let play_pause_icon = if is_paused { '\u{f04b}' } else { '\u{f04c}' }; // play/pause icons
+    let play_pause_icon = if params.is_paused {
+        ICON_PLAY
+    } else {
+        ICON_PAUSE
+    };
 
-    let play_button = icon_button(play_pause_icon, on_toggle_play.clone(), false);
+    let play_button = icon_button(play_pause_icon, params.on_toggle_play.clone(), false);
 
     // Progress calculation
-    let (display_percent, display_position) = if let Some(preview) = seek_preview {
-        let preview_duration = Duration::from_secs_f64(duration.as_secs_f64() * preview);
+    let (display_percent, display_position) = if let Some(preview) = params.seek_preview {
+        let preview_duration = Duration::from_secs_f64(params.duration.as_secs_f64() * preview);
         (preview, preview_duration)
     } else {
-        let progress_percent = if duration.as_secs_f64() > 0.0 {
-            (position.as_secs_f64() / duration.as_secs_f64()).clamp(0.0, 1.0)
+        let progress_percent = if params.duration.as_secs_f64() > 0.0 {
+            (params.position.as_secs_f64() / params.duration.as_secs_f64()).clamp(0.0, 1.0)
         } else {
             0.0
         };
-        (progress_percent, position)
+        (progress_percent, params.position)
     };
 
     // Only enable seeking if video has started playing (position > 0)
-    let can_seek = duration.as_secs_f64() > 0.0 && position.as_millis() > 0;
+    let can_seek = params.duration.as_secs_f64() > 0.0 && params.position.as_millis() > 0;
+    let on_toggle_play = params.on_toggle_play.clone();
 
     let progress_slider: Element<'a, Message, Theme, Renderer> = if can_seek {
-        slider(0.0..=1.0, display_percent, on_seek_preview)
+        slider(0.0..=1.0, display_percent, params.on_seek_preview)
             .step(0.001)
-            .on_release(on_seek_release)
+            .on_release(params.on_seek_release)
             .width(Length::Fill)
             .style(progress_slider_style)
             .into()
@@ -239,8 +254,7 @@ pub fn video_control_bar<'a, Message: Clone + 'a>(
             .into()
     };
 
-    let fullscreen_icon = '\u{eb4c}'; // screen_full (codicon)
-    let fullscreen_button = icon_button(fullscreen_icon, on_toggle_fullscreen, false);
+    let fullscreen_button = icon_button(ICON_FULLSCREEN, params.on_toggle_fullscreen, false);
 
     let controls_row = row![
         play_button,
@@ -248,7 +262,7 @@ pub fn video_control_bar<'a, Message: Clone + 'a>(
             .size(12)
             .width(Length::Shrink),
         progress_slider,
-        text(format_duration(duration))
+        text(format_duration(params.duration))
             .size(12)
             .width(Length::Shrink),
         fullscreen_button,
@@ -273,39 +287,36 @@ pub fn video_control_bar<'a, Message: Clone + 'a>(
 ///
 /// Layout: |play/pause| 00:00 ----slider---- 00:00 |exit fullscreen|
 pub fn fullscreen_control_bar<'a, Message: Clone + 'a>(
-    is_paused: bool,
-    position: Duration,
-    duration: Duration,
-    seek_preview: Option<f64>,
-    on_toggle_play: Message,
-    on_seek_preview: impl Fn(f64) -> Message + 'a,
-    on_seek_release: Message,
-    on_toggle_fullscreen: Message,
-    _theme: &Theme,
+    params: ControlBarParams<'a, Message>,
 ) -> Element<'a, Message, Theme, Renderer> {
-    let play_pause_icon = if is_paused { '\u{f04b}' } else { '\u{f04c}' };
+    let play_pause_icon = if params.is_paused {
+        ICON_PLAY
+    } else {
+        ICON_PAUSE
+    };
 
-    let play_button = icon_button(play_pause_icon, on_toggle_play.clone(), false);
+    let play_button = icon_button(play_pause_icon, params.on_toggle_play.clone(), false);
 
     // Progress calculation
-    let (display_percent, display_position) = if let Some(preview) = seek_preview {
-        let preview_duration = Duration::from_secs_f64(duration.as_secs_f64() * preview);
+    let (display_percent, display_position) = if let Some(preview) = params.seek_preview {
+        let preview_duration = Duration::from_secs_f64(params.duration.as_secs_f64() * preview);
         (preview, preview_duration)
     } else {
-        let progress_percent = if duration.as_secs_f64() > 0.0 {
-            (position.as_secs_f64() / duration.as_secs_f64()).clamp(0.0, 1.0)
+        let progress_percent = if params.duration.as_secs_f64() > 0.0 {
+            (params.position.as_secs_f64() / params.duration.as_secs_f64()).clamp(0.0, 1.0)
         } else {
             0.0
         };
-        (progress_percent, position)
+        (progress_percent, params.position)
     };
 
-    let can_seek = duration.as_secs_f64() > 0.0 && position.as_millis() > 0;
+    let can_seek = params.duration.as_secs_f64() > 0.0 && params.position.as_millis() > 0;
+    let on_toggle_play = params.on_toggle_play.clone();
 
     let progress_slider: Element<'a, Message, Theme, Renderer> = if can_seek {
-        slider(0.0..=1.0, display_percent, on_seek_preview)
+        slider(0.0..=1.0, display_percent, params.on_seek_preview)
             .step(0.001)
-            .on_release(on_seek_release)
+            .on_release(params.on_seek_release)
             .width(Length::Fill)
             .style(progress_slider_style)
             .into()
@@ -316,8 +327,7 @@ pub fn fullscreen_control_bar<'a, Message: Clone + 'a>(
             .into()
     };
 
-    let exit_fullscreen_icon = '\u{eb4d}'; // screen_normal (codicon)
-    let fullscreen_button = icon_button(exit_fullscreen_icon, on_toggle_fullscreen, false);
+    let fullscreen_button = icon_button(ICON_EXIT_FULLSCREEN, params.on_toggle_fullscreen, false);
 
     let controls_row = row![
         play_button,
@@ -326,7 +336,7 @@ pub fn fullscreen_control_bar<'a, Message: Clone + 'a>(
             .color(Color::WHITE)
             .width(Length::Shrink),
         progress_slider,
-        text(format_duration(duration))
+        text(format_duration(params.duration))
             .size(12)
             .color(Color::WHITE)
             .width(Length::Shrink),
@@ -355,7 +365,7 @@ pub fn loading_control_bar<'a, Message: Clone + 'a>(
     on_toggle_fullscreen: Message,
     _theme: &Theme,
 ) -> Element<'a, Message, Theme, Renderer> {
-    let play_button = icon_button('\u{f04b}', on_toggle_play.clone(), true);
+    let play_button = icon_button(ICON_PLAY, on_toggle_play.clone(), true);
 
     let progress_slider: Element<'a, Message, Theme, Renderer> =
         slider(0.0..=1.0, 0.0, move |_| on_toggle_play.clone())
@@ -363,7 +373,7 @@ pub fn loading_control_bar<'a, Message: Clone + 'a>(
             .style(progress_slider_style)
             .into();
 
-    let fullscreen_button = icon_button('\u{eb4c}', on_toggle_fullscreen, true); // screen_full (codicon)
+    let fullscreen_button = icon_button(ICON_FULLSCREEN, on_toggle_fullscreen, true);
 
     let controls_row = row![
         play_button,
@@ -398,7 +408,7 @@ pub fn ready_control_bar<'a, Message: Clone + 'a>(
     on_toggle_fullscreen: Message,
     _theme: &Theme,
 ) -> Element<'a, Message, Theme, Renderer> {
-    let play_button = icon_button('\u{f04b}', on_start_playback.clone(), false); // play enabled
+    let play_button = icon_button(ICON_PLAY, on_start_playback.clone(), false);
 
     // Disabled slider at position 0
     let progress_slider: Element<'a, Message, Theme, Renderer> =
@@ -407,7 +417,7 @@ pub fn ready_control_bar<'a, Message: Clone + 'a>(
             .style(progress_slider_style)
             .into();
 
-    let fullscreen_button = icon_button('\u{eb4c}', on_toggle_fullscreen, false); // screen_full (codicon)
+    let fullscreen_button = icon_button(ICON_FULLSCREEN, on_toggle_fullscreen, false);
 
     let controls_row = row![
         play_button,
