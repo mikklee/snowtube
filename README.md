@@ -55,7 +55,7 @@ GUI client built with [Iced](https://iced.rs/).
 - Keyboard shortcuts for video playback:
   - `Space` - play/pause
   - `Arrow Left/Right` - seek backward/forward 5 seconds
-  - `Super+F` - toggle fullscreen
+  - `F` - toggle fullscreen
   - `Escape` or `Q` - exit fullscreen
 - Persistent configuration
 - Responsive layout

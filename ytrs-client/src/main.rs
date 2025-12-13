@@ -1573,9 +1573,7 @@ impl App {
             event::listen().with((position_ms, duration_ms)).filter_map(
                 |((_position_ms, _duration_ms), ev)| {
                     if let iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
-                        key,
-                        modifiers,
-                        ..
+                        key, ..
                     }) = ev
                     {
                         match key {
@@ -1584,10 +1582,8 @@ impl App {
                                     VideoPlayerMessage::TogglePlayPause,
                                 ));
                             }
-                            // Super+F to toggle fullscreen
-                            iced::keyboard::Key::Character(ref c)
-                                if modifiers.logo() && c.as_str() == "f" =>
-                            {
+                            // F to toggle fullscreen
+                            iced::keyboard::Key::Character(ref c) if c.as_str() == "f" => {
                                 return Some(Message::VideoPlayer(
                                     VideoPlayerMessage::ToggleFullscreen,
                                 ));
