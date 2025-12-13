@@ -1,6 +1,7 @@
 //! Video player view
 
 use crate::App;
+use crate::helpers::channel_name_button;
 use crate::messages::Message;
 use crate::theme::rounded_button_style;
 use crate::widgets::{ICON_COPY, ICON_PLAY, bounceable_scrollable, icon_button};
@@ -199,27 +200,7 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
     .into();
 
     let title_text = text(title).size(18);
-
-    // Make channel name clickable if we have a channel_id
-    let channel_element: Element<Message> = if let Some(ref cid) = channel_id {
-        button(text(channel_name).size(14))
-            .on_press(Message::ViewChannel(cid.clone()))
-            .padding(0)
-            .style(|theme: &Theme, status| {
-                let color = match status {
-                    button::Status::Hovered | button::Status::Pressed => theme.palette().primary,
-                    _ => theme.palette().text,
-                };
-                button::Style {
-                    background: None,
-                    text_color: color,
-                    ..Default::default()
-                }
-            })
-            .into()
-    } else {
-        text(channel_name).size(14).into()
-    };
+    let channel_element = channel_name_button(channel_name, channel_id.clone());
 
     let title_column = column![title_text, channel_element]
         .spacing(4)

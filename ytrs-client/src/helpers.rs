@@ -3,7 +3,7 @@
 use iced::Padding;
 use iced::{
     Alignment, Color, Element, Task, Theme,
-    widget::{Image, column, container, stack, text},
+    widget::{Image, button, column, container, stack, text},
 };
 use std::path::PathBuf;
 use ytrs_lib::SearchResult;
@@ -287,6 +287,58 @@ pub struct ChannelInfo {
     pub on_press: Option<Message>,
 }
 
+/// Style for channel name buttons - consistent across all views
+pub fn channel_button_style(theme: &Theme, status: button::Status) -> button::Style {
+    match status {
+        button::Status::Active => match theme {
+            // For some themes the text blends with the background
+            Theme::SolarizedDark
+            | Theme::SolarizedLight
+            | Theme::TokyoNightStorm
+            | Theme::TokyoNight => button::Style {
+                text_color: Color::WHITE,
+                ..Default::default()
+            },
+            _ => button::Style {
+                text_color: theme.palette().text,
+                ..Default::default()
+            },
+        },
+        button::Status::Hovered => button::Style {
+            text_color: theme.palette().success,
+            ..Default::default()
+        },
+        button::Status::Pressed => button::Style {
+            text_color: theme.palette().text,
+            ..Default::default()
+        },
+        button::Status::Disabled => button::Style {
+            text_color: theme.palette().background,
+            ..Default::default()
+        },
+    }
+}
+
+/// Create a clickable channel name button
+pub fn channel_name_button<'a>(
+    name: impl Into<String>,
+    channel_id: Option<String>,
+) -> Element<'a, Message> {
+    use iced::widget::{button, text};
+
+    let name_str = name.into();
+
+    if let Some(cid) = channel_id {
+        button(text(name_str).size(14))
+            .on_press(Message::ViewChannel(cid))
+            .padding(0)
+            .style(channel_button_style)
+            .into()
+    } else {
+        text(name_str).size(14).into()
+    }
+}
+
 /// Create a video tile with thumbnail, title, channel, and metadata
 pub fn create_video_tile<'a>(
     thumbnail: Element<'a, Message>,
@@ -320,35 +372,7 @@ pub fn create_video_tile<'a>(
         if let Some(msg) = ch.on_press {
             info_col = info_col.push(
                 button(ch.name)
-                    .style(|theme: &Theme, status| match status {
-                        button::Status::Active => match theme {
-                            // For some of the themes the text ends up blending with the background.
-                            // So, we have to override the text_color.
-                            Theme::SolarizedDark
-                            | Theme::SolarizedLight
-                            | Theme::TokyoNightStorm
-                            | Theme::TokyoNight => button::Style {
-                                text_color: Color::WHITE,
-                                ..Default::default()
-                            },
-                            _other => button::Style {
-                                text_color: theme.palette().text,
-                                ..Default::default()
-                            },
-                        },
-                        button::Status::Hovered => button::Style {
-                            text_color: theme.palette().success,
-                            ..Default::default()
-                        },
-                        button::Status::Pressed => button::Style {
-                            text_color: theme.palette().text,
-                            ..Default::default()
-                        },
-                        button::Status::Disabled => button::Style {
-                            text_color: theme.palette().background,
-                            ..Default::default()
-                        },
-                    })
+                    .style(channel_button_style)
                     .padding(0)
                     .on_press(msg),
             );
