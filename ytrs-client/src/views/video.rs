@@ -3,7 +3,7 @@
 use crate::App;
 use crate::messages::Message;
 use crate::theme::rounded_button_style;
-use crate::widgets::{ICON_COPY, ICON_PLAY, icon_button};
+use crate::widgets::{ICON_COPY, ICON_PLAY, bounceable_scrollable, icon_button};
 use iced::widget::{Image, button, column, container, row, text};
 use iced::{Alignment, Border, Color, Element, Length, Theme};
 
@@ -109,7 +109,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             // Windowed: back button, video player, info box below
             let info_box = build_info_box(app, video_width);
 
-            column![
+            let content = column![
                 back_row,
                 container(
                     column![video_player, info_box]
@@ -120,14 +120,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 .padding(iced::Padding {
                     top: 100.0,
                     right: 0.0,
-                    bottom: 0.0,
+                    bottom: 100.0,
                     left: 0.0,
                 })
             ]
             .spacing(0)
             .align_x(Alignment::Center)
-            .width(Length::Fill)
-            .into()
+            .width(Length::Fill);
+
+            bounceable_scrollable(content)
+                .id("video")
+                .visible_scrollbar(app.config.show_scrollbar)
+                .into()
         }
     } else {
         // No video player state - show back button
