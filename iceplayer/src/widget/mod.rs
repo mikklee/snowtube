@@ -235,6 +235,9 @@ pub fn update(
         }
         VideoPlayerMessage::SeekPreview(position) => {
             state.seek_preview = Some(position);
+            // Show controls and reset timeout when seeking
+            state.controls_visible = true;
+            state.last_mouse_move = Some(Instant::now());
             // Pause while seeking for smoother experience
             if let Some(ref video) = state.video {
                 video.set_paused(true);

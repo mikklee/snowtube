@@ -1388,6 +1388,15 @@ impl App {
                     Task::none()
                 }
             }
+            Message::SeekTo(position) => {
+                // Seek by setting preview position and releasing
+                Task::batch([
+                    Task::done(Message::VideoPlayer(VideoPlayerMessage::SeekPreview(
+                        position,
+                    ))),
+                    Task::done(Message::VideoPlayer(VideoPlayerMessage::SeekRelease)),
+                ])
+            }
             Message::VideoThumbnailLoaded(result) => {
                 if let Ok(bytes) = result
                     && let Some(ref mut state) = self.video_player
@@ -1533,9 +1542,13 @@ impl App {
         // Video player keyboard shortcuts
         let video_keys = if let Some(ref state) = self.video_player {
             let fullscreen = state.fullscreen;
+            let position_ms = state.position().as_millis() as u64;
+            let duration_ms = state.duration().as_millis() as u64;
             iced::keyboard::listen()
-                .with(fullscreen)
-                .map(|(fullscreen, event)| {
+                .with((fullscreen, position_ms, duration_ms))
+                .map(|((fullscreen, position_ms, duration_ms), event)| {
+                    let position = position_ms as f64 / 1000.0;
+                    let duration = duration_ms as f64 / 1000.0;
                     if let iced::keyboard::Event::KeyPressed { key, .. } = event {
                         match key {
                             iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) => {
@@ -1550,6 +1563,20 @@ impl App {
                                 if fullscreen && c.as_str() == "q" =>
                             {
                                 return Message::VideoPlayer(VideoPlayerMessage::ToggleFullscreen);
+                            }
+                            // Arrow right: seek forward 5 seconds
+                            iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => {
+                                if duration > 0.0 {
+                                    let new_pos = (position + 5.0).min(duration) / duration;
+                                    return Message::SeekTo(new_pos);
+                                }
+                            }
+                            // Arrow left: seek backward 5 seconds
+                            iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
+                                if duration > 0.0 {
+                                    let new_pos = ((position - 5.0).max(0.0)) / duration;
+                                    return Message::SeekTo(new_pos);
+                                }
                             }
                             _ => {}
                         }

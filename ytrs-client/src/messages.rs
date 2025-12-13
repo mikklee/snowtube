@@ -65,4 +65,5 @@ pub enum Message {
     BackFromVideo,                                     // Navigate back from video view
     LaunchInMpv(String),                               // Launch video in mpv (video_id)
     CopyVideoUrl(String),                              // Copy video URL to clipboard
+    SeekTo(f64),                                       // Seek to position (0.0 to 1.0)
 }
