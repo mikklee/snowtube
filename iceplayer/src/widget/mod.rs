@@ -235,6 +235,9 @@ pub fn update(
         }
         VideoPlayerMessage::SeekPreview(position) => {
             state.seek_preview = Some(position);
+            // Show controls and reset timeout when seeking
+            state.controls_visible = true;
+            state.last_mouse_move = Some(Instant::now());
             // Pause while seeking for smoother experience
             if let Some(ref video) = state.video {
                 video.set_paused(true);
@@ -625,6 +628,9 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
             on_message.clone()(VideoPlayerMessage::StartPlayback),
             theme,
         ));
+    } else if state.position().as_millis() == 0 {
+        // Video started but waiting for first frame
+        video_layers.push(loading_overlay(Some("Starting..."), theme));
     }
 
     // Seeking overlay
@@ -702,6 +708,9 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
             on_message.clone()(VideoPlayerMessage::StartPlayback),
             theme,
         ));
+    } else if state.position().as_millis() == 0 {
+        // Video started but waiting for first frame
+        layers.push(loading_overlay(Some("Starting..."), theme));
     } else if state.controls_visible {
         // Fullscreen control bar at bottom
         let on_seek_preview = on_message.clone();

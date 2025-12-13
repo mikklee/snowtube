@@ -5,7 +5,7 @@ mod theme;
 mod views;
 mod widgets;
 
-use iceplayer::{PlayerEvent, VideoPlayerState, VideoSource};
+use iceplayer::{PlayerEvent, VideoPlayerMessage, VideoPlayerState, VideoSource};
 
 use iced::widget::combo_box;
 use iced::{Element, Size, Subscription, Task, Theme, event};
@@ -1388,6 +1388,40 @@ impl App {
                     Task::none()
                 }
             }
+            Message::SeekTo(position) => {
+                // Seek by setting preview position and releasing
+                Task::batch([
+                    Task::done(Message::VideoPlayer(VideoPlayerMessage::SeekPreview(
+                        position,
+                    ))),
+                    Task::done(Message::VideoPlayer(VideoPlayerMessage::SeekRelease)),
+                ])
+            }
+            Message::SeekRelative(seconds) => {
+                // Seek relative to current position
+                if let Some(ref state) = self.video_player {
+                    let position = state.position().as_secs_f64();
+                    let duration = state.duration().as_secs_f64();
+                    if duration > 0.0 {
+                        let new_pos = if seconds >= 0 {
+                            (position + seconds as f64).min(duration) / duration
+                        } else {
+                            (position + seconds as f64).max(0.0) / duration
+                        };
+                        return Task::done(Message::SeekTo(new_pos));
+                    }
+                }
+                Task::none()
+            }
+            Message::ExitFullscreen => {
+                // Only exit fullscreen if currently in fullscreen
+                if let Some(ref state) = self.video_player
+                    && state.fullscreen
+                {
+                    return Task::done(Message::VideoPlayer(VideoPlayerMessage::ToggleFullscreen));
+                }
+                Task::none()
+            }
             Message::VideoThumbnailLoaded(result) => {
                 if let Ok(bytes) = result
                     && let Some(ref mut state) = self.video_player
@@ -1530,6 +1564,57 @@ impl App {
             Subscription::none()
         };
 
-        Subscription::batch([events, video_sub])
+        // Video player keyboard shortcuts (only active when video is loaded and actually playing)
+        let video_keys = if self.current_view == View::Video
+            && let Some(ref state) = self.video_player
+            && state.video.is_some()
+            && state.started
+            && state.position().as_millis() > 0
+        {
+            let position_ms = state.position().as_millis() as u64;
+            let duration_ms = state.duration().as_millis() as u64;
+            event::listen().with((position_ms, duration_ms)).filter_map(
+                |((_position_ms, _duration_ms), ev)| {
+                    if let iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                        key, ..
+                    }) = ev
+                    {
+                        match key {
+                            iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) => {
+                                return Some(Message::VideoPlayer(
+                                    VideoPlayerMessage::TogglePlayPause,
+                                ));
+                            }
+                            // F to toggle fullscreen
+                            iced::keyboard::Key::Character(ref c) if c.as_str() == "f" => {
+                                return Some(Message::VideoPlayer(
+                                    VideoPlayerMessage::ToggleFullscreen,
+                                ));
+                            }
+                            // Escape or Q to exit fullscreen
+                            iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) => {
+                                return Some(Message::ExitFullscreen);
+                            }
+                            iced::keyboard::Key::Character(ref c) if c.as_str() == "q" => {
+                                return Some(Message::ExitFullscreen);
+                            }
+                            // Arrow right/left: seek (position calculated in SeekTo handler)
+                            iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => {
+                                return Some(Message::SeekRelative(5));
+                            }
+                            iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
+                                return Some(Message::SeekRelative(-5));
+                            }
+                            _ => {}
+                        }
+                    }
+                    None
+                },
+            )
+        } else {
+            Subscription::none()
+        };
+
+        Subscription::batch([events, video_sub, video_keys])
     }
 }
