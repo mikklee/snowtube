@@ -1308,7 +1308,10 @@ impl App {
                 self.playing_channel_id = channel_id.clone();
 
                 self.playing_video_id = Some(video_id.clone());
-                self.previous_view = self.current_view;
+                // Only update previous_view if we're not already in Video view
+                if self.current_view != View::Video {
+                    self.previous_view = self.current_view;
+                }
                 self.current_view = View::Video;
 
                 // Create video player state with the new high-level API
@@ -1399,7 +1402,10 @@ impl App {
                 self.playing_channel_name = channel_name;
                 self.playing_channel_id = channel_id.clone();
                 self.playing_video_id = Some(video_id.clone());
-                self.previous_view = self.current_view;
+                // Only update previous_view if we're not already in Video view
+                if self.current_view != View::Video {
+                    self.previous_view = self.current_view;
+                }
                 self.current_view = View::Video;
 
                 // Create video player state with audio-only source and auto-start loading
