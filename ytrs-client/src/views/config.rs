@@ -6,6 +6,7 @@ use iced::{
 };
 
 use crate::widgets::bounceable_scrollable;
+use iceplayer::AudioVisualizer;
 use strum::IntoEnumIterator;
 
 use crate::App;
@@ -123,6 +124,38 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let scrollbar_section = column![scrollbar_section_title, scrollbar_row,].spacing(15);
 
+    // Audio Visualizer Section
+    let visualizer_section_title = text("Audio Visualizer").size(20);
+
+    let visualizer_explanation = text(
+        "Choose the visualizer style for audio-only playback mode. \
+         The visualizer will be displayed over the video thumbnail.",
+    )
+    .size(14);
+
+    let visualizer_options: Vec<AudioVisualizer> = AudioVisualizer::iter().collect();
+    let visualizer_row = row![
+        text("Visualizer:").size(14),
+        pick_list(
+            visualizer_options,
+            Some(app.config.audio_visualizer),
+            Message::AudioVisualizerChanged
+        )
+        .padding(5)
+        .style(rounded_pick_list_style)
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+
+    let visualizer_section = column![
+        visualizer_section_title,
+        iced::widget::space::vertical().height(10),
+        visualizer_explanation,
+        iced::widget::space::vertical().height(20),
+        visualizer_row,
+    ]
+    .spacing(5);
+
     let content = column![
         container(
             column![
@@ -131,6 +164,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 theme_section,
                 iced::widget::space::vertical().height(30),
                 scrollbar_section,
+                iced::widget::space::vertical().height(30),
+                visualizer_section,
             ]
             .padding(20)
         )

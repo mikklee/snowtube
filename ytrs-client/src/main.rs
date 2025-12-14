@@ -973,6 +973,10 @@ impl App {
                 self.config.show_scrollbar = show;
                 save_config(self.config.clone())
             }
+            Message::AudioVisualizerChanged(visualizer) => {
+                self.config.audio_visualizer = visualizer;
+                save_config(self.config.clone())
+            }
             Message::Resized(width, height) => {
                 self.window_width = width;
                 self.window_height = height;
@@ -1329,7 +1333,8 @@ impl App {
 
                 // Create video player state with the new high-level API
                 let source = VideoSource::YouTube(video_id.clone());
-                let mut state = VideoPlayerState::new(source.clone());
+                let mut state = VideoPlayerState::new(source.clone())
+                    .with_visualizer(self.config.audio_visualizer);
                 if let Some(t) = title {
                     state = state.with_title(t);
                 }
@@ -1430,7 +1435,8 @@ impl App {
 
                 // Create video player state with audio-only source and auto-start loading
                 let source = VideoSource::youtube_audio_only(video_id.clone());
-                let mut state = VideoPlayerState::new(source.clone());
+                let mut state = VideoPlayerState::new(source.clone())
+                    .with_visualizer(self.config.audio_visualizer);
                 if let Some(t) = title {
                     state = state.with_title(t);
                 }

@@ -9,6 +9,9 @@ use tokio::fs;
 
 use crate::theme::AppTheme;
 
+// Re-export AudioVisualizer from iceplayer
+pub use iceplayer::AudioVisualizer;
+
 /// Macro to extract field names from any struct at compile time
 /// Usage: field_name!(YtrsConfig, version) returns "version"
 /// The macro ensures at compile time that the field actually exists
@@ -111,6 +114,7 @@ impl From<AppConfigV01> for AppConfig {
             default_language: old.default_language,
             theme: old.theme,
             show_scrollbar: true,
+            audio_visualizer: AudioVisualizer::default(),
             channels: old
                 .subscriptions
                 .into_iter()
@@ -209,6 +213,9 @@ pub struct AppConfig {
     /// Whether to show scrollbars in scrollable views
     #[serde(default = "default_show_scrollbar")]
     pub show_scrollbar: bool,
+    /// Audio visualizer style for audio-only playback
+    #[serde(default)]
+    pub audio_visualizer: AudioVisualizer,
     /// Saved channel configurations (subscriptions and/or language overrides)
     #[serde(default)]
     pub channels: Vec<ytrs_lib::ChannelConfig>,

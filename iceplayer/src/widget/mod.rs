@@ -8,11 +8,12 @@ pub mod overlay;
 pub mod spinner;
 
 use crate::event::PlayerEvent;
+use crate::led_visualizer::LedVisualizer;
 use crate::loader::{LoadProgress, load_video};
 use crate::source::VideoSource;
 use crate::video::Video;
 use crate::video_player::VideoPlayer;
-use crate::visualizer::Visualizer;
+use crate::visualizer::{AudioVisualizer, Visualizer};
 use std::sync::Arc;
 
 use controls::{
@@ -62,6 +63,8 @@ pub struct VideoPlayerState {
     pub preset_duration: Option<Duration>,
     /// Handle to abort the loading task.
     pub loading_handle: Option<iced::task::Handle>,
+    /// Audio visualizer style for audio-only mode.
+    pub visualizer: AudioVisualizer,
 }
 
 impl VideoPlayerState {
@@ -84,7 +87,14 @@ impl VideoPlayerState {
             thumbnail: None,
             preset_duration: None,
             loading_handle: None,
+            visualizer: AudioVisualizer::default(),
         }
+    }
+
+    /// Set the audio visualizer style.
+    pub fn with_visualizer(mut self, visualizer: AudioVisualizer) -> Self {
+        self.visualizer = visualizer;
+        self
     }
 
     /// Set the title to display.
@@ -633,14 +643,29 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
                 let spectrum = video.spectrum();
                 let time = state.position().as_secs_f32();
                 let primary_color = theme.palette().primary;
-                video_layers.push(
-                    Visualizer::new(spectrum)
-                        .time(time)
-                        .color(primary_color)
-                        .width(Length::Fixed(scaled_width))
-                        .height(Length::Fixed(scaled_height))
-                        .into(),
-                );
+                let visualizer_element: Option<Element<'a, Message, Theme, Renderer>> =
+                    match state.visualizer {
+                        AudioVisualizer::Disabled => None,
+                        AudioVisualizer::PlasmaGlobe => Some(
+                            Visualizer::new(spectrum)
+                                .time(time)
+                                .color(primary_color)
+                                .width(Length::Fixed(scaled_width))
+                                .height(Length::Fixed(scaled_height))
+                                .into(),
+                        ),
+                        AudioVisualizer::LedSpectrum => Some(
+                            LedVisualizer::new(spectrum)
+                                .time(time)
+                                .color(primary_color)
+                                .width(Length::Fixed(scaled_width))
+                                .height(Length::Fixed(scaled_height))
+                                .into(),
+                        ),
+                    };
+                if let Some(element) = visualizer_element {
+                    video_layers.push(element);
+                }
             }
         }
     }
@@ -748,14 +773,29 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
                 let spectrum = video.spectrum();
                 let time = state.position().as_secs_f32();
                 let primary_color = theme.palette().primary;
-                layers.push(
-                    Visualizer::new(spectrum)
-                        .time(time)
-                        .color(primary_color)
-                        .width(Length::Fixed(available_width))
-                        .height(Length::Fixed(available_height))
-                        .into(),
-                );
+                let visualizer_element: Option<Element<'a, Message, Theme, Renderer>> =
+                    match state.visualizer {
+                        AudioVisualizer::Disabled => None,
+                        AudioVisualizer::PlasmaGlobe => Some(
+                            Visualizer::new(spectrum)
+                                .time(time)
+                                .color(primary_color)
+                                .width(Length::Fixed(available_width))
+                                .height(Length::Fixed(available_height))
+                                .into(),
+                        ),
+                        AudioVisualizer::LedSpectrum => Some(
+                            LedVisualizer::new(spectrum)
+                                .time(time)
+                                .color(primary_color)
+                                .width(Length::Fixed(available_width))
+                                .height(Length::Fixed(available_height))
+                                .into(),
+                        ),
+                    };
+                if let Some(element) = visualizer_element {
+                    layers.push(element);
+                }
             }
         }
     }

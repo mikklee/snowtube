@@ -2,6 +2,7 @@
 
 use crate::config::AppConfig;
 use crate::theme::AppTheme;
+use iceplayer::AudioVisualizer;
 use iceplayer::{PlayerEvent, VideoPlayerMessage};
 use ytrs_lib::{ChannelInfo, ChannelTab, ChannelVideos, SearchResults};
 
@@ -42,6 +43,7 @@ pub enum Message {
     ConfigSaved(Result<(), String>),
     ThemeChanged(AppTheme),
     ShowScrollbarToggled(bool),
+    AudioVisualizerChanged(AudioVisualizer),
     // Window events
     Resized(f32, f32), // width, height
     // Subscription-related messages
