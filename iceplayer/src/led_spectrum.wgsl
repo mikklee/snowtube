@@ -94,8 +94,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
 
     // Number of LED bands and segments
-    let bands = 30.0;
-    let segs = 40.0;
+    let bands = 90.0;
+    let segs = 120.0;
 
     // Quantize coordinates to create LED grid
     var p: vec2<f32>;

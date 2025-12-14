@@ -759,10 +759,11 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
                     iced::widget::image(thumbnail.clone())
                         .width(Length::Fill)
                         .height(Length::Fill)
-                        .content_fit(iced::ContentFit::Cover),
+                        .content_fit(iced::ContentFit::Contain),
                 )
                 .width(Length::Fixed(available_width))
                 .height(Length::Fixed(available_height))
+                .center(Length::Fill)
                 .into(),
             );
         }
