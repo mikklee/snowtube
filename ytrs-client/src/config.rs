@@ -360,6 +360,7 @@ mod tests {
                 }]
                 .to_vec(),
                 show_scrollbar: true,
+                audio_visualizer: AudioVisualizer::LedSpectrum,
             },
         };
 
