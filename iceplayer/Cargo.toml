@@ -31,6 +31,9 @@ tokio = { version = "1", features = ["time", "process", "rt-multi-thread"] } # a
 serde_json = "1" # yt-dlp JSON parsing
 tracing = "0.1" # logging
 futures = "0.3" # stream utilities
+serde = { version = "1", features = ["derive"] } # serialization
+strum = { version = "0.27", features = ["derive"] } # enum utilities
+iced_font_awesome = "0.4"
 
 [package.metadata.nix]
 systems = ["x86_64-linux"]

@@ -38,8 +38,10 @@ impl App {
             .unwrap_or_else(|| "dQw4w9WgXcQ".to_string()); // Default: Rick Astley
 
         let source = VideoSource::YouTube(video_id.clone());
-        let state =
+        let mut state =
             VideoPlayerState::new(source.clone()).with_title(format!("Video: {}", video_id));
+        let (load_task, load_handle) = widget::start_loading(source);
+        state.loading_handle = Some(load_handle);
 
         (
             Self {
@@ -48,7 +50,7 @@ impl App {
                 window_height: 720.0,
             },
             // Start loading the video
-            widget::start_loading(source).map(Message::VideoPlayer),
+            load_task.map(Message::VideoPlayer),
         )
     }
 

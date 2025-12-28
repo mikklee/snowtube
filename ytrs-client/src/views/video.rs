@@ -4,7 +4,10 @@ use crate::App;
 use crate::helpers::channel_name_button;
 use crate::messages::Message;
 use crate::theme::rounded_button_style;
-use crate::widgets::{ICON_COPY, ICON_PLAY, bounceable_scrollable, icon_button, subscribe_button};
+use crate::widgets::{
+    bounceable_scrollable, icon_button, icon_copy, icon_headphones, icon_play, icon_video,
+    subscribe_button,
+};
 use iced::widget::{Image, button, column, container, row, text};
 use iced::{Alignment, Border, Color, Element, Length, Theme};
 
@@ -214,30 +217,61 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
         iced::widget::space::Space::new().into()
     };
 
-    // Action buttons (Copy URL, Open in MPV)
+    // Action buttons (Audio/Video toggle, Copy URL, Open in MPV)
+    let is_audio_only = app
+        .video_player
+        .as_ref()
+        .map(|p| p.source.is_audio_only())
+        .unwrap_or(false);
+
+    let icon_size = 20.0;
+    let mode_toggle_button = if is_audio_only {
+        // Currently audio-only, show video button to switch to video
+        icon_button(
+            icon_video(icon_size).into(),
+            40.0,
+            "Switch to Video",
+            Message::PlayVideo(
+                video_id.clone(),
+                app.playing_channel_name.clone(),
+                app.playing_channel_id.clone(),
+            ),
+        )
+    } else {
+        // Currently video, show headphones button to switch to audio-only
+        icon_button(
+            icon_headphones(icon_size).into(),
+            40.0,
+            "Audio Only",
+            Message::PlayAudioOnly(
+                video_id.clone(),
+                app.playing_channel_name.clone(),
+                app.playing_channel_id.clone(),
+            ),
+        )
+    };
     let copy_button = icon_button(
-        ICON_COPY,
+        icon_copy(icon_size).into(),
         40.0,
         "Copy URL",
-        true,
         Message::CopyVideoUrl(video_id.clone()),
     );
     let mpv_button = icon_button(
-        ICON_PLAY,
+        icon_play(icon_size).into(),
         40.0,
         "Open in MPV",
-        true,
         Message::LaunchInMpv(video_id),
     );
 
     let action_buttons = row![
         iced::widget::space::Space::new().width(Length::Fill),
         sub_button,
+        mode_toggle_button,
         copy_button,
         mpv_button
     ]
     .spacing(8)
-    .width(Length::Fixed(200.0));
+    .width(Length::Fixed(240.0));
 
     // Always two rows: title on top, buttons below (right-aligned)
     let info_content = row![avatar, title_column, action_buttons]

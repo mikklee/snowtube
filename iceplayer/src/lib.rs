@@ -32,11 +32,13 @@
 //! ```
 
 mod event;
+mod led_visualizer;
 mod loader;
 mod pipeline;
 mod source;
 mod video;
 mod video_player;
+mod visualizer;
 pub mod widget;
 
 use gstreamer as gst;
@@ -47,7 +49,9 @@ pub use video::Video;
 pub use video_player::VideoPlayer;
 
 pub use event::PlayerEvent;
+pub use led_visualizer::LedVisualizer;
 pub use source::VideoSource;
+pub use visualizer::{AudioVisualizer, Visualizer};
 pub use widget::{VideoPlayerMessage, VideoPlayerState, start_loading};
 
 #[derive(Debug, Error)]

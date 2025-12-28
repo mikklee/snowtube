@@ -1,7 +1,8 @@
 //! Video control bar with play/pause, progress slider, time display, and fullscreen toggle.
 
 use iced::widget::{button, container, row, slider, text};
-use iced::{Color, Element, Font, Length, Padding, Renderer, Theme};
+use iced::{Color, Element, Length, Padding, Renderer, Theme};
+use iced_font_awesome::fa_icon_solid;
 use std::time::Duration;
 
 /// Parameters for rendering a control bar
@@ -16,17 +17,33 @@ pub struct ControlBarParams<'a, Message: Clone + 'a> {
     pub on_toggle_fullscreen: Message,
 }
 
-/// Nerd Font for icons
-const NERD_FONT: Font = Font {
-    family: iced::font::Family::Name("JetBrainsMono Nerd Font"),
-    ..Font::DEFAULT
-};
+pub fn play_button<'a, Message: Clone + 'a>(
+    on_press: Message,
+    disabled: bool,
+) -> Element<'a, Message, Theme, Renderer> {
+    icon_button("play", on_press, disabled)
+}
 
-// Icon constants
-const ICON_PLAY: char = '\u{f04b}';
-const ICON_PAUSE: char = '\u{f04c}';
-const ICON_FULLSCREEN: char = '\u{eb4c}';
-const ICON_EXIT_FULLSCREEN: char = '\u{eb4d}';
+pub fn pause_button<'a, Message: Clone + 'a>(
+    on_press: Message,
+    disabled: bool,
+) -> Element<'a, Message, Theme, Renderer> {
+    icon_button("pause", on_press, disabled)
+}
+
+pub fn fullscreen_button<'a, Message: Clone + 'a>(
+    on_press: Message,
+    disabled: bool,
+) -> Element<'a, Message, Theme, Renderer> {
+    icon_button("expand", on_press, disabled)
+}
+
+pub fn exit_fullscreen_button<'a, Message: Clone + 'a>(
+    on_press: Message,
+    disabled: bool,
+) -> Element<'a, Message, Theme, Renderer> {
+    icon_button("compress", on_press, disabled)
+}
 
 /// Style for the glass container effect (frosted glass simulation)
 pub fn glass_container_style(theme: &Theme) -> container::Style {
@@ -185,16 +202,15 @@ pub fn format_duration(duration: Duration) -> String {
     }
 }
 
-/// Create an icon button
 fn icon_button<'a, Message: Clone + 'a>(
-    icon: char,
+    icon_name: &'static str,
     message: Message,
     disabled: bool,
 ) -> Element<'a, Message, Theme, Renderer> {
-    let icon_text = text(icon.to_string()).size(20.0).font(NERD_FONT);
+    let icon = fa_icon_solid(icon_name).size(20.0);
 
     let btn = button(
-        container(icon_text)
+        container(icon)
             .padding(Padding::new(8.0))
             .center_x(Length::Shrink)
             .center_y(Length::Shrink),
@@ -214,14 +230,6 @@ fn icon_button<'a, Message: Clone + 'a>(
 pub fn video_control_bar<'a, Message: Clone + 'a>(
     params: ControlBarParams<'a, Message>,
 ) -> Element<'a, Message, Theme, Renderer> {
-    let play_pause_icon = if params.is_paused {
-        ICON_PLAY
-    } else {
-        ICON_PAUSE
-    };
-
-    let play_button = icon_button(play_pause_icon, params.on_toggle_play.clone(), false);
-
     // Progress calculation
     let (display_percent, display_position) = if let Some(preview) = params.seek_preview {
         let preview_duration = Duration::from_secs_f64(params.duration.as_secs_f64() * preview);
@@ -247,17 +255,18 @@ pub fn video_control_bar<'a, Message: Clone + 'a>(
             .style(progress_slider_style)
             .into()
     } else {
-        // Disabled slider
         slider(0.0..=1.0, display_percent, move |_| on_toggle_play.clone())
             .width(Length::Fill)
             .style(progress_slider_style)
             .into()
     };
 
-    let fullscreen_button = icon_button(ICON_FULLSCREEN, params.on_toggle_fullscreen, false);
-
     let controls_row = row![
-        play_button,
+        if params.is_paused {
+            play_button(params.on_toggle_play.clone(), false)
+        } else {
+            pause_button(params.on_toggle_play.clone(), false)
+        },
         text(format_duration(display_position))
             .size(12)
             .width(Length::Shrink),
@@ -265,7 +274,7 @@ pub fn video_control_bar<'a, Message: Clone + 'a>(
         text(format_duration(params.duration))
             .size(12)
             .width(Length::Shrink),
-        fullscreen_button,
+        fullscreen_button(params.on_toggle_fullscreen, false),
     ]
     .spacing(8)
     .align_y(iced::Alignment::Center)
@@ -289,14 +298,6 @@ pub fn video_control_bar<'a, Message: Clone + 'a>(
 pub fn fullscreen_control_bar<'a, Message: Clone + 'a>(
     params: ControlBarParams<'a, Message>,
 ) -> Element<'a, Message, Theme, Renderer> {
-    let play_pause_icon = if params.is_paused {
-        ICON_PLAY
-    } else {
-        ICON_PAUSE
-    };
-
-    let play_button = icon_button(play_pause_icon, params.on_toggle_play.clone(), false);
-
     // Progress calculation
     let (display_percent, display_position) = if let Some(preview) = params.seek_preview {
         let preview_duration = Duration::from_secs_f64(params.duration.as_secs_f64() * preview);
@@ -327,10 +328,12 @@ pub fn fullscreen_control_bar<'a, Message: Clone + 'a>(
             .into()
     };
 
-    let fullscreen_button = icon_button(ICON_EXIT_FULLSCREEN, params.on_toggle_fullscreen, false);
-
     let controls_row = row![
-        play_button,
+        if params.is_paused {
+            play_button(params.on_toggle_play.clone(), false)
+        } else {
+            pause_button(params.on_toggle_play.clone(), false)
+        },
         text(format_duration(display_position))
             .size(12)
             .color(Color::WHITE)
@@ -340,7 +343,7 @@ pub fn fullscreen_control_bar<'a, Message: Clone + 'a>(
             .size(12)
             .color(Color::WHITE)
             .width(Length::Shrink),
-        fullscreen_button,
+        exit_fullscreen_button(params.on_toggle_fullscreen, false),
     ]
     .spacing(8)
     .align_y(iced::Alignment::Center)
@@ -365,24 +368,21 @@ pub fn loading_control_bar<'a, Message: Clone + 'a>(
     on_toggle_fullscreen: Message,
     _theme: &Theme,
 ) -> Element<'a, Message, Theme, Renderer> {
-    let play_button = icon_button(ICON_PLAY, on_toggle_play.clone(), true);
-
+    let play_btn = play_button(on_toggle_play.clone(), true);
     let progress_slider: Element<'a, Message, Theme, Renderer> =
         slider(0.0..=1.0, 0.0, move |_| on_toggle_play.clone())
             .width(Length::Fill)
             .style(progress_slider_style)
             .into();
 
-    let fullscreen_button = icon_button(ICON_FULLSCREEN, on_toggle_fullscreen, true);
-
     let controls_row = row![
-        play_button,
+        play_btn,
         text("00:00").size(12).width(Length::Shrink),
         progress_slider,
         text(format_duration(duration))
             .size(12)
             .width(Length::Shrink),
-        fullscreen_button,
+        fullscreen_button(on_toggle_fullscreen, true),
     ]
     .spacing(8)
     .align_y(iced::Alignment::Center)
@@ -408,25 +408,21 @@ pub fn ready_control_bar<'a, Message: Clone + 'a>(
     on_toggle_fullscreen: Message,
     _theme: &Theme,
 ) -> Element<'a, Message, Theme, Renderer> {
-    let play_button = icon_button(ICON_PLAY, on_start_playback.clone(), false);
-
-    // Disabled slider at position 0
+    let play_btn = play_button(on_start_playback.clone(), false);
     let progress_slider: Element<'a, Message, Theme, Renderer> =
         slider(0.0..=1.0, 0.0, move |_| on_start_playback.clone())
             .width(Length::Fill)
             .style(progress_slider_style)
             .into();
 
-    let fullscreen_button = icon_button(ICON_FULLSCREEN, on_toggle_fullscreen, false);
-
     let controls_row = row![
-        play_button,
+        play_btn,
         text("00:00").size(12).width(Length::Shrink),
         progress_slider,
         text(format_duration(duration))
             .size(12)
             .width(Length::Shrink),
-        fullscreen_button,
+        fullscreen_button(on_toggle_fullscreen, false),
     ]
     .spacing(8)
     .align_y(iced::Alignment::Center)

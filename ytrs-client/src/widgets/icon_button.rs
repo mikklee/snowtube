@@ -2,56 +2,50 @@
 
 use crate::messages::Message;
 use crate::theme::circular_button_style;
+use crate::widgets::icons::{icon_refresh, icon_star, icon_star_outline};
 use iced::widget::{button, container, text, tooltip};
 use iced::{Element, Length, Theme};
-
-use super::icons::NERD_FONT;
-
-// Star icons for subscribe button
-const STAR_OUTLINE: char = '\u{2606}'; // ☆
-const STAR_FILLED: char = '\u{2605}'; // ★
+use iced_font_awesome::Icon;
 
 /// Creates a circular icon button with a tooltip
 ///
-/// - `icon`: The icon character to display
+/// - `icon`: The icon element to display
 /// - `size`: Button size (width and height)
 /// - `tooltip_text`: Text to show on hover
-/// - `use_nerd_font`: Whether to use Nerd Font (false uses default font for Unicode symbols)
 /// - `on_press`: Message to emit when clicked
 pub fn icon_button<'a, Message: Clone + 'a>(
-    icon: char,
+    icon: Element<'a, Message, Theme>,
     size: f32,
     tooltip_text: &'a str,
-    use_nerd_font: bool,
     on_press: Message,
 ) -> Element<'a, Message, Theme> {
-    let icon_size = size * 0.5;
-    let inner_size = size * 0.5;
-
-    let icon_text = if use_nerd_font {
-        text(icon.to_string()).size(icon_size).font(NERD_FONT)
-    } else {
-        text(icon.to_string()).size(icon_size)
-    };
+    let button_content = container(icon)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center(Length::Fill);
 
     tooltip(
-        button(
-            container(icon_text)
-                .width(inner_size)
-                .height(inner_size)
-                .center_x(Length::Fill)
-                .center_y(Length::Fill),
-        )
-        .width(size)
-        .height(size)
-        .on_press(on_press)
-        .style(circular_button_style),
+        button(button_content)
+            .width(size)
+            .height(size)
+            .on_press(on_press)
+            .style(circular_button_style),
         container(text(tooltip_text))
             .style(container::dark)
             .padding(6),
         tooltip::Position::Top,
     )
     .into()
+}
+
+pub fn gen_icon_button(
+    size: f32,
+    icon_fn: fn(f32) -> Icon<'static, Theme>,
+    tooltip: &'static str,
+    message: Message,
+) -> Element<'static, Message, Theme> {
+    let icon_size = size * 0.5;
+    icon_button(icon_fn(icon_size).into(), size, tooltip, message)
 }
 
 /// Creates a subscribe/unsubscribe button with star icon
@@ -64,14 +58,28 @@ pub fn subscribe_button(
     channel_id: String,
     size: f32,
 ) -> Element<'static, Message, Theme> {
-    let (icon, tip, msg) = if is_subscribed {
-        (
-            STAR_FILLED,
+    if is_subscribed {
+        gen_icon_button(
+            size,
+            icon_star,
             "Unsubscribe",
             Message::UnsubscribeFromChannel(channel_id),
         )
     } else {
-        (STAR_OUTLINE, "Subscribe", Message::SubscribeToChannel)
-    };
-    icon_button(icon, size, tip, false, msg)
+        gen_icon_button(
+            size,
+            icon_star_outline,
+            "Subscribe",
+            Message::SubscribeToChannel,
+        )
+    }
+}
+
+pub fn refresh_subs_button(size: f32) -> Element<'static, Message, Theme> {
+    gen_icon_button(
+        size,
+        icon_refresh,
+        "Refresh subscriptions",
+        Message::RefreshSubscriptionVideos,
+    )
 }

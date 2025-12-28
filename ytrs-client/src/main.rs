@@ -64,7 +64,6 @@ fn main() -> iced::Result {
         .subscription(App::subscription)
         .font(include_bytes!("../fonts/Inter-Regular.ttf"))
         .font(include_bytes!("../fonts/MPLUSRounded1c-Regular.ttf"))
-        .font(include_bytes!("../fonts/JetBrainsMonoNerdFont-Regular.ttf"))
         .default_font(iced::Font {
             family: iced::font::Family::Name("Rounded Mplus 1c"),
             ..iced::Font::DEFAULT
@@ -974,6 +973,10 @@ impl App {
                 self.config.show_scrollbar = show;
                 save_config(self.config.clone())
             }
+            Message::AudioVisualizerChanged(visualizer) => {
+                self.config.audio_visualizer = visualizer;
+                save_config(self.config.clone())
+            }
             Message::Resized(width, height) => {
                 self.window_width = width;
                 self.window_height = height;
@@ -1052,6 +1055,12 @@ impl App {
 
                 // If leaving video view, clean up video player
                 if self.current_view == View::Video {
+                    // Abort any in-progress loading
+                    if let Some(ref player) = self.video_player {
+                        if let Some(ref handle) = player.loading_handle {
+                            handle.abort();
+                        }
+                    }
                     self.video_player = None;
                     self.playing_video_id = None;
                 }
@@ -1309,12 +1318,23 @@ impl App {
                 self.playing_channel_id = channel_id.clone();
 
                 self.playing_video_id = Some(video_id.clone());
-                self.previous_view = self.current_view;
+                // Only update previous_view if we're not already in Video view
+                if self.current_view != View::Video {
+                    self.previous_view = self.current_view;
+                }
                 self.current_view = View::Video;
+
+                // Abort any in-progress loading from the previous player
+                if let Some(ref player) = self.video_player {
+                    if let Some(ref handle) = player.loading_handle {
+                        handle.abort();
+                    }
+                }
 
                 // Create video player state with the new high-level API
                 let source = VideoSource::YouTube(video_id.clone());
-                let mut state = VideoPlayerState::new(source.clone());
+                let mut state = VideoPlayerState::new(source.clone())
+                    .with_visualizer(self.config.audio_visualizer);
                 if let Some(t) = title {
                     state = state.with_title(t);
                 }
@@ -1370,6 +1390,114 @@ impl App {
                 };
 
                 Task::batch([thumb_task, channel_thumb_task])
+            }
+            Message::PlayAudioOnly(video_id, channel_name, channel_id) => {
+                // Similar to PlayVideo but uses audio-only source
+                let video_info = self
+                    .search_results
+                    .iter()
+                    .find(|r| r.video_id.as_ref() == Some(&video_id))
+                    .or_else(|| {
+                        self.channel_results
+                            .iter()
+                            .find(|r| r.video_id.as_ref() == Some(&video_id))
+                    })
+                    .or_else(|| {
+                        self.subscription_videos
+                            .values()
+                            .flatten()
+                            .find(|r| r.video_id.as_ref() == Some(&video_id))
+                    })
+                    .cloned();
+
+                let title = video_info.as_ref().map(|r| r.title.clone());
+                let duration = video_info
+                    .as_ref()
+                    .and_then(|r| r.duration.as_ref())
+                    .and_then(|d| ytrs_lib::parse_duration_string(d));
+
+                self.playing_video_info = video_info;
+                self.playing_channel_name = channel_name;
+                self.playing_channel_id = channel_id.clone();
+                self.playing_video_id = Some(video_id.clone());
+                // Only update previous_view if we're not already in Video view
+                if self.current_view != View::Video {
+                    self.previous_view = self.current_view;
+                }
+                self.current_view = View::Video;
+
+                // Abort any in-progress loading from the previous player
+                if let Some(ref player) = self.video_player {
+                    if let Some(ref handle) = player.loading_handle {
+                        handle.abort();
+                    }
+                }
+
+                // Create video player state with audio-only source and auto-start loading
+                let source = VideoSource::youtube_audio_only(video_id.clone());
+                let mut state = VideoPlayerState::new(source.clone())
+                    .with_visualizer(self.config.audio_visualizer);
+                if let Some(t) = title {
+                    state = state.with_title(t);
+                }
+                if let Some(d) = duration {
+                    state = state.with_duration(d);
+                }
+                // Auto-start loading since user clicked from an active video view
+                state.loading = true;
+                state.loading_status = Some("Initializing...".to_string());
+                let (load_task, load_handle) = iceplayer::widget::start_loading(source);
+                state.loading_handle = Some(load_handle);
+                self.video_player = Some(state);
+
+                // Start loading the audio
+                let load_task = load_task.map(Message::VideoPlayer);
+
+                // Fetch high-res video thumbnail (shows while audio plays)
+                let thumb_task = Task::perform(
+                    {
+                        let video_id = video_id.clone();
+                        async move {
+                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                            client
+                                .fetch_hq_thumbnail(&video_id)
+                                .await
+                                .map_err(|e| e.to_string())
+                        }
+                    },
+                    Message::VideoThumbnailLoaded,
+                );
+
+                // Fetch channel avatar if not already cached
+                let channel_thumb_task = if let Some(ref cid) = channel_id {
+                    if self.thumbs.contains_key(cid) || self.subscription_thumbs.contains_key(cid) {
+                        Task::none()
+                    } else {
+                        let cid_for_async = cid.clone();
+                        let cid_for_msg = cid.clone();
+                        Task::perform(
+                            async move {
+                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
+                                let channel_info = client
+                                    .get_channel(&cid_for_async)
+                                    .await
+                                    .map_err(|e: ytrs_lib::Error| e.to_string())?;
+                                if let Some(thumb) = channel_info.thumbnails.first() {
+                                    helpers::load_circular_thumb(&thumb.url, 48)
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                } else {
+                                    Err("No channel thumbnail".to_string())
+                                }
+                            },
+                            move |res| Message::ThumbLoaded(cid_for_msg, res),
+                        )
+                    }
+                } else {
+                    Task::none()
+                };
+
+                Task::batch([load_task, thumb_task, channel_thumb_task])
             }
             Message::VideoPlayer(msg) => {
                 // Delegate to the video player widget's update function
@@ -1467,6 +1595,12 @@ impl App {
                 }
             }
             Message::BackFromVideo => {
+                // Abort any in-progress loading
+                if let Some(ref player) = self.video_player {
+                    if let Some(ref handle) = player.loading_handle {
+                        handle.abort();
+                    }
+                }
                 // Clean up video player state
                 self.video_player = None;
                 self.playing_video_id = None;

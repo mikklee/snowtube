@@ -5,7 +5,7 @@ use crate::helpers::{
     ChannelInfo, centered_grid_padding, create_thumbnail, create_video_tile, fmt_num,
 };
 use crate::messages::Message;
-use crate::theme::rounded_button_style;
+use crate::widgets::icon_button::refresh_subs_button;
 use crate::widgets::{Wrap, bounceable_scrollable};
 use iced::Padding;
 use iced::{
@@ -22,10 +22,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let header = container(
         row![
             text("Channels").size(24).shaping(Shaping::Advanced),
-            button(text("Refresh"))
-                .on_press(Message::RefreshSubscriptionVideos)
-                .padding(8)
-                .style(rounded_button_style)
+            refresh_subs_button(40.0)
         ]
         .spacing(20)
         .align_y(Center),

@@ -2,16 +2,17 @@
 
 use iced::widget::{button, column, container, row, text};
 use iced::{Color, Element, Length, Padding, Theme};
+use iced_font_awesome::Icon;
 
 use super::glass::glass_container_style;
-use super::icons::NERD_FONT;
+use super::icons::{icon_cog, icon_search, icon_star};
 use crate::messages::{Message, TabId};
 
 /// Configuration for a tab bar item
 pub struct TabItem {
     pub id: TabId,
     pub label: &'static str,
-    pub icon: char,
+    pub icon_fn: fn(f32) -> Icon<'static, Theme>,
     pub icon_size: f32,
 }
 
@@ -21,7 +22,12 @@ pub fn tab_bar<'a>(active_tab: TabId, items: &[TabItem]) -> Element<'a, Message>
         .iter()
         .map(|item| {
             let is_active = active_tab == item.id;
-            tab_button(item.id, item.label, item.icon, item.icon_size, is_active)
+            tab_button(
+                item.id,
+                item.label,
+                (item.icon_fn)(item.icon_size).into(),
+                is_active,
+            )
         })
         .collect();
 
@@ -56,16 +62,11 @@ pub fn tab_bar<'a>(active_tab: TabId, items: &[TabItem]) -> Element<'a, Message>
 fn tab_button(
     id: TabId,
     label: &'static str,
-    icon: char,
-    icon_size: f32,
+    icon: Icon<'static, Theme>,
     is_active: bool,
 ) -> Element<'static, Message> {
     let content = column![
-        text(icon.to_string())
-            .size(icon_size)
-            .font(NERD_FONT)
-            .width(Length::Fill)
-            .center(),
+        icon.style(move |theme| icon_style(theme, is_active)),
         text(format!("  {}", label))
             .size(14)
             .width(Length::Fill)
@@ -90,6 +91,25 @@ fn tab_button(
     .style(move |theme, status| tab_button_style(theme, status, is_active))
     .on_press(Message::TabSelected(id))
     .into()
+}
+
+fn icon_style(theme: &Theme, is_active: bool) -> text::Style {
+    let palette = theme.palette();
+
+    let text_color = if is_active {
+        palette.primary
+    } else {
+        Color {
+            r: palette.text.r,
+            g: palette.text.g,
+            b: palette.text.b,
+            a: 0.5,
+        }
+    };
+
+    text::Style {
+        color: Some(text_color),
+    }
 }
 
 /// Custom button style for tab items
@@ -144,19 +164,19 @@ pub fn default_tab_items() -> [TabItem; 3] {
         TabItem {
             id: TabId::Search,
             label: "Search",
-            icon: '\u{f002}', // nf-fa-search
+            icon_fn: icon_search,
             icon_size: 24.0,
         },
         TabItem {
             id: TabId::Channels,
             label: "Channels",
-            icon: '\u{f005}', // nf-fa-star
+            icon_fn: icon_star,
             icon_size: 24.0,
         },
         TabItem {
             id: TabId::Settings,
             label: "Settings",
-            icon: '\u{f013}', // nf-fa-cog
+            icon_fn: icon_cog,
             icon_size: 24.0,
         },
     ]

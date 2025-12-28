@@ -8,10 +8,12 @@ pub mod overlay;
 pub mod spinner;
 
 use crate::event::PlayerEvent;
+use crate::led_visualizer::LedVisualizer;
 use crate::loader::{LoadProgress, load_video};
 use crate::source::VideoSource;
 use crate::video::Video;
 use crate::video_player::VideoPlayer;
+use crate::visualizer::{AudioVisualizer, Visualizer};
 use std::sync::Arc;
 
 use controls::{
@@ -28,7 +30,6 @@ use iced::{Color, Element, Length, Renderer, Subscription, Task, Theme, mouse};
 use std::time::{Duration, Instant};
 
 /// Internal state for the video player widget.
-#[derive(Debug)]
 pub struct VideoPlayerState {
     /// The video source being played.
     pub source: VideoSource,
@@ -60,16 +61,15 @@ pub struct VideoPlayerState {
     pub thumbnail: Option<iced::widget::image::Handle>,
     /// Optional pre-set duration (from video info before loading).
     pub preset_duration: Option<Duration>,
-    /// Unique ID for this player instance.
-    id: u64,
+    /// Handle to abort the loading task.
+    pub loading_handle: Option<iced::task::Handle>,
+    /// Audio visualizer style for audio-only mode.
+    pub visualizer: AudioVisualizer,
 }
 
 impl VideoPlayerState {
     /// Create a new video player state for the given source.
     pub fn new(source: VideoSource) -> Self {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-
         Self {
             source,
             video: None,
@@ -86,8 +86,15 @@ impl VideoPlayerState {
             title: None,
             thumbnail: None,
             preset_duration: None,
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            loading_handle: None,
+            visualizer: AudioVisualizer::default(),
         }
+    }
+
+    /// Set the audio visualizer style.
+    pub fn with_visualizer(mut self, visualizer: AudioVisualizer) -> Self {
+        self.visualizer = visualizer;
+        self
     }
 
     /// Set the title to display.
@@ -106,11 +113,6 @@ impl VideoPlayerState {
     pub fn with_duration(mut self, duration: Duration) -> Self {
         self.preset_duration = Some(duration);
         self
-    }
-
-    /// Get the unique ID for this player instance.
-    pub fn id(&self) -> u64 {
-        self.id
     }
 
     /// Check if the video is paused.
@@ -132,6 +134,7 @@ impl VideoPlayerState {
         self.video
             .as_ref()
             .map(|v| v.duration())
+            .filter(|d| *d > Duration::ZERO) // Ignore zero duration from video
             .or(self.preset_duration)
             .unwrap_or(Duration::ZERO)
     }
@@ -166,8 +169,9 @@ pub enum VideoPlayerMessage {
 
 /// Create a Task to start loading a video.
 /// Call this when creating a new VideoPlayerState to initiate loading.
-pub fn start_loading(source: VideoSource) -> Task<VideoPlayerMessage> {
-    Task::run(load_video(source), VideoPlayerMessage::LoadProgress)
+/// Returns the task and an abort handle that can be used to cancel loading.
+pub fn start_loading(source: VideoSource) -> (Task<VideoPlayerMessage>, iced::task::Handle) {
+    Task::run(load_video(source), VideoPlayerMessage::LoadProgress).abortable()
 }
 
 /// Update the video player state based on a message.
@@ -226,7 +230,8 @@ pub fn update(
                 // No video yet, start loading
                 state.loading = true;
                 state.loading_status = Some("Initializing...".to_string());
-                let load_task = start_loading(state.source.clone());
+                let (load_task, handle) = start_loading(state.source.clone());
+                state.loading_handle = Some(handle);
                 (None, load_task)
             } else {
                 // Already loading, do nothing
@@ -596,6 +601,7 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
         )
     };
 
+    // Always use VideoPlayer widget for event handling (EOS, seek complete, etc.)
     let video_widget: Element<'a, Message, Theme, Renderer> = VideoPlayer::new(video)
         .width(scaled_width)
         .height(scaled_height)
@@ -615,6 +621,55 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
     let mut video_layers: Vec<Element<'a, Message, Theme, Renderer>> =
         vec![video_with_mouse.into()];
 
+    // For audio-only, overlay thumbnail and visualizer on top of the (invisible) video widget
+    if state.source.is_audio_only() {
+        if let Some(ref thumbnail) = state.thumbnail {
+            video_layers.push(
+                container(
+                    iced::widget::image(thumbnail.clone())
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .content_fit(iced::ContentFit::Cover),
+                )
+                .width(Length::Fixed(scaled_width))
+                .height(Length::Fixed(scaled_height))
+                .into(),
+            );
+        }
+
+        // Add audio visualizer overlay when playing
+        if state.started {
+            if let Some(ref video) = state.video {
+                let spectrum = video.spectrum();
+                let time = state.position().as_secs_f32();
+                let primary_color = theme.palette().primary;
+                let visualizer_element: Option<Element<'a, Message, Theme, Renderer>> =
+                    match state.visualizer {
+                        AudioVisualizer::Disabled => None,
+                        AudioVisualizer::PlasmaGlobe => Some(
+                            Visualizer::new(spectrum)
+                                .time(time)
+                                .color(primary_color)
+                                .width(Length::Fixed(scaled_width))
+                                .height(Length::Fixed(scaled_height))
+                                .into(),
+                        ),
+                        AudioVisualizer::LedSpectrum => Some(
+                            LedVisualizer::new(spectrum)
+                                .time(time)
+                                .color(primary_color)
+                                .width(Length::Fixed(scaled_width))
+                                .height(Length::Fixed(scaled_height))
+                                .into(),
+                        ),
+                    };
+                if let Some(element) = visualizer_element {
+                    video_layers.push(element);
+                }
+            }
+        }
+    }
+
     // Title overlay (only show when controls visible)
     if state.controls_visible
         && let Some(ref title) = state.title
@@ -628,8 +683,8 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
             on_message.clone()(VideoPlayerMessage::StartPlayback),
             theme,
         ));
-    } else if state.position().as_millis() == 0 {
-        // Video started but waiting for first frame
+    } else if state.position().as_millis() == 0 && !state.seeking {
+        // Video started but waiting for first frame (not during seek)
         video_layers.push(loading_overlay(Some("Starting..."), theme));
     }
 
@@ -672,6 +727,7 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
     available_height: f32,
     theme: &'a Theme,
 ) -> Element<'a, Message, Theme, Renderer> {
+    // Always use VideoPlayer widget for event handling (EOS, seek complete, etc.)
     let video_widget: Element<'a, Message, Theme, Renderer> = VideoPlayer::new(video)
         .width(available_width)
         .height(available_height)
@@ -695,6 +751,56 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
 
     let mut layers: Vec<Element<'a, Message, Theme, Renderer>> = vec![video_with_mouse.into()];
 
+    // For audio-only, overlay thumbnail and visualizer on top of the (invisible) video widget
+    if state.source.is_audio_only() {
+        if let Some(ref thumbnail) = state.thumbnail {
+            layers.push(
+                container(
+                    iced::widget::image(thumbnail.clone())
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .content_fit(iced::ContentFit::Contain),
+                )
+                .width(Length::Fixed(available_width))
+                .height(Length::Fixed(available_height))
+                .center(Length::Fill)
+                .into(),
+            );
+        }
+
+        // Add audio visualizer overlay when playing
+        if state.started {
+            if let Some(ref video) = state.video {
+                let spectrum = video.spectrum();
+                let time = state.position().as_secs_f32();
+                let primary_color = theme.palette().primary;
+                let visualizer_element: Option<Element<'a, Message, Theme, Renderer>> =
+                    match state.visualizer {
+                        AudioVisualizer::Disabled => None,
+                        AudioVisualizer::PlasmaGlobe => Some(
+                            Visualizer::new(spectrum)
+                                .time(time)
+                                .color(primary_color)
+                                .width(Length::Fixed(available_width))
+                                .height(Length::Fixed(available_height))
+                                .into(),
+                        ),
+                        AudioVisualizer::LedSpectrum => Some(
+                            LedVisualizer::new(spectrum)
+                                .time(time)
+                                .color(primary_color)
+                                .width(Length::Fixed(available_width))
+                                .height(Length::Fixed(available_height))
+                                .into(),
+                        ),
+                    };
+                if let Some(element) = visualizer_element {
+                    layers.push(element);
+                }
+            }
+        }
+    }
+
     // Title overlay (only show when controls visible)
     if state.controls_visible
         && let Some(ref title) = state.title
@@ -708,8 +814,8 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
             on_message.clone()(VideoPlayerMessage::StartPlayback),
             theme,
         ));
-    } else if state.position().as_millis() == 0 {
-        // Video started but waiting for first frame
+    } else if state.position().as_millis() == 0 && !state.seeking {
+        // Video started but waiting for first frame (not during seek)
         layers.push(loading_overlay(Some("Starting..."), theme));
     } else if state.controls_visible {
         // Fullscreen control bar at bottom

@@ -2,6 +2,7 @@
 
 use crate::config::AppConfig;
 use crate::theme::AppTheme;
+use iceplayer::AudioVisualizer;
 use iceplayer::{PlayerEvent, VideoPlayerMessage};
 use ytrs_lib::{ChannelInfo, ChannelTab, ChannelVideos, SearchResults};
 
@@ -42,6 +43,7 @@ pub enum Message {
     ConfigSaved(Result<(), String>),
     ThemeChanged(AppTheme),
     ShowScrollbarToggled(bool),
+    AudioVisualizerChanged(AudioVisualizer),
     // Window events
     Resized(f32, f32), // width, height
     // Subscription-related messages
@@ -59,13 +61,14 @@ pub enum Message {
     ExportSearchResults,
     // Video player messages (new high-level API)
     PlayVideo(String, Option<String>, Option<String>), // video_id, channel_name, channel_id
-    VideoPlayer(VideoPlayerMessage),                   // Internal player messages
-    VideoEvent(PlayerEvent),                           // High-level events from player
-    VideoThumbnailLoaded(Result<Vec<u8>, String>),     // High-res thumbnail for player
-    BackFromVideo,                                     // Navigate back from video view
-    LaunchInMpv(String),                               // Launch video in mpv (video_id)
-    CopyVideoUrl(String),                              // Copy video URL to clipboard
-    SeekTo(f64),                                       // Seek to position (0.0 to 1.0)
-    SeekRelative(i64),                                 // Seek relative seconds (positive = forward)
-    ExitFullscreen,                                    // Exit fullscreen (only if in fullscreen)
+    PlayAudioOnly(String, Option<String>, Option<String>), // video_id, channel_name, channel_id (audio-only)
+    VideoPlayer(VideoPlayerMessage),                       // Internal player messages
+    VideoEvent(PlayerEvent),                               // High-level events from player
+    VideoThumbnailLoaded(Result<Vec<u8>, String>),         // High-res thumbnail for player
+    BackFromVideo,                                         // Navigate back from video view
+    LaunchInMpv(String),                                   // Launch video in mpv (video_id)
+    CopyVideoUrl(String),                                  // Copy video URL to clipboard
+    SeekTo(f64),                                           // Seek to position (0.0 to 1.0)
+    SeekRelative(i64), // Seek relative seconds (positive = forward)
+    ExitFullscreen,    // Exit fullscreen (only if in fullscreen)
 }

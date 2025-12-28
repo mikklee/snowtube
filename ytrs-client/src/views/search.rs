@@ -6,6 +6,8 @@ use crate::helpers::{
 };
 use crate::messages::Message;
 use crate::theme::{rounded_button_style, rounded_text_input_style};
+use crate::widgets::icon_button::gen_icon_button;
+use crate::widgets::icons::icon_search;
 use crate::widgets::{Wrap, bounceable_scrollable, glass_container_style};
 use iced::{
     Alignment, Element, Length, Padding,
@@ -23,10 +25,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .width(300)
             .style(rounded_text_input_style);
 
-    let search_button = button(text("Search"))
-        .on_press(Message::Search)
-        .padding(10)
-        .style(rounded_button_style);
+    let search_button = gen_icon_button(40.0, icon_search, "Search videos", Message::Search);
 
     // Floating search bar with glass style
     let search_controls = row![search_input, search_button].spacing(10);
