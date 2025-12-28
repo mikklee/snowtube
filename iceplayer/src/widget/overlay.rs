@@ -5,13 +5,8 @@
 use super::controls::glass_container_style;
 use super::spinner::spinner;
 use iced::widget::{button, column, container, stack, text};
-use iced::{Color, Element, Font, Length, Padding, Renderer, Theme};
-
-/// Nerd Font for icons
-const NERD_FONT: Font = Font {
-    family: iced::font::Family::Name("JetBrainsMono Nerd Font"),
-    ..Font::DEFAULT
-};
+use iced::{Color, Element, Length, Padding, Renderer, Theme};
+use iced_font_awesome::fa_icon_solid;
 
 /// Dark semi-transparent overlay background.
 /// Used for loading and seeking states.
@@ -134,10 +129,11 @@ pub fn centered_play_button<'a, Message: Clone + 'a>(
     // Button size (diameter of the circle)
     const BUTTON_SIZE: f32 = 80.0;
 
-    let play_icon = text('\u{f04b}'.to_string())
+    let play_icon = fa_icon_solid("play")
         .size(32.0)
-        .font(NERD_FONT)
-        .color(Color::WHITE);
+        .style(|_| iced::widget::text::Style {
+            color: Some(Color::WHITE),
+        });
 
     let play_button = button(
         container(play_icon)
@@ -209,10 +205,11 @@ pub fn error_overlay<'a, Message: 'a>(
     _theme: &Theme,
 ) -> Element<'a, Message, Theme, Renderer> {
     let error_content = column![
-        text('\u{f071}'.to_string()) // Warning icon
+        fa_icon_solid("triangle-exclamation")
             .size(48.0)
-            .font(NERD_FONT)
-            .color(Color::from_rgb(1.0, 0.4, 0.4)),
+            .style(|_| iced::widget::text::Style {
+                color: Some(Color::from_rgb(1.0, 0.4, 0.4)),
+            }),
         text("Error loading video").size(18).color(Color::WHITE),
         text(error).size(14).color(Color {
             r: 1.0,
