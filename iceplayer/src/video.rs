@@ -113,17 +113,17 @@ impl Internal {
         let mut query = gst::query::Seeking::new(gst::Format::Time);
         if self.source.query(&mut query) {
             let (seekable, start, end) = query.result();
-            log::info!(
+            tracing::info!(
                 "Seek query: seekable={}, start={:?}, end={:?}",
                 seekable,
                 start,
                 end
             );
             if !seekable {
-                log::warn!("Pipeline reports as not seekable");
+                tracing::warn!("Pipeline reports as not seekable");
             }
         } else {
-            log::warn!("Seeking query failed");
+            tracing::warn!("Seeking query failed");
         }
 
         // Don't use KEY_UNIT - it causes audio/video desync with separate streams
@@ -246,8 +246,8 @@ impl Drop for Video {
             && let Err(err) = worker.join()
         {
             match err.downcast_ref::<String>() {
-                Some(e) => log::error!("Video thread panicked: {e}"),
-                None => log::error!("Video thread panicked with unknown reason"),
+                Some(e) => tracing::error!("Video thread panicked: {e}"),
+                None => tracing::error!("Video thread panicked with unknown reason"),
             }
         }
 
@@ -317,11 +317,17 @@ impl Video {
         // Use souphttpsrc (requires GIO_EXTRA_MODULES for TLS) + downloadbuffer (enables seeking)
         // Note: curlhttpsrc fails when combined with downloadbuffer
         // multiqueue with sync-by-running-time=true ensures A/V synchronization after seeking
-        // Platform-specific video conversion: vapostproc (VA-API) on Linux, videoconvert on macOS
-        #[cfg(target_os = "linux")]
-        let video_convert = "vapostproc";
-        #[cfg(not(target_os = "linux"))]
-        let video_convert = "videoconvert";
+        // Prefer hardware-accelerated video conversion: NVIDIA (nvvideoconvert), VA-API (vapostproc), or software fallback
+        let video_convert = if gst::ElementFactory::find("nvvideoconvert").is_some() {
+            tracing::info!("Using nvvideoconvert (NVIDIA CUDA) for hardware-accelerated video conversion");
+            "nvvideoconvert"
+        } else if gst::ElementFactory::find("vapostproc").is_some() {
+            tracing::info!("Using vapostproc (VA-API) for hardware-accelerated video conversion");
+            "vapostproc"
+        } else {
+            tracing::info!("Using videoconvert (software) for video conversion");
+            "videoconvert"
+        };
 
         let pipeline_str = format!(
             "souphttpsrc name=videosrc location=\"{video_url}\" user-agent=\"{user_agent}\" ! \
@@ -335,7 +341,7 @@ impl Video {
              audiodec. ! mq.sink_1 mq.src_1 ! audioconvert ! audioresample ! autoaudiosink sync=true",
         );
 
-        log::info!("Creating pipeline with downloadbuffer for seeking support");
+        tracing::info!("Creating pipeline with downloadbuffer for seeking support");
 
         let pipeline = gst::parse::launch(&pipeline_str)?
             .downcast::<gst::Pipeline>()
@@ -382,7 +388,7 @@ impl Video {
              t. ! queue ! spectrum name=spectrum bands={SPECTRUM_BANDS} interval=50000000 threshold=-80 post-messages=true message-magnitude=true ! fakesink sync=true",
         );
 
-        log::info!("Creating audio-only pipeline");
+        tracing::info!("Creating audio-only pipeline");
 
         let pipeline = gst::parse::launch(&pipeline_str)?
             .downcast::<gst::Pipeline>()
@@ -492,9 +498,9 @@ impl Video {
                 let reader = BufReader::new(stderr);
                 for line in reader.lines() {
                     match line {
-                        Ok(line) => log::trace!("yt-dlp: {}", line),
+                        Ok(line) => tracing::trace!("yt-dlp: {}", line),
                         Err(e) => {
-                            log::trace!("yt-dlp stderr read error: {}", e);
+                            tracing::trace!("yt-dlp stderr read error: {}", e);
                             break;
                         }
                     }
@@ -684,7 +690,7 @@ impl Video {
 
                     Ok(())
                 })() {
-                    log::error!("error pulling frame");
+                    tracing::error!("error pulling frame");
                 }
             }
         });
@@ -762,7 +768,7 @@ impl Video {
                 .map(|f| f.name().to_string())
                 .unwrap_or_default();
             if factory.contains("dec") || factory.contains("parse") {
-                log::info!("Pipeline element: {} ({})", element.name(), factory);
+                tracing::info!("Pipeline element: {} ({})", element.name(), factory);
             }
         }
 
@@ -909,7 +915,7 @@ impl Video {
 
                     Ok(())
                 })() {
-                    log::error!("error pulling frame");
+                    tracing::error!("error pulling frame");
                 }
             }
         });

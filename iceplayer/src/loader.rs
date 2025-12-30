@@ -2,7 +2,33 @@
 
 use crate::source::VideoSource;
 use crate::video::Video;
+use gstreamer as gst;
 use std::sync::Arc;
+use std::sync::OnceLock;
+
+/// Check if hardware AV1 decoding is available (VA-API or NVDEC).
+fn has_hw_av1_decode() -> bool {
+    static HAS_HW_AV1: OnceLock<bool> = OnceLock::new();
+    *HAS_HW_AV1.get_or_init(|| {
+        // Ensure GStreamer is initialized before checking element factories
+        if gst::init().is_err() {
+            tracing::warn!("Failed to initialize GStreamer for AV1 detection, assuming no HW AV1");
+            return false;
+        }
+        // Check for VA-API AV1 decoder (Intel/AMD)
+        let has_vaav1 = gst::ElementFactory::find("vaav1dec").is_some();
+        // Check for NVDEC AV1 decoder (NVIDIA RTX 30+)
+        let has_nvav1 = gst::ElementFactory::find("nvav1dec").is_some();
+        let result = has_vaav1 || has_nvav1;
+        tracing::info!(
+            "Hardware AV1 decode: {} (vaav1dec={}, nvav1dec={})",
+            result,
+            has_vaav1,
+            has_nvav1
+        );
+        result
+    })
+}
 
 /// Progress updates during video loading.
 #[derive(Debug, Clone)]
@@ -54,9 +80,21 @@ async fn load_youtube(
     let url = format!("https://www.youtube.com/watch?v={}", video_id);
 
     // Phase 1: Run yt-dlp (blocking)
+    // If no hardware AV1 decode, prefer H.264/VP9/HEVC to avoid software decode overhead
+    let format_selector = if has_hw_av1_decode() {
+        None
+    } else {
+        // Prefer vp9, then avc (H.264), then hevc, then any format as fallback
+        Some("bv[vcodec^=vp9]+ba/bv[vcodec^=avc]+ba/bv[vcodec^=hev]+ba/bv+ba/b")
+    };
+
     let yt_dlp_result = tokio::task::spawn_blocking(move || {
         tracing::info!("Starting yt-dlp for URL: {}", url);
-        let output = std::process::Command::new("yt-dlp")
+        let mut cmd = std::process::Command::new("yt-dlp");
+        if let Some(fmt) = format_selector {
+            cmd.args(["-f", fmt]);
+        }
+        let output = cmd
             .args(["--dump-single-json", &url])
             .output()
             .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;

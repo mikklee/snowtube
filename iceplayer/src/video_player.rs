@@ -6,7 +6,7 @@ use iced::{
     mouse,
 };
 use iced_wgpu::primitive::Renderer as PrimitiveRenderer;
-use log::error;
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{marker::PhantomData, sync::atomic::Ordering};
@@ -336,7 +336,7 @@ where
             ]) {
                 match msg.view() {
                     gst::MessageView::Error(err) => {
-                        error!("bus returned an error: {err}");
+                        tracing::error!("bus returned an error: {err}");
                         if let Some(ref on_error) = self.on_error {
                             shell.publish(on_error(&err.error()))
                         };
@@ -387,7 +387,7 @@ where
             // Don't run eos_pause if restart_stream is true; fixes "pausing" after restarting a stream
             if restart_stream {
                 if let Err(err) = inner.restart_stream() {
-                    error!("cannot restart stream (can't seek): {err:#?}");
+                    tracing::error!("cannot restart stream (can't seek): {err:#?}");
                 }
             } else if eos_pause {
                 inner.is_eos = true;
