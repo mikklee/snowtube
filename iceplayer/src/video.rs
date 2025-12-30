@@ -317,11 +317,17 @@ impl Video {
         // Use souphttpsrc (requires GIO_EXTRA_MODULES for TLS) + downloadbuffer (enables seeking)
         // Note: curlhttpsrc fails when combined with downloadbuffer
         // multiqueue with sync-by-running-time=true ensures A/V synchronization after seeking
-        // Platform-specific video conversion: vapostproc (VA-API) on Linux, videoconvert on macOS
-        #[cfg(target_os = "linux")]
-        let video_convert = "vapostproc";
-        #[cfg(not(target_os = "linux"))]
-        let video_convert = "videoconvert";
+        // Prefer hardware-accelerated video conversion: NVIDIA (nvvideoconvert), VA-API (vapostproc), or software fallback
+        let video_convert = if gst::ElementFactory::find("nvvideoconvert").is_some() {
+            log::info!("Using nvvideoconvert (NVIDIA CUDA) for hardware-accelerated video conversion");
+            "nvvideoconvert"
+        } else if gst::ElementFactory::find("vapostproc").is_some() {
+            log::info!("Using vapostproc (VA-API) for hardware-accelerated video conversion");
+            "vapostproc"
+        } else {
+            log::info!("Using videoconvert (software) for video conversion");
+            "videoconvert"
+        };
 
         let pipeline_str = format!(
             "souphttpsrc name=videosrc location=\"{video_url}\" user-agent=\"{user_agent}\" ! \
