@@ -319,7 +319,9 @@ impl Video {
         // multiqueue with sync-by-running-time=true ensures A/V synchronization after seeking
         // Prefer hardware-accelerated video conversion: NVIDIA (nvvideoconvert), VA-API (vapostproc), or software fallback
         let video_convert = if gst::ElementFactory::find("nvvideoconvert").is_some() {
-            tracing::info!("Using nvvideoconvert (NVIDIA CUDA) for hardware-accelerated video conversion");
+            tracing::info!(
+                "Using nvvideoconvert (NVIDIA CUDA) for hardware-accelerated video conversion"
+            );
             "nvvideoconvert"
         } else if gst::ElementFactory::find("vapostproc").is_some() {
             tracing::info!("Using vapostproc (VA-API) for hardware-accelerated video conversion");
@@ -346,6 +348,19 @@ impl Video {
         let pipeline = gst::parse::launch(&pipeline_str)?
             .downcast::<gst::Pipeline>()
             .map_err(|_| Error::Cast)?;
+
+        // Origin and Referer headers seems to prevent connection termination
+        let extra_headers = gst::Structure::builder("extra-headers")
+            .field("Origin", "https://www.youtube.com")
+            .field("Referer", "https://www.youtube.com/")
+            .build();
+
+        if let Some(videosrc) = pipeline.by_name("videosrc") {
+            videosrc.set_property("extra-headers", &extra_headers);
+        }
+        if let Some(audiosrc) = pipeline.by_name("audiosrc") {
+            audiosrc.set_property("extra-headers", &extra_headers);
+        }
 
         let video_sink = pipeline
             .by_name("iced_video")
@@ -393,6 +408,16 @@ impl Video {
         let pipeline = gst::parse::launch(&pipeline_str)?
             .downcast::<gst::Pipeline>()
             .map_err(|_| Error::Cast)?;
+
+        // Origin and Referer headers seems to prevent connection termination
+        let extra_headers = gst::Structure::builder("extra-headers")
+            .field("Origin", "https://www.youtube.com")
+            .field("Referer", "https://www.youtube.com/")
+            .build();
+
+        if let Some(audiosrc) = pipeline.by_name("audiosrc") {
+            audiosrc.set_property("extra-headers", &extra_headers);
+        }
 
         let bus = pipeline.bus().ok_or(Error::Bus)?;
 
