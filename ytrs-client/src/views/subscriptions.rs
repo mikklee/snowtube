@@ -7,6 +7,7 @@ use crate::helpers::{
 use crate::messages::Message;
 use crate::widgets::icon_button::refresh_subs_button;
 use crate::widgets::{Wrap, bounceable_scrollable};
+use common::{format_relative_time, parse_relative_time};
 use iced::Padding;
 use iced::{
     Alignment::Center,
@@ -14,7 +15,6 @@ use iced::{
     widget::text::Shaping,
     widget::{Image, button, column, container, lazy, row, text},
 };
-use ytrs_lib::{format_relative_time, parse_relative_time};
 
 /// Render the channels (subscriptions) view
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -33,7 +33,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let mut subscribed_channels: Vec<_> = app
         .config
         .channels
-        .iter()
+        .values()
         .filter(|c| c.subscribed)
         .collect();
     subscribed_channels.sort_by(|a, b| {
@@ -78,7 +78,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                         .spacing(10)
                         .width(120),
                 )
-                .on_press(Message::ViewChannel(channel_id.clone()))
+                .on_press(Message::ViewChannel((*channel_config).clone()))
                 .padding(10)
                 .style(|theme: &iced::Theme, status| {
                     let palette = theme.palette();
@@ -121,14 +121,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let mut all_videos: Vec<_> = subscribed_channels
             .iter()
             .flat_map(|channel_config| {
-                let channel_id = channel_config.channel_id.clone();
-                let channel_name = channel_config.channel_name.clone();
+                let config = (*channel_config).clone();
+                let key = config.key();
                 app.subscription_videos
-                    .get(&channel_id)
+                    .get(&key)
                     .map(|videos| {
                         videos
                             .iter()
-                            .map(|v| (v, channel_id.clone(), channel_name.clone()))
+                            .map(|v| (v, config.clone()))
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default()
@@ -144,18 +144,24 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
         let video_cards: Vec<Element<Message>> = all_videos
             .into_iter()
-            .filter(|(video, _, _)| video.is_premium != Some(true))
-            .filter_map(|(video, channel_id, channel_name)| {
-                let vid = video.video_id.clone()?;
+            .filter(|(video, _)| video.is_premium != Some(true))
+            .filter_map(|(video, channel_config)| {
+                let channel_name = channel_config.channel_name.clone();
+                if video.id.is_empty() {
+                    return None;
+                }
 
                 // Only render videos if thumbnail is loaded
-                let thumb_handle = app.thumbs.get(&vid)?.clone();
+                let thumb_handle = app.thumbs.get(&video.id)?.clone();
 
                 // Clone all data for lazy closure (must be owned)
+                let vid = video.id.clone();
                 let view_count = video.view_count;
-                let duration = video.duration.clone();
+                let duration_string = video.duration_string.clone();
                 let published_text = video.published_text.clone();
                 let title = video.title.clone();
+                let video_boxed = Box::new(video.clone());
+                let platform_icon = video.platform_icon.clone();
 
                 // Lazy widget caches rendering - only rebuilds when vid changes
                 Some(
@@ -168,7 +174,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                         if let Some(v) = view_count {
                             meta.push(format!("{} views", fmt_num(v)));
                         }
-                        if let Some(ref d) = duration {
+                        if let Some(ref d) = duration_string {
                             meta.push(d.clone());
                         }
                         let seconds = parse_relative_time(published_text.as_deref());
@@ -180,10 +186,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
                             None
                         };
 
-                        // Build channel info using channel_id and channel_name from config
+                        // Build channel info using channel_config
                         let channel_info = Some(ChannelInfo {
                             name: &*Box::leak(channel_name.clone().into_boxed_str()),
-                            on_press: Some(Message::ViewChannel(channel_id.clone())),
+                            on_press: Some(Message::ViewChannel(channel_config.clone())),
                         });
 
                         create_video_tile(
@@ -191,11 +197,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
                             &title,
                             channel_info,
                             metadata_text,
-                            Message::PlayVideo(
-                                vid.clone(),
-                                Some(channel_name.clone()),
-                                Some(channel_id.clone()),
-                            ),
+                            Message::PlayVideo(video_boxed.clone()),
+                            &platform_icon,
                         )
                     })
                     .into(),
@@ -220,7 +223,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let right_column: Element<Message> = if video_cards.is_empty() {
             if subscribed_channels
                 .iter()
-                .any(|c| app.subscription_videos_loading.contains(&c.channel_id))
+                .any(|c| app.subscription_videos_loading.contains(&c.key()))
             {
                 container(text("Loading videos...").size(14))
                     .padding(40)

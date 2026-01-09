@@ -55,7 +55,7 @@ pub fn gen_icon_button(
 /// - `size`: Button size (width and height)
 pub fn subscribe_button(
     is_subscribed: bool,
-    channel_id: String,
+    channel_key: common::ChannelKey,
     size: f32,
 ) -> Element<'static, Message, Theme> {
     if is_subscribed {
@@ -63,7 +63,7 @@ pub fn subscribe_button(
             size,
             icon_star,
             "Unsubscribe",
-            Message::UnsubscribeFromChannel(channel_id),
+            Message::UnsubscribeFromChannel(channel_key),
         )
     } else {
         gen_icon_button(

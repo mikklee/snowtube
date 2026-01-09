@@ -1,6 +1,7 @@
 mod config;
 mod helpers;
 mod messages;
+mod providers;
 mod theme;
 mod views;
 mod widgets;
@@ -12,11 +13,10 @@ use iced::{Element, Size, Subscription, Task, Theme, event};
 use std::cell::Cell;
 use std::collections::HashMap;
 
-use std::sync::OnceLock;
-use tracing::trace;
-use ytrs_lib::{
-    ChannelInfo, ChannelTab, InnerTube, LanguageOption, SearchResult, SortFilter, get_all_languages,
+use common::{
+    ChannelConfig, ChannelInfo, ChannelTab, LanguageOption, SortFilter, Video, get_all_languages,
 };
+use std::sync::OnceLock;
 
 use config::{AppConfig, SerializableLanguageOption, YtrsConfig};
 use messages::{Message, TabId, View};
@@ -84,9 +84,9 @@ pub struct App {
     pub query: String,
     pub thumbs: HashMap<String, iced::widget::image::Handle>,
     pub subscription_thumbs: HashMap<String, iced::widget::image::Handle>, // Channel avatars for subscriptions
-    pub subscription_videos: HashMap<String, Vec<SearchResult>>, // channel_id -> last 2 videos
-    pub subscription_videos_cache: config::SubscriptionVideoCache, // Persistent cache
-    pub subscription_videos_loading: std::collections::HashSet<String>, // Channels currently being fetched
+    pub subscription_videos: HashMap<common::ChannelKey, Vec<Video>>,      // channel_key -> videos
+    pub subscription_videos_cache: config::SubscriptionVideoCache,         // Persistent cache
+    pub subscription_videos_loading: std::collections::HashSet<common::ChannelKey>, // Channels currently being fetched
     pub current_view: View,
     pub previous_view: View, // Track which view to return to from config
     pub active_tab: TabId,   // Current active tab in TabBar
@@ -102,8 +102,8 @@ pub struct App {
     pub last_thumb_update: Option<std::time::Instant>, // Last time we processed thumb updates
 
     // Search-specific state
-    pub search_results: Vec<SearchResult>,
-    pub search_continuation: Option<String>,
+    pub search_results: Vec<common::Video>,
+    pub search_continuations: Vec<common::ContinuationToken>,
     pub search_preload_count: usize,
     pub search_locale: (String, String),
     pub searching: bool,
@@ -111,7 +111,7 @@ pub struct App {
     pub search_preloading: bool,
 
     // Channel-specific state
-    pub channel_results: Vec<SearchResult>,
+    pub channel_results: Vec<Video>,
     pub channel_continuation: Option<String>,
     pub channel_preload_count: usize,
     pub channel_locale: (String, String),
@@ -127,9 +127,11 @@ pub struct App {
     // Video player state (using new high-level API)
     pub video_player: Option<iceplayer::VideoPlayerState>,
     pub playing_video_id: Option<String>, // Current video ID (for actions like mpv, copy URL)
-    pub playing_video_info: Option<SearchResult>, // Full video info for display
-    pub playing_channel_name: Option<String>, // Channel name passed from tile
-    pub playing_channel_id: Option<String>, // Channel ID passed from tile
+    pub playing_video_info: Option<Video>, // Full video info for display
+
+    // Notifications
+    pub notifications: Vec<messages::Notification>,
+    pub notification_counter: usize, // For generating unique IDs
 }
 
 impl App {
@@ -159,7 +161,7 @@ impl App {
 
                 // Search-specific state
                 search_results: Vec::new(),
-                search_continuation: None,
+                search_continuations: Vec::new(),
                 search_preload_count: 0,
                 search_locale: ("en".to_string(), "GB".to_string()),
                 searching: false,
@@ -184,8 +186,10 @@ impl App {
                 video_player: None,
                 playing_video_id: None,
                 playing_video_info: None,
-                playing_channel_name: None,
-                playing_channel_id: None,
+
+                // Notifications
+                notifications: Vec::new(),
+                notification_counter: 0,
             },
             // Load config asynchronously on startup
             Task::perform(
@@ -200,65 +204,64 @@ impl App {
         )
     }
 
+    /// Show an error notification and log it
+    fn show_error(&mut self, message: impl Into<String>) {
+        let msg = message.into();
+        tracing::error!("{}", msg);
+
+        // Ignore duplicate messages already in queue
+        if self.notifications.iter().any(|n| n.message == msg) {
+            return;
+        }
+
+        self.notification_counter += 1;
+        self.notifications.push(messages::Notification {
+            id: self.notification_counter,
+            message: msg,
+            created_at: std::time::Instant::now(),
+            level: messages::NotificationLevel::Error,
+        });
+    }
+
     /// Fetch videos for subscribed channels that are stale (>10h old or not cached)
     fn fetch_stale_subscription_videos(&mut self) -> Task<Message> {
         // Collect channels to fetch first to avoid borrow issues
         let channels_to_fetch: Vec<_> = self
             .config
             .channels
-            .iter()
+            .values()
             .filter(|c| c.subscribed)
             .filter(|c| {
-                !self.subscription_videos_loading.contains(&c.channel_id)
-                    && self.subscription_videos_cache.is_stale(&c.channel_id)
+                let key = c.key();
+                !self.subscription_videos_loading.contains(&key)
+                    && self.subscription_videos_cache.is_stale(&key)
             })
             .map(|c| {
-                let (hl, gl) = c
-                    .language
-                    .clone()
-                    .or_else(|| {
-                        self.config
-                            .default_language
-                            .as_ref()
-                            .map(|l| (l.hl.clone(), l.gl.clone()))
-                    })
-                    .unwrap_or_else(|| ("en".to_string(), "US".to_string()));
-                (c.channel_id.clone(), c.channel_name.clone(), hl, gl)
+                let mut config = c.clone();
+                // Apply default language if channel doesn't have one
+                if config.language.is_none() {
+                    config.language = self
+                        .config
+                        .default_language
+                        .as_ref()
+                        .map(|l| (l.hl.clone(), l.gl.clone()));
+                }
+                config
             })
             .collect();
 
         // Mark channels as loading
-        for (channel_id, _, _, _) in &channels_to_fetch {
-            self.subscription_videos_loading.insert(channel_id.clone());
+        for config in &channels_to_fetch {
+            self.subscription_videos_loading.insert(config.key());
         }
 
         let tasks: Vec<Task<Message>> = channels_to_fetch
             .into_iter()
-            .map(|(channel_id, channel_name, hl, gl)| {
-                let channel_id_for_msg = channel_id.clone();
-                let channel_name_for_msg = channel_name.clone();
+            .map(|config| {
+                let key = config.key();
                 Task::perform(
-                    async move {
-                        let client = ytrs_lib::InnerTube::new()
-                            .await
-                            .map_err(|e| e.to_string())?;
-                        client
-                            .get_channel_videos_with_explicit_locale(
-                                &channel_id,
-                                ytrs_lib::ChannelTab::Videos,
-                                &hl,
-                                &gl,
-                            )
-                            .await
-                            .map_err(|e| e.to_string())
-                    },
-                    move |res| {
-                        Message::SubscriptionVideosLoaded(
-                            channel_id_for_msg,
-                            channel_name_for_msg,
-                            res,
-                        )
-                    },
+                    async move { providers::get_channel_videos(&config, ChannelTab::Videos).await },
+                    move |res| Message::SubscriptionVideosLoaded(key, res),
                 )
             })
             .collect();
@@ -278,34 +281,16 @@ impl App {
                 }
                 self.searching = true;
                 self.search_results.clear();
-                self.search_continuation = None;
+                self.search_continuations.clear();
                 self.search_preload_count = 0;
                 self.search_preloading = true;
                 let q = self.query.clone();
 
-                // Use manual locale if selected, otherwise auto-detect
-                if let Some(ref language) = self.selected_language {
-                    let hl = language.hl.to_string();
-                    let gl = language.gl.to_string();
-                    Task::perform(
-                        async move {
-                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                            client
-                                .search_with_locale(&q, &hl, &gl)
-                                .await
-                                .map_err(|e| e.to_string())
-                        },
-                        Message::SearchDone,
-                    )
-                } else {
-                    Task::perform(
-                        async move {
-                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                            client.search(&q).await.map_err(|e| e.to_string())
-                        },
-                        Message::SearchDone,
-                    )
-                }
+                // Search all enabled providers in parallel
+                Task::perform(
+                    async move { providers::search_all(&q).await },
+                    Message::SearchDone,
+                )
             }
             Message::SearchDone(res) => {
                 match res {
@@ -317,8 +302,8 @@ impl App {
                         // Store the new results to load thumbnails for
                         let new_results = search_results.results;
 
-                        // Store continuation token for pagination
-                        self.search_continuation = search_results.continuation;
+                        // Store continuation tokens for pagination
+                        self.search_continuations = search_results.continuations;
 
                         // Store detected locale only if no manual language is selected
                         if self.selected_language.is_none()
@@ -350,11 +335,11 @@ impl App {
                         if self.search_preloading {
                             self.search_preload_count += 1;
 
-                            // Keep fetching if we don't have enough displayable results and have continuation
+                            // Keep fetching if we don't have enough displayable results and have continuations
                             if displayable_count < MIN_DISPLAYABLE_RESULTS
-                                && self.search_continuation.is_some()
+                                && !self.search_continuations.is_empty()
                             {
-                                let token = self.search_continuation.as_ref().unwrap().clone();
+                                let continuations = self.search_continuations.clone();
                                 let (hl, gl) = self.search_locale.clone();
 
                                 // Start loading thumbnails for current batch while fetching next page
@@ -363,12 +348,8 @@ impl App {
                                 // Fetch next page with stored locale
                                 let next_page_task = Task::perform(
                                     async move {
-                                        let client =
-                                            InnerTube::new().await.map_err(|e| e.to_string())?;
-                                        client
-                                            .search_continuation(&token, &hl, &gl)
+                                        providers::search_continuation(&continuations, &hl, &gl)
                                             .await
-                                            .map_err(|e| e.to_string())
                                     },
                                     Message::SearchDone,
                                 );
@@ -386,7 +367,7 @@ impl App {
                         Task::batch(helpers::create_thumbnail_tasks(&new_results))
                     }
                     Err(e) => {
-                        trace!("Search error: {:?}", e);
+                        self.show_error(format!("Search failed: {}", e));
                         self.search_preloading = false;
                         self.searching = false;
                         self.search_loading_more = false;
@@ -428,7 +409,7 @@ impl App {
                 }
                 Task::none()
             }
-            Message::ViewChannel(channel_id) => {
+            Message::ViewChannel(channel_config) => {
                 self.loading_channel = true;
                 self.current_view = View::Channel;
                 self.active_tab = TabId::Channels;
@@ -442,23 +423,21 @@ impl App {
                 self.channel_preload_count = 0;
                 self.channel_preloading = true;
 
-                let id = channel_id.clone();
-
                 // Determine channel language:
-                // 1. Use per-channel saved language if set
+                // 1. Use per-channel saved language if set (from config or passed config)
                 // 2. Otherwise use global default from config
                 // 3. Otherwise auto-detect
-                let channel_language = self
-                    .config
-                    .channels
-                    .iter()
-                    .find(|c| c.channel_id == channel_id)
-                    .and_then(|c| c.language.clone());
+                let channel_language = channel_config.language.clone().or_else(|| {
+                    self.config
+                        .channels
+                        .get(&channel_config.key())
+                        .and_then(|c| c.language.clone())
+                });
 
                 if let Some((hl, gl)) = channel_language {
                     // This channel has a specific language set
                     self.channel_locale = (hl.clone(), gl.clone());
-                    self.selected_language = ytrs_lib::get_language_by_locale(&hl, &gl).cloned();
+                    self.selected_language = providers::get_language_by_locale(&hl, &gl).cloned();
                 } else if let Some(ref lang_config) = self.config.default_language {
                     // Use global default language
                     self.channel_locale = (lang_config.hl.clone(), lang_config.gl.clone());
@@ -469,11 +448,9 @@ impl App {
                 }
 
                 // First load channel info, then use channel name for locale detection when loading videos
+                let config = channel_config.clone();
                 Task::perform(
-                    async move {
-                        let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                        client.get_channel(&id).await.map_err(|e| e.to_string())
-                    },
+                    async move { providers::get_channel(&config).await },
                     Message::ChannelLoaded,
                 )
             }
@@ -517,55 +494,49 @@ impl App {
                         };
 
                         // Load channel videos - use manual language if selected, otherwise auto-detect
-                        let channel_id = channel.id.clone();
                         let tab = self.current_tab;
 
-                        let videos_task = if let Some(ref lang) = self.selected_language {
-                            // Use manually selected language
-                            let hl = lang.hl.to_string();
-                            let gl = lang.gl.to_string();
-                            Task::perform(
-                                async move {
-                                    let client =
-                                        InnerTube::new().await.map_err(|e| e.to_string())?;
-                                    client
-                                        .get_channel_videos_with_explicit_locale(
-                                            &channel_id,
-                                            tab,
-                                            &hl,
-                                            &gl,
-                                        )
-                                        .await
-                                        .map_err(|e| e.to_string())
-                                },
-                                Message::ChannelVideosLoaded,
-                            )
-                        } else {
-                            // Auto-detect locale from channel description/name
-                            let locale_hint =
-                                channel.description.clone().or(Some(channel.name.clone()));
-                            Task::perform(
-                                async move {
-                                    let client =
-                                        InnerTube::new().await.map_err(|e| e.to_string())?;
-                                    client
-                                        .get_channel_videos_with_locale(
-                                            &channel_id,
-                                            tab,
-                                            locale_hint.as_deref(),
-                                        )
-                                        .await
-                                        .map_err(|e| e.to_string())
-                                },
-                                Message::ChannelVideosLoaded,
-                            )
+                        // Create ChannelConfig from ChannelInfo
+                        let channel_config = ChannelConfig {
+                            platform_name: channel.platform_name.clone(),
+                            platform_icon: channel.platform_icon.clone(),
+                            channel_id: channel.id.clone(),
+                            channel_name: channel.name.clone(),
+                            channel_handle: channel.handle.clone(),
+                            thumbnail_url: channel
+                                .thumbnails
+                                .first()
+                                .map(|t| t.url.clone())
+                                .unwrap_or_default(),
+                            instance: channel.instance.clone(),
+                            subscribed: false,
+                            subscribed_at: None,
+                            language: self
+                                .selected_language
+                                .as_ref()
+                                .map(|l| (l.hl.to_string(), l.gl.to_string())),
                         };
+                        // Store or update config for this channel
+                        let key = channel.key();
+                        if let Some(existing) = self.config.channels.get_mut(&key) {
+                            // Update language if set
+                            if channel_config.language.is_some() {
+                                existing.language = channel_config.language.clone();
+                            }
+                        } else {
+                            self.config.channels.insert(key, channel_config.clone());
+                        }
+                        let videos_task = Task::perform(
+                            async move { providers::get_channel_videos(&channel_config, tab).await },
+                            Message::ChannelVideosLoaded,
+                        );
 
                         self.current_channel = Some(channel);
                         Task::batch(vec![banner_task, avatar_task, videos_task])
                     }
                     Err(e) => {
-                        trace!("Channel load error: {:?}", e);
+                        self.show_error(format!("Failed to load channel: {}", e));
+                        self.loading_channel = false;
                         Task::none()
                     }
                 }
@@ -631,23 +602,29 @@ impl App {
                                 let token = self.channel_continuation.as_ref().unwrap().clone();
                                 let (hl, gl) = self.channel_locale.clone();
 
+                                // Look up config from current_channel
+                                let config = self
+                                    .current_channel
+                                    .as_ref()
+                                    .and_then(|ch| self.config.channels.get(&ch.key()).cloned());
+
                                 // Start loading thumbnails for current batch while fetching next page
                                 let thumb_tasks = helpers::create_thumbnail_tasks(&new_videos);
 
                                 // Fetch next page with stored locale
-                                let next_page_task = Task::perform(
-                                    async move {
-                                        let client =
-                                            InnerTube::new().await.map_err(|e| e.to_string())?;
-                                        client
-                                            .get_channel_videos_continuation_with_locale(
-                                                &token, &hl, &gl,
+                                let next_page_task = if let Some(cfg) = config {
+                                    Task::perform(
+                                        async move {
+                                            providers::get_channel_videos_continuation(
+                                                &cfg, &token, &hl, &gl,
                                             )
                                             .await
-                                            .map_err(|e| e.to_string())
-                                    },
-                                    Message::ChannelVideosLoaded,
-                                );
+                                        },
+                                        Message::ChannelVideosLoaded,
+                                    )
+                                } else {
+                                    Task::none()
+                                };
 
                                 return Task::batch([Task::batch(thumb_tasks), next_page_task]);
                             } else {
@@ -662,7 +639,7 @@ impl App {
                         Task::batch(helpers::create_thumbnail_tasks(&new_videos))
                     }
                     Err(e) => {
-                        trace!("Channel videos load error: {:?}", e);
+                        self.show_error(format!("Failed to load channel videos: {}", e));
                         self.channel_preloading = false;
                         self.loading_channel = false;
                         self.channel_loading_more = false;
@@ -681,19 +658,23 @@ impl App {
                     self.channel_preloading = true;
                     self.loading_channel = true;
 
-                    let channel_id = channel.id.clone();
-                    // Use stored locale for consistent results across tabs
-                    let (hl, gl) = self.channel_locale.clone();
-                    Task::perform(
-                        async move {
-                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                            client
-                                .get_channel_videos_with_explicit_locale(&channel_id, tab, &hl, &gl)
-                                .await
-                                .map_err(|e| e.to_string())
-                        },
-                        Message::ChannelVideosLoaded,
-                    )
+                    // Look up config from channels HashMap using channel's key
+                    let config = self.config.channels.get(&channel.key()).cloned();
+
+                    if let Some(mut cfg) = config {
+                        // Apply locale override if set
+                        let (hl, gl) = self.channel_locale.clone();
+                        cfg.language = Some((hl.clone(), gl.clone()));
+
+                        Task::perform(
+                            async move {
+                                providers::get_channel_videos_with_locale(&cfg, tab, &hl, &gl).await
+                            },
+                            Message::ChannelVideosLoaded,
+                        )
+                    } else {
+                        Task::none()
+                    }
                 } else {
                     Task::none()
                 }
@@ -705,6 +686,7 @@ impl App {
                     .iter()
                     .find(|f| f.label == label)
                     && let Some(ref token) = filter.continuation_token
+                    && let Some(ref channel) = self.current_channel
                 {
                     self.selected_sort_label = Some(label);
                     self.channel_results.clear();
@@ -713,18 +695,20 @@ impl App {
                     self.channel_preloading = true;
                     self.loading_channel = true;
 
-                    let token = token.clone();
-                    let (hl, gl) = self.channel_locale.clone();
-                    return Task::perform(
-                        async move {
-                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                            client
-                                .get_channel_videos_continuation_with_locale(&token, &hl, &gl)
-                                .await
-                                .map_err(|e| e.to_string())
-                        },
-                        Message::ChannelVideosLoaded,
-                    );
+                    // Look up config from channels HashMap
+                    let config = self.config.channels.get(&channel.key()).cloned();
+
+                    if let Some(cfg) = config {
+                        let token = token.clone();
+                        let (hl, gl) = self.channel_locale.clone();
+                        return Task::perform(
+                            async move {
+                                providers::get_channel_videos_continuation(&cfg, &token, &hl, &gl)
+                                    .await
+                            },
+                            Message::ChannelVideosLoaded,
+                        );
+                    }
                 }
                 Task::none()
             }
@@ -732,48 +716,43 @@ impl App {
             Message::LoadMoreVideos => {
                 if let Some(ref token) = self.channel_continuation
                     && !self.channel_loading_more
+                    && let Some(ref channel) = self.current_channel
                 {
                     self.channel_loading_more = true;
                     // Enable preloading to fetch 3 more pages
                     self.channel_preload_count = 0;
                     self.channel_preloading = true;
 
-                    let token = token.clone();
-                    // Use stored locale for consistent results
-                    let (hl, gl) = self.channel_locale.clone();
-                    return Task::perform(
-                        async move {
-                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                            client
-                                .get_channel_videos_continuation_with_locale(&token, &hl, &gl)
-                                .await
-                                .map_err(|e| e.to_string())
-                        },
-                        Message::ChannelVideosLoaded,
-                    );
+                    // Look up config from channels HashMap
+                    let config = self.config.channels.get(&channel.key()).cloned();
+
+                    if let Some(cfg) = config {
+                        let token = token.clone();
+                        // Use stored locale for consistent results
+                        let (hl, gl) = self.channel_locale.clone();
+                        return Task::perform(
+                            async move {
+                                providers::get_channel_videos_continuation(&cfg, &token, &hl, &gl)
+                                    .await
+                            },
+                            Message::ChannelVideosLoaded,
+                        );
+                    }
                 }
                 Task::none()
             }
             Message::LoadMoreSearchResults => {
-                if let Some(ref token) = self.search_continuation
-                    && !self.search_loading_more
-                {
+                if !self.search_continuations.is_empty() && !self.search_loading_more {
                     self.search_loading_more = true;
                     // Enable preloading to fetch 3 more pages
                     self.search_preload_count = 0;
                     self.search_preloading = true;
 
-                    let token = token.clone();
+                    let continuations = self.search_continuations.clone();
                     // Use stored locale for consistent results
                     let (hl, gl) = self.search_locale.clone();
                     return Task::perform(
-                        async move {
-                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                            client
-                                .search_continuation(&token, &hl, &gl)
-                                .await
-                                .map_err(|e| e.to_string())
-                        },
+                        async move { providers::search_continuation(&continuations, &hl, &gl).await },
                         Message::SearchDone,
                     );
                 }
@@ -798,7 +777,7 @@ impl App {
                 let tasks: Vec<Task<Message>> = self
                     .config
                     .channels
-                    .iter()
+                    .values()
                     .filter(|c| c.subscribed)
                     .filter(|c| !self.subscription_thumbs.contains_key(&c.channel_id))
                     .map(|c| {
@@ -834,12 +813,9 @@ impl App {
                         if let Some(ref channel) = self.current_channel {
                             // Save language preference for this channel
                             let language_tuple = (hl.clone(), gl.clone());
-                            if let Some(channel_config) = self
-                                .config
-                                .channels
-                                .iter_mut()
-                                .find(|c| c.channel_id == channel.id)
-                            {
+                            let key = channel.key();
+
+                            if let Some(channel_config) = self.config.channels.get_mut(&key) {
                                 // Update existing channel config
                                 channel_config.language = Some(language_tuple);
                             } else {
@@ -850,15 +826,19 @@ impl App {
                                     .map(|t| t.url.clone())
                                     .unwrap_or_default();
 
-                                self.config.channels.push(ytrs_lib::ChannelConfig {
+                                let new_config = ChannelConfig {
+                                    platform_name: channel.platform_name.clone(),
+                                    platform_icon: channel.platform_icon.clone(),
                                     channel_id: channel.id.clone(),
                                     channel_name: channel.name.clone(),
                                     channel_handle: channel.handle.clone(),
                                     thumbnail_url,
+                                    instance: channel.instance.clone(),
                                     subscribed: false,
                                     subscribed_at: None,
                                     language: Some((hl.clone(), gl.clone())),
-                                });
+                                };
+                                self.config.channels.insert(key.clone(), new_config);
                             }
 
                             let save_task = save_config(self.config.clone());
@@ -869,20 +849,16 @@ impl App {
                             self.channel_preloading = true;
                             self.loading_channel = true;
 
-                            let channel_id = channel.id.clone();
-
-                            // Fetch channel info first
-                            let fetch_task = Task::perform(
-                                async move {
-                                    let client =
-                                        InnerTube::new().await.map_err(|e| e.to_string())?;
-                                    client
-                                        .get_channel(&channel_id)
-                                        .await
-                                        .map_err(|e| e.to_string())
-                                },
-                                Message::ChannelLoaded,
-                            );
+                            // Fetch channel info using the config
+                            let channel_config = self.config.channels.get(&key).cloned();
+                            let fetch_task = if let Some(config) = channel_config {
+                                Task::perform(
+                                    async move { providers::get_channel(&config).await },
+                                    Message::ChannelLoaded,
+                                )
+                            } else {
+                                Task::none()
+                            };
 
                             Task::batch([save_task, fetch_task])
                         } else {
@@ -898,20 +874,13 @@ impl App {
                         if !self.query.is_empty() && !self.searching {
                             self.searching = true;
                             self.search_results.clear();
-                            self.search_continuation = None;
+                            self.search_continuations.clear();
                             self.search_preload_count = 0;
                             self.search_preloading = true;
                             let q = self.query.clone();
 
                             Task::perform(
-                                async move {
-                                    let client =
-                                        InnerTube::new().await.map_err(|e| e.to_string())?;
-                                    client
-                                        .search_with_locale(&q, &hl, &gl)
-                                        .await
-                                        .map_err(|e| e.to_string())
-                                },
+                                async move { providers::search_with_locale(&q, &hl, &gl).await },
                                 Message::SearchDone,
                             )
                         } else {
@@ -953,14 +922,14 @@ impl App {
                         }
                     }
                     Err(e) => {
-                        trace!("Config load error: {:?}", e);
+                        self.show_error(format!("Failed to load config: {}", e));
                     }
                 }
                 Task::none()
             }
             Message::ConfigSaved(result) => {
                 if let Err(e) = result {
-                    trace!("Config save error: {:?}", e);
+                    self.show_error(format!("Failed to save config: {}", e));
                 }
                 Task::none()
             }
@@ -984,14 +953,9 @@ impl App {
             }
             Message::SubscribeToChannel => {
                 if let Some(ref channel) = self.current_channel {
-                    // Check if channel config already exists
-                    let existing_config = self
-                        .config
-                        .channels
-                        .iter_mut()
-                        .find(|c| c.channel_id == channel.id);
+                    let key = channel.key();
 
-                    if let Some(channel_config) = existing_config {
+                    if let Some(channel_config) = self.config.channels.get_mut(&key) {
                         // Channel config exists, just mark as subscribed
                         if !channel_config.subscribed {
                             channel_config.subscribed = true;
@@ -1006,38 +970,35 @@ impl App {
                             .unwrap_or_default();
 
                         // Create new channel config
-                        let channel_config = ytrs_lib::ChannelConfig {
+                        let channel_config = ChannelConfig {
+                            platform_name: channel.platform_name.clone(),
+                            platform_icon: channel.platform_icon.clone(),
                             channel_id: channel.id.clone(),
                             channel_name: channel.name.clone(),
                             channel_handle: channel.handle.clone(),
                             thumbnail_url,
+                            instance: channel.instance.clone(),
                             subscribed: true,
                             subscribed_at: Some(chrono::Utc::now().to_rfc3339()),
                             language: None,
                         };
 
                         // Add to config
-                        self.config.channels.push(channel_config);
+                        self.config.channels.insert(key, channel_config);
                     }
 
                     return save_config(self.config.clone());
                 }
                 Task::none()
             }
-            Message::UnsubscribeFromChannel(channel_id) => {
-                // Find the channel config
-                if let Some(channel_config) = self
-                    .config
-                    .channels
-                    .iter_mut()
-                    .find(|c| c.channel_id == channel_id)
-                {
+            Message::UnsubscribeFromChannel(key) => {
+                if let Some(channel_config) = self.config.channels.get_mut(&key) {
                     channel_config.subscribed = false;
                     channel_config.subscribed_at = None;
 
                     // If no language override, remove the entry entirely
                     if channel_config.language.is_none() {
-                        self.config.channels.retain(|c| c.channel_id != channel_id);
+                        self.config.channels.remove(&key);
                     }
                 }
 
@@ -1056,10 +1017,10 @@ impl App {
                 // If leaving video view, clean up video player
                 if self.current_view == View::Video {
                     // Abort any in-progress loading
-                    if let Some(ref player) = self.video_player {
-                        if let Some(ref handle) = player.loading_handle {
-                            handle.abort();
-                        }
+                    if let Some(ref player) = self.video_player
+                        && let Some(ref handle) = player.loading_handle
+                    {
+                        handle.abort();
                     }
                     self.video_player = None;
                     self.playing_video_id = None;
@@ -1076,7 +1037,7 @@ impl App {
                         let thumb_tasks: Vec<Task<Message>> = self
                             .config
                             .channels
-                            .iter()
+                            .values()
                             .filter(|c| c.subscribed)
                             .filter(|c| !self.subscription_thumbs.contains_key(&c.channel_id))
                             .map(|c| {
@@ -1126,17 +1087,13 @@ impl App {
                 match result {
                     Ok(cache) => {
                         // Populate subscription_videos from cache and collect videos for thumbnail loading
-                        let mut all_videos: Vec<SearchResult> = Vec::new();
-                        for (channel_id, cached) in &cache.channels {
+                        let mut all_videos: Vec<Video> = Vec::new();
+                        for (key, cached) in &cache.channels {
                             // Look up channel name from config
-                            let channel_name = self
-                                .config
-                                .channels
-                                .iter()
-                                .find(|c| &c.channel_id == channel_id)
-                                .map(|c| c.channel_name.clone());
+                            let channel_config = self.config.channels.get(key);
+                            let channel_name = channel_config.map(|c| c.channel_name.clone());
                             // Populate channel info on videos if missing
-                            let videos: Vec<SearchResult> = cached
+                            let videos: Vec<Video> = cached
                                 .videos
                                 .iter()
                                 .cloned()
@@ -1144,18 +1101,19 @@ impl App {
                                     if v.channel.is_none()
                                         && let Some(ref name) = channel_name
                                     {
-                                        v.channel = Some(ytrs_lib::Channel {
-                                            id: Some(channel_id.clone()),
+                                        v.channel = Some(common::Channel {
+                                            id: Some(key.channel_id.clone()),
                                             name: name.clone(),
                                             url: None,
-                                            thumbnail: None,
+                                            thumbnails: vec![],
+                                            verified: None,
                                         });
                                     }
                                     v
                                 })
                                 .collect();
                             all_videos.extend(videos.clone());
-                            self.subscription_videos.insert(channel_id.clone(), videos);
+                            self.subscription_videos.insert(key.clone(), videos);
                         }
                         self.subscription_videos_cache = cache;
 
@@ -1167,27 +1125,36 @@ impl App {
                         Task::batch(thumb_tasks).chain(fetch_task)
                     }
                     Err(e) => {
-                        trace!("Subscription video cache load error: {:?}", e);
+                        self.show_error(format!("Failed to load subscription cache: {}", e));
                         self.fetch_stale_subscription_videos()
                     }
                 }
             }
-            Message::SubscriptionVideosLoaded(channel_id, channel_name, result) => {
-                self.subscription_videos_loading.remove(&channel_id);
+            Message::SubscriptionVideosLoaded(key, result) => {
+                self.subscription_videos_loading.remove(&key);
+                // Look up channel name from config
+                let channel_name = self
+                    .config
+                    .channels
+                    .get(&key)
+                    .map(|c| c.channel_name.clone())
+                    .unwrap_or_default();
+
                 match result {
                     Ok(channel_videos) => {
                         // Store full first page of videos with channel info populated
-                        let videos: Vec<SearchResult> = channel_videos
+                        let videos: Vec<Video> = channel_videos
                             .videos
                             .into_iter()
                             .map(|mut v| {
                                 // Populate channel info if not present
                                 if v.channel.is_none() {
-                                    v.channel = Some(ytrs_lib::Channel {
-                                        id: Some(channel_id.clone()),
+                                    v.channel = Some(common::Channel {
+                                        id: Some(key.channel_id.clone()),
                                         name: channel_name.clone(),
                                         url: None,
-                                        thumbnail: None,
+                                        thumbnails: vec![],
+                                        verified: None,
                                     });
                                 }
                                 v
@@ -1203,14 +1170,14 @@ impl App {
                             .unwrap()
                             .as_secs() as i64;
                         self.subscription_videos_cache.channels.insert(
-                            channel_id.clone(),
+                            key.clone(),
                             config::CachedChannelVideos {
                                 videos: videos.clone(),
                                 fetched_at: now,
                             },
                         );
 
-                        self.subscription_videos.insert(channel_id, videos);
+                        self.subscription_videos.insert(key, videos);
 
                         // Save cache to disk only when all channels are done loading
                         let save_task = if self.subscription_videos_loading.is_empty() {
@@ -1223,7 +1190,10 @@ impl App {
                         Task::batch(thumb_tasks).chain(save_task)
                     }
                     Err(e) => {
-                        trace!("Subscription videos load error: {:?}", e);
+                        self.show_error(format!(
+                            "Failed to load videos for {}: {}",
+                            channel_name, e
+                        ));
                         // Save cache when all done, even if some failed
                         if self.subscription_videos_loading.is_empty() {
                             let cache = self.subscription_videos_cache.clone();
@@ -1253,12 +1223,10 @@ impl App {
                         if let Some(views) = result.view_count {
                             content.push_str(&format!("   Views: {}\n", views));
                         }
-                        if let Some(ref duration) = result.duration {
+                        if let Some(ref duration) = result.duration_string {
                             content.push_str(&format!("   Duration: {}\n", duration));
                         }
-                        if let Some(ref video_id) = result.video_id {
-                            content.push_str(&format!("   Video ID: {}\n", video_id));
-                        }
+                        content.push_str(&format!("   Video ID: {}\n", result.id));
                         content.push('\n');
                     }
 
@@ -1276,48 +1244,23 @@ impl App {
                         },
                         |result| match result {
                             Ok(_filename) => Message::NoOp,
-                            Err(e) => {
-                                trace!("Subscription save error: {}", e);
-                                Message::NoOp
-                            }
+                            Err(e) => Message::ShowError(format!("Failed to export: {}", e)),
                         },
                     )
                 } else {
                     Task::none()
                 }
             }
-            Message::PlayVideo(video_id, channel_name, channel_id) => {
-                // Find the video info from search results, channel results, or subscription videos
-                let video_info = self
-                    .search_results
-                    .iter()
-                    .find(|r| r.video_id.as_ref() == Some(&video_id))
-                    .or_else(|| {
-                        self.channel_results
-                            .iter()
-                            .find(|r| r.video_id.as_ref() == Some(&video_id))
-                    })
-                    .or_else(|| {
-                        // Search in subscription videos
-                        self.subscription_videos
-                            .values()
-                            .flatten()
-                            .find(|r| r.video_id.as_ref() == Some(&video_id))
-                    })
-                    .cloned();
+            Message::PlayVideo(video) => {
+                let video_id_str = video.id.clone();
+                let title = Some(video.title.clone());
+                let duration = video.duration.map(std::time::Duration::from_secs);
+                let channel_id = video.channel.as_ref().and_then(|c| c.id.clone());
 
-                let title = video_info.as_ref().map(|r| r.title.clone());
-                let duration = video_info
-                    .as_ref()
-                    .and_then(|r| r.duration.as_ref())
-                    .and_then(|d| ytrs_lib::parse_duration_string(d));
+                // Store the video info
+                self.playing_video_info = Some((*video).clone());
 
-                // Store the video info and channel info passed from tile
-                self.playing_video_info = video_info;
-                self.playing_channel_name = channel_name;
-                self.playing_channel_id = channel_id.clone();
-
-                self.playing_video_id = Some(video_id.clone());
+                self.playing_video_id = Some(video_id_str.clone());
                 // Only update previous_view if we're not already in Video view
                 if self.current_view != View::Video {
                     self.previous_view = self.current_view;
@@ -1325,14 +1268,19 @@ impl App {
                 self.current_view = View::Video;
 
                 // Abort any in-progress loading from the previous player
-                if let Some(ref player) = self.video_player {
-                    if let Some(ref handle) = player.loading_handle {
-                        handle.abort();
-                    }
+                if let Some(ref player) = self.video_player
+                    && let Some(ref handle) = player.loading_handle
+                {
+                    handle.abort();
                 }
 
                 // Create video player state with the new high-level API
-                let source = VideoSource::YouTube(video_id.clone());
+                let source = match VideoSource::from_video(&video) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return Task::done(Message::ShowError(format!("Cannot play video: {}", e)));
+                    }
+                };
                 let mut state = VideoPlayerState::new(source.clone())
                     .with_visualizer(self.config.audio_visualizer);
                 if let Some(t) = title {
@@ -1345,17 +1293,9 @@ impl App {
                 self.video_player = Some(state);
 
                 // Fetch high-res video thumbnail
+                let video_for_thumb = video.clone();
                 let thumb_task = Task::perform(
-                    {
-                        let video_id = video_id.clone();
-                        async move {
-                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                            client
-                                .fetch_hq_thumbnail(&video_id)
-                                .await
-                                .map_err(|e| e.to_string())
-                        }
-                    },
+                    async move { providers::fetch_thumbnail_for_video(&video_for_thumb).await },
                     Message::VideoThumbnailLoaded,
                 );
 
@@ -1364,26 +1304,27 @@ impl App {
                     if self.thumbs.contains_key(cid) || self.subscription_thumbs.contains_key(cid) {
                         Task::none()
                     } else {
-                        // Fetch channel info to get thumbnail URL
-                        let cid_for_async = cid.clone();
-                        let cid_for_msg = cid.clone();
-                        Task::perform(
-                            async move {
-                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                                let channel_info = client
-                                    .get_channel(&cid_for_async)
-                                    .await
-                                    .map_err(|e: ytrs_lib::Error| e.to_string())?;
-                                if let Some(thumb) = channel_info.thumbnails.first() {
-                                    helpers::load_circular_thumb(&thumb.url, 48)
+                        // Get channel thumbnail URL from video info if available
+                        let channel_thumb_url = self
+                            .playing_video_info
+                            .as_ref()
+                            .and_then(|v| v.channel.as_ref())
+                            .and_then(|c| c.thumbnails.first())
+                            .map(|t| t.url.clone());
+
+                        if let Some(url) = channel_thumb_url {
+                            let cid_for_msg = cid.clone();
+                            Task::perform(
+                                async move {
+                                    helpers::load_circular_thumb(&url, 48)
                                         .await
                                         .map_err(|e| e.to_string())
-                                } else {
-                                    Err("No channel thumbnail".to_string())
-                                }
-                            },
-                            move |res| Message::ThumbLoaded(cid_for_msg, res),
-                        )
+                                },
+                                move |res| Message::ThumbLoaded(cid_for_msg, res),
+                            )
+                        } else {
+                            Task::none()
+                        }
                     }
                 } else {
                     Task::none()
@@ -1391,35 +1332,17 @@ impl App {
 
                 Task::batch([thumb_task, channel_thumb_task])
             }
-            Message::PlayAudioOnly(video_id, channel_name, channel_id) => {
+            Message::PlayAudioOnly(video) => {
                 // Similar to PlayVideo but uses audio-only source
-                let video_info = self
-                    .search_results
-                    .iter()
-                    .find(|r| r.video_id.as_ref() == Some(&video_id))
-                    .or_else(|| {
-                        self.channel_results
-                            .iter()
-                            .find(|r| r.video_id.as_ref() == Some(&video_id))
-                    })
-                    .or_else(|| {
-                        self.subscription_videos
-                            .values()
-                            .flatten()
-                            .find(|r| r.video_id.as_ref() == Some(&video_id))
-                    })
-                    .cloned();
+                let video_id_str = video.id.clone();
+                let title = Some(video.title.clone());
+                let duration = video.duration.map(std::time::Duration::from_secs);
+                let channel_id = video.channel.as_ref().and_then(|c| c.id.clone());
 
-                let title = video_info.as_ref().map(|r| r.title.clone());
-                let duration = video_info
-                    .as_ref()
-                    .and_then(|r| r.duration.as_ref())
-                    .and_then(|d| ytrs_lib::parse_duration_string(d));
+                // Store the video info
+                self.playing_video_info = Some((*video).clone());
 
-                self.playing_video_info = video_info;
-                self.playing_channel_name = channel_name;
-                self.playing_channel_id = channel_id.clone();
-                self.playing_video_id = Some(video_id.clone());
+                self.playing_video_id = Some(video_id_str.clone());
                 // Only update previous_view if we're not already in Video view
                 if self.current_view != View::Video {
                     self.previous_view = self.current_view;
@@ -1427,14 +1350,19 @@ impl App {
                 self.current_view = View::Video;
 
                 // Abort any in-progress loading from the previous player
-                if let Some(ref player) = self.video_player {
-                    if let Some(ref handle) = player.loading_handle {
-                        handle.abort();
-                    }
+                if let Some(ref player) = self.video_player
+                    && let Some(ref handle) = player.loading_handle
+                {
+                    handle.abort();
                 }
 
                 // Create video player state with audio-only source and auto-start loading
-                let source = VideoSource::youtube_audio_only(video_id.clone());
+                let source = match VideoSource::from_video_audio_only(&video) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return Task::done(Message::ShowError(format!("Cannot play audio: {}", e)));
+                    }
+                };
                 let mut state = VideoPlayerState::new(source.clone())
                     .with_visualizer(self.config.audio_visualizer);
                 if let Some(t) = title {
@@ -1454,17 +1382,9 @@ impl App {
                 let load_task = load_task.map(Message::VideoPlayer);
 
                 // Fetch high-res video thumbnail (shows while audio plays)
+                let video_for_thumb = video.clone();
                 let thumb_task = Task::perform(
-                    {
-                        let video_id = video_id.clone();
-                        async move {
-                            let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                            client
-                                .fetch_hq_thumbnail(&video_id)
-                                .await
-                                .map_err(|e| e.to_string())
-                        }
-                    },
+                    async move { providers::fetch_thumbnail_for_video(&video_for_thumb).await },
                     Message::VideoThumbnailLoaded,
                 );
 
@@ -1473,25 +1393,27 @@ impl App {
                     if self.thumbs.contains_key(cid) || self.subscription_thumbs.contains_key(cid) {
                         Task::none()
                     } else {
-                        let cid_for_async = cid.clone();
-                        let cid_for_msg = cid.clone();
-                        Task::perform(
-                            async move {
-                                let client = InnerTube::new().await.map_err(|e| e.to_string())?;
-                                let channel_info = client
-                                    .get_channel(&cid_for_async)
-                                    .await
-                                    .map_err(|e: ytrs_lib::Error| e.to_string())?;
-                                if let Some(thumb) = channel_info.thumbnails.first() {
-                                    helpers::load_circular_thumb(&thumb.url, 48)
+                        // Get channel thumbnail URL from video info if available
+                        let channel_thumb_url = self
+                            .playing_video_info
+                            .as_ref()
+                            .and_then(|v| v.channel.as_ref())
+                            .and_then(|c| c.thumbnails.first())
+                            .map(|t| t.url.clone());
+
+                        if let Some(url) = channel_thumb_url {
+                            let cid_for_msg = cid.clone();
+                            Task::perform(
+                                async move {
+                                    helpers::load_circular_thumb(&url, 48)
                                         .await
                                         .map_err(|e| e.to_string())
-                                } else {
-                                    Err("No channel thumbnail".to_string())
-                                }
-                            },
-                            move |res| Message::ThumbLoaded(cid_for_msg, res),
-                        )
+                                },
+                                move |res| Message::ThumbLoaded(cid_for_msg, res),
+                            )
+                        } else {
+                            Task::none()
+                        }
                     }
                 } else {
                     Task::none()
@@ -1596,10 +1518,10 @@ impl App {
             }
             Message::BackFromVideo => {
                 // Abort any in-progress loading
-                if let Some(ref player) = self.video_player {
-                    if let Some(ref handle) = player.loading_handle {
-                        handle.abort();
-                    }
+                if let Some(ref player) = self.video_player
+                    && let Some(ref handle) = player.loading_handle
+                {
+                    handle.abort();
                 }
                 // Clean up video player state
                 self.video_player = None;
@@ -1623,24 +1545,40 @@ impl App {
                             .map(|_| ())
                             .map_err(|e| e.to_string())
                     },
-                    |result| {
-                        if let Err(e) = result {
-                            tracing::error!("Failed to launch mpv: {}", e);
-                        }
-                        Message::NoOp
+                    |result| match result {
+                        Ok(_) => Message::NoOp,
+                        Err(e) => Message::ShowError(format!("Failed to launch mpv: {}", e)),
                     },
                 )
             }
-            Message::CopyVideoUrl(video_id) => {
-                let url = format!("https://www.youtube.com/watch?v={}", video_id);
-                iced::clipboard::write(url)
+            Message::CopyVideoUrl(url) => iced::clipboard::write(url),
+
+            // Notification handling
+            Message::ShowError(msg) => {
+                self.show_error(msg);
+                Task::none()
+            }
+            Message::DismissNotification(id) => {
+                self.notifications.retain(|n| n.id != id);
+                Task::none()
+            }
+            Message::ClearNotifications => {
+                self.notifications.clear();
+                Task::none()
+            }
+            Message::NotificationTick => {
+                // Auto-dismiss notifications older than 10 seconds
+                let now = std::time::Instant::now();
+                self.notifications
+                    .retain(|n| now.duration_since(n.created_at).as_secs() < 10);
+                Task::none()
             }
         }
     }
 
     fn view(&self) -> Element<'_, Message> {
         use iced::Length;
-        use iced::widget::{container, stack};
+        use iced::widget::{button, column, container, row, stack, text};
 
         let content = match self.current_view {
             View::Search => views::search::view(self),
@@ -1650,15 +1588,70 @@ impl App {
             View::Video => views::video::view(self),
         };
 
+        // Build notification toasts (show first 3 from queue)
+        let notifications_overlay: Element<'_, Message> = if self.notifications.is_empty() {
+            container(iced::widget::Space::new()).into()
+        } else {
+            let toasts: Vec<Element<'_, Message>> = self
+                .notifications
+                .iter()
+                .take(3)
+                .map(|n| {
+                    let dismiss_btn = button(text("×").size(16))
+                        .on_press(Message::DismissNotification(n.id))
+                        .padding(4)
+                        .style(|_theme: &iced::Theme, _status| button::Style {
+                            text_color: iced::Color::WHITE,
+                            background: None,
+                            ..Default::default()
+                        });
+
+                    container(
+                        row![
+                            text(&n.message)
+                                .size(14)
+                                .color(iced::Color::WHITE)
+                                .width(Length::Fill),
+                            dismiss_btn
+                        ]
+                        .spacing(8)
+                        .align_y(iced::Alignment::Center),
+                    )
+                    .padding(12)
+                    .width(Length::Fixed(400.0))
+                    .style(|_theme: &iced::Theme| container::Style {
+                        background: Some(iced::Background::Color(iced::Color::from_rgba(
+                            0.7, 0.1, 0.1, 0.95,
+                        ))),
+                        border: iced::Border {
+                            radius: 8.0.into(),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    })
+                    .into()
+                })
+                .collect();
+
+            container(column(toasts).spacing(8))
+                .width(Length::Fill)
+                .padding(20)
+                .align_x(iced::alignment::Horizontal::Right)
+                .into()
+        };
+
         // In video view fullscreen, skip the tab bar entirely
         if self.current_view == View::Video
             && let Some(ref state) = self.video_player
             && state.fullscreen
         {
-            return container(content)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into();
+            return stack![
+                container(content).width(Length::Fill).height(Length::Fill),
+                notifications_overlay
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
         }
 
         // Create iOS-style tab bar at the bottom
@@ -1671,7 +1664,8 @@ impl App {
             container(tab_bar)
                 .width(Length::Fill)
                 .height(Length::Fill)
-                .align_y(iced::alignment::Vertical::Bottom)
+                .align_y(iced::alignment::Vertical::Bottom),
+            notifications_overlay
         ]
         .width(Length::Fill)
         .height(Length::Fill)
@@ -1749,6 +1743,13 @@ impl App {
             Subscription::none()
         };
 
-        Subscription::batch([events, video_sub, video_keys])
+        // Notification auto-dismiss timer (tick every second if there are notifications)
+        let notification_timer = if !self.notifications.is_empty() {
+            iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::NotificationTick)
+        } else {
+            Subscription::none()
+        };
+
+        Subscription::batch([events, video_sub, video_keys, notification_timer])
     }
 }

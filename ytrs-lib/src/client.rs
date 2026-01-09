@@ -5,8 +5,24 @@ use crate::error::{Error, Result};
 use crate::models::*;
 use crate::parsers;
 use crate::utils;
+use common::ChannelTab;
 use reqwest::Client;
 use serde_json::{Value, json};
+
+/// YouTube-specific extension for ChannelTab to get InnerTube API params
+trait ChannelTabExt {
+    fn params(&self) -> &'static str;
+}
+
+impl ChannelTabExt for ChannelTab {
+    fn params(&self) -> &'static str {
+        match self {
+            ChannelTab::Videos => "EgZ2aWRlb3PyBgQKAjoA",
+            ChannelTab::Shorts => "EgZzaG9ydHPyBgUKA5oBAA%3D%3D",
+            ChannelTab::Streams => "EgdzdHJlYW1z8gYECgJ6AA%3D%3D",
+        }
+    }
+}
 
 /// Main InnerTube client for interacting with YouTube's API
 #[derive(Debug, Clone)]
@@ -120,10 +136,9 @@ impl InnerTube {
     }
 
     /// Search for videos on YouTube
-    pub async fn search(&self, query: &str) -> Result<SearchResults> {
-        // Detect language and update context
-        let (hl, gl) = utils::detect_locale(query);
-        self.search_with_locale(query, &hl, &gl).await
+    pub async fn search(&self, query: &str) -> Result<common::SearchResults> {
+        // Default to English
+        self.search_with_locale(query, "en", "US").await
     }
 
     /// Search for videos on YouTube with a specific locale
@@ -132,7 +147,7 @@ impl InnerTube {
         query: &str,
         hl: &str,
         gl: &str,
-    ) -> Result<SearchResults> {
+    ) -> Result<common::SearchResults> {
         let mut context = self.context.clone();
         context.client.hl = hl.to_string();
         context.client.gl = gl.to_string();
@@ -145,7 +160,7 @@ impl InnerTube {
         let response = self.post("/search", body).await?;
         let mut search_results = parsers::parse_search_results(&response)?;
         search_results.detected_locale = Some((hl.to_string(), gl.to_string()));
-        Ok(search_results)
+        Ok(search_results.into())
     }
 
     /// Get more search results using a continuation token with locale
@@ -154,7 +169,7 @@ impl InnerTube {
         continuation_token: &str,
         hl: &str,
         gl: &str,
-    ) -> Result<SearchResults> {
+    ) -> Result<YtSearchResults> {
         let mut context = self.context.clone();
         context.client.hl = hl.to_string();
         context.client.gl = gl.to_string();
@@ -189,7 +204,7 @@ impl InnerTube {
     }
 
     /// Get related videos for a given video ID
-    pub async fn get_related(&self, video_id: &str) -> Result<Vec<SearchResult>> {
+    pub async fn get_related(&self, video_id: &str) -> Result<Vec<YtSearchResult>> {
         let body = json!({
             "context": self.context,
             "videoId": video_id,
@@ -207,7 +222,7 @@ impl InnerTube {
                 if let Some(video) = item.get("compactVideoRenderer") {
                     // Parse compact video renderer (similar to video renderer but slightly different structure)
                     if let Some(video_id) = video.pointer("/videoId").and_then(|v| v.as_str()) {
-                        results.push(SearchResult {
+                        results.push(YtSearchResult {
                             video_id: Some(video_id.to_string()),
                             title: "Related Video".to_string(), // Would need proper parsing
                             description: None,
@@ -229,7 +244,7 @@ impl InnerTube {
     }
 
     /// Get trending videos
-    pub async fn get_trending(&self) -> Result<Vec<SearchResult>> {
+    pub async fn get_trending(&self) -> Result<Vec<YtSearchResult>> {
         let body = json!({
             "context": self.context,
             "browseId": "FEtrending",
@@ -242,7 +257,7 @@ impl InnerTube {
     }
 
     /// Get channel information by channel ID
-    pub async fn get_channel(&self, channel_id: &str) -> Result<ChannelInfo> {
+    pub async fn get_channel(&self, channel_id: &str) -> Result<YtChannelInfo> {
         let body = json!({
             "context": self.context,
             "browseId": channel_id,
@@ -262,7 +277,7 @@ impl InnerTube {
         &self,
         channel_id: &str,
         tab: ChannelTab,
-    ) -> Result<ChannelVideos> {
+    ) -> Result<YtChannelVideos> {
         self.get_channel_videos_with_locale(channel_id, tab, None)
             .await
     }
@@ -279,19 +294,12 @@ impl InnerTube {
         channel_id: &str,
         tab: ChannelTab,
         locale_hint: Option<&str>,
-    ) -> Result<ChannelVideos> {
+    ) -> Result<YtChannelVideos> {
         let params = tab.params();
 
-        // Detect locale if hint is provided
-        let mut context = self.context.clone();
-        let detected_locale = if let Some(hint) = locale_hint {
-            let (hl, gl) = utils::detect_locale(hint);
-            context.client.hl = hl.clone();
-            context.client.gl = gl.clone();
-            Some((hl, gl))
-        } else {
-            None
-        };
+        // Use default locale (locale_hint is ignored now that we removed auto-detection)
+        let _ = locale_hint;
+        let context = self.context.clone();
 
         let mut body = json!({
             "context": context,
@@ -304,9 +312,7 @@ impl InnerTube {
         }
 
         let response = self.post("/browse", body).await?;
-        let mut channel_videos = parsers::parse_channel_videos(&response)?;
-        channel_videos.detected_locale = detected_locale;
-        Ok(channel_videos)
+        parsers::parse_channel_videos(&response)
     }
 
     /// Get videos from a channel with explicit locale (hl, gl)
@@ -323,7 +329,7 @@ impl InnerTube {
         tab: ChannelTab,
         hl: &str,
         gl: &str,
-    ) -> Result<ChannelVideos> {
+    ) -> Result<YtChannelVideos> {
         let params = tab.params();
 
         // Use explicit locale
@@ -351,7 +357,7 @@ impl InnerTube {
     pub async fn get_channel_videos_continuation(
         &self,
         continuation_token: &str,
-    ) -> Result<ChannelVideos> {
+    ) -> Result<YtChannelVideos> {
         let body = json!({
             "context": self.context,
             "continuation": continuation_token,
@@ -367,7 +373,7 @@ impl InnerTube {
         continuation_token: &str,
         hl: &str,
         gl: &str,
-    ) -> Result<ChannelVideos> {
+    ) -> Result<YtChannelVideos> {
         let mut context = self.context.clone();
         context.client.hl = hl.to_string();
         context.client.gl = gl.to_string();
@@ -387,14 +393,16 @@ impl InnerTube {
     /// Returns the image bytes if successful.
     pub async fn fetch_hq_thumbnail(&self, video_id: &str) -> Result<Vec<u8>> {
         let url = utils::get_hq_thumbnail_url(video_id);
-        let response = self.client.get(&url).send().await?;
+        self.fetch_url(&url).await
+    }
+
+    /// Fetch bytes from a URL using the shared HTTP client.
+    pub async fn fetch_url(&self, url: &str) -> Result<Vec<u8>> {
+        let response = self.client.get(url).send().await?;
         if response.status().is_success() {
             Ok(response.bytes().await?.to_vec())
         } else {
-            Err(Error::DataNotFound(format!(
-                "Thumbnail not found for {}",
-                video_id
-            )))
+            Err(Error::DataNotFound(format!("Failed to fetch: {}", url)))
         }
     }
 }

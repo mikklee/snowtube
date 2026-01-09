@@ -9,11 +9,11 @@ use crate::theme::{rounded_button_style, rounded_text_input_style};
 use crate::widgets::icon_button::gen_icon_button;
 use crate::widgets::icons::icon_search;
 use crate::widgets::{Wrap, bounceable_scrollable, glass_container_style};
+use common::{format_relative_time, parse_relative_time};
 use iced::{
     Alignment, Element, Length, Padding,
     widget::{Image, button, column, container, lazy, row, stack, text, text_input},
 };
-use ytrs_lib::{format_relative_time, parse_relative_time};
 
 /// Render the search view
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -69,17 +69,24 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 r.is_premium != Some(true) && r.is_short != Some(true)
             })
             .filter_map(|r| {
-                let vid = r.video_id.clone()?;
+                if r.id.is_empty() {
+                    return None;
+                }
 
                 // Only render videos if thumbnail is loaded
-                let h = app.thumbs.get(&vid)?.clone();
+                let h = app.thumbs.get(&r.id)?.clone();
 
                 // Clone all data for lazy closure (must be owned)
+                let vid = r.id.clone();
+                let platform_name = r.platform_name.clone();
+                let platform_icon = r.platform_icon.clone();
                 let view_count = r.view_count;
-                let duration = r.duration.clone();
+                let duration_string = r.duration_string.clone();
                 let published_text = r.published_text.clone();
                 let title = r.title.clone();
                 let channel = r.channel.clone();
+                let video = Box::new(r.clone());
+                let instance = r.instance.clone();
 
                 // Lazy widget caches rendering - only rebuilds when vid changes
                 Some(
@@ -92,7 +99,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                         if let Some(v) = view_count {
                             meta_parts.push(format!("{} views", fmt_num(v)));
                         }
-                        if let Some(ref d) = duration {
+                        if let Some(ref d) = duration_string {
                             meta_parts.push(d.clone());
                         }
                         let seconds = parse_relative_time(published_text.as_deref());
@@ -112,20 +119,33 @@ pub fn view(app: &App) -> Element<'_, Message> {
                         // This is probably acceptable for normal use, but there may be a better way of doing this.
                         let channel_info = channel.as_ref().map(|ch| ChannelInfo {
                             name: &*Box::leak(ch.name.clone().into_boxed_str()),
-                            on_press: ch.id.clone().map(Message::ViewChannel),
+                            on_press: ch.id.clone().map(|cid| {
+                                Message::ViewChannel(common::ChannelConfig {
+                                    platform_name: platform_name.clone(),
+                                    platform_icon: platform_icon.clone(),
+                                    channel_id: cid,
+                                    channel_name: ch.name.clone(),
+                                    channel_handle: None,
+                                    thumbnail_url: ch
+                                        .thumbnails
+                                        .first()
+                                        .map(|t| t.url.clone())
+                                        .unwrap_or_default(),
+                                    instance: instance.clone(),
+                                    subscribed: false,
+                                    subscribed_at: None,
+                                    language: None,
+                                })
+                            }),
                         });
-
-                        let (ch_name, ch_id) = channel
-                            .as_ref()
-                            .map(|c| (Some(c.name.clone()), c.id.clone()))
-                            .unwrap_or((None, None));
 
                         create_video_tile(
                             thumb_with_overlay,
                             &title,
                             channel_info,
                             metadata_text,
-                            Message::PlayVideo(vid.clone(), ch_name, ch_id),
+                            Message::PlayVideo(video.clone()),
+                            &platform_icon,
                         )
                     })
                     .into(),
@@ -158,7 +178,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 .padding(20)
                 .center_x(Length::Fill);
             search_content = search_content.push(loading_indicator);
-        } else if app.search_continuation.is_some() {
+        } else if !app.search_continuations.is_empty() {
             // Show "Load More" button if we have more results to load
             let load_more_btn = container(
                 button(text("Load More Results"))

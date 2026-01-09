@@ -6,7 +6,6 @@ use iced::{
     widget::{Image, button, column, container, stack, text},
 };
 use std::path::PathBuf;
-use ytrs_lib::SearchResult;
 
 use crate::messages::Message;
 
@@ -171,7 +170,7 @@ fn truncate_title(title: &str, max_chars: usize) -> String {
 
 /// Truncate title with different limits for CJK vs non-CJK text
 pub fn truncate_title_smart(title: &str, cjk_limit: usize, non_cjk_limit: usize) -> String {
-    let limit = if ytrs_lib::contains_asian_characters(title) {
+    let limit = if common::contains_asian_characters(title) {
         cjk_limit
     } else {
         non_cjk_limit
@@ -225,20 +224,19 @@ pub fn create_thumbnail(
     }
 }
 
-/// Helper function to create thumbnail loading tasks for search results
+/// Helper function to create thumbnail loading tasks for videos
 /// All thumbnails are loaded in parallel using tokio::spawn
-pub fn create_thumbnail_tasks(results: &[SearchResult]) -> Vec<Task<Message>> {
+pub fn create_thumbnail_tasks(results: &[common::Video]) -> Vec<Task<Message>> {
     let thumb_data: Vec<(String, String)> = results
         .iter()
-        .filter_map(|r| {
-            // Load video thumbnails
-            if let Some(vid) = r.video_id.as_ref() {
-                r.thumbnails.first().map(|t| (vid.clone(), t.url.clone()))
-            }
-            // Load channel thumbnails
-            else if let Some(channel) = r.channel.as_ref() {
+        .filter_map(|v| {
+            // Get video ID and thumbnail URL
+            if !v.id.is_empty() {
+                v.thumbnails.first().map(|t| (v.id.clone(), t.url.clone()))
+            } else if let Some(channel) = v.channel.as_ref() {
+                // Load channel thumbnails
                 if let Some(cid) = channel.id.as_ref() {
-                    r.thumbnails.first().map(|t| (cid.clone(), t.url.clone()))
+                    v.thumbnails.first().map(|t| (cid.clone(), t.url.clone()))
                 } else {
                     None
                 }
@@ -322,15 +320,15 @@ pub fn channel_button_style(theme: &Theme, status: button::Status) -> button::St
 /// Create a clickable channel name button
 pub fn channel_name_button<'a>(
     name: impl Into<String>,
-    channel_id: Option<String>,
+    channel_config: Option<common::ChannelConfig>,
 ) -> Element<'a, Message> {
     use iced::widget::{button, text};
 
     let name_str = name.into();
 
-    if let Some(cid) = channel_id {
+    if let Some(config) = channel_config {
         button(text(name_str).size(14))
-            .on_press(Message::ViewChannel(cid))
+            .on_press(Message::ViewChannel(config))
             .padding(0)
             .style(channel_button_style)
             .into()
@@ -346,12 +344,52 @@ pub fn create_video_tile<'a>(
     channel: Option<ChannelInfo>,
     metadata_text: Option<String>,
     on_press: Message,
+    platform_icon: &common::PlatformIcon,
 ) -> Element<'a, Message> {
+    use common::IconType;
     use iced::{
         Length,
         widget::text::Shaping,
-        widget::{button, column, container, text, tooltip},
+        widget::{button, column, container, stack, text, tooltip},
     };
+    use iced_font_awesome::{fa_icon_brands, fa_icon_solid};
+
+    // Create thumbnail with platform icon overlay in bottom-right corner
+    let icon = match platform_icon.icon_type {
+        IconType::Brand => fa_icon_brands(&platform_icon.name),
+        IconType::Solid => fa_icon_solid(&platform_icon.name),
+    };
+
+    let icon_element: Element<'a, Message> = icon
+        .size(14.0)
+        .style(|_theme: &Theme| iced::widget::text::Style {
+            color: Some(iced::Color::WHITE),
+        })
+        .into();
+
+    let icon_badge = container(icon_element)
+        .padding(4)
+        .style(|_theme: &Theme| container::Style {
+            background: Some(iced::Background::Color(iced::Color::from_rgba(
+                0.0, 0.0, 0.0, 0.7,
+            ))),
+            border: iced::Border {
+                radius: 4.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+    let thumbnail_with_icon: Element<'a, Message> = stack![
+        thumbnail,
+        container(icon_badge)
+            .width(240)
+            .height(135)
+            .align_x(iced::alignment::Horizontal::Right)
+            .align_y(iced::alignment::Vertical::Bottom)
+            .padding(6)
+    ]
+    .into();
 
     // Create title with tooltip
     let full_title = title_text.to_string();
@@ -387,7 +425,7 @@ pub fn create_video_tile<'a>(
     }
 
     let card = column![
-        thumbnail,
+        thumbnail_with_icon,
         container(info_col.spacing(4))
             .padding(8)
             .width(240)

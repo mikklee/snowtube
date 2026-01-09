@@ -51,11 +51,17 @@ pub fn load_video(
 ) -> impl futures::Stream<Item = LoadProgress> + Send + 'static {
     iced::stream::channel(10, move |mut sender| async move {
         match source {
-            VideoSource::YouTube(video_id) => {
+            VideoSource::YouTube { video_id } => {
                 load_youtube(&mut sender, &video_id).await;
             }
-            VideoSource::YouTubeAudioOnly(video_id) => {
+            VideoSource::YouTubeAudioOnly { video_id } => {
                 load_youtube_audio_only(&mut sender, &video_id).await;
+            }
+            VideoSource::PeerTube { instance, video_id } => {
+                load_peertube(&mut sender, &instance, &video_id).await;
+            }
+            VideoSource::PeerTubeAudioOnly { instance, video_id } => {
+                load_peertube_audio_only(&mut sender, &instance, &video_id).await;
             }
             VideoSource::DirectUrl(url) => {
                 load_direct_url(&mut sender, &url).await;
@@ -442,4 +448,143 @@ async fn load_live(sender: &mut iced::futures::channel::mpsc::Sender<LoadProgres
             let _ = sender.send(LoadProgress::Error(e)).await;
         }
     }
+}
+
+async fn load_peertube(
+    sender: &mut iced::futures::channel::mpsc::Sender<LoadProgress>,
+    instance: &str,
+    video_id: &str,
+) {
+    use iced::futures::SinkExt;
+
+    let _ = sender
+        .send(LoadProgress::Status(
+            "Fetching PeerTube video info...".to_string(),
+        ))
+        .await;
+
+    // Fetch video details from PeerTube API
+    let api_url = format!("{}/api/v1/videos/{}", instance, video_id);
+
+    let client = match reqwest::Client::builder().user_agent("ytrs/0.1").build() {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = sender
+                .send(LoadProgress::Error(format!(
+                    "Failed to create HTTP client: {}",
+                    e
+                )))
+                .await;
+            return;
+        }
+    };
+
+    let video_info: serde_json::Value = match client.get(&api_url).send().await {
+        Ok(response) => {
+            if !response.status().is_success() {
+                let _ = sender
+                    .send(LoadProgress::Error(format!(
+                        "PeerTube API error: {}",
+                        response.status()
+                    )))
+                    .await;
+                return;
+            }
+            match response.json().await {
+                Ok(json) => json,
+                Err(e) => {
+                    let _ = sender
+                        .send(LoadProgress::Error(format!(
+                            "Failed to parse response: {}",
+                            e
+                        )))
+                        .await;
+                    return;
+                }
+            }
+        }
+        Err(e) => {
+            let _ = sender
+                .send(LoadProgress::Error(format!("Network error: {}", e)))
+                .await;
+            return;
+        }
+    };
+
+    // Extract best quality video URL
+    // Try direct files first (sorted by resolution), then streaming playlists
+    let video_url = video_info["files"]
+        .as_array()
+        .and_then(|files| {
+            files
+                .iter()
+                .filter_map(|f| {
+                    let url = f["fileUrl"].as_str()?;
+                    let res = f["resolution"]["id"].as_u64().unwrap_or(0);
+                    Some((res, url.to_string()))
+                })
+                .max_by_key(|(res, _)| *res)
+                .map(|(_, url)| url)
+        })
+        .or_else(|| {
+            video_info["streamingPlaylists"]
+                .as_array()
+                .and_then(|playlists| {
+                    playlists.first().and_then(|p| {
+                        // Try files in playlist first (highest resolution)
+                        p["files"]
+                            .as_array()
+                            .and_then(|files| {
+                                files
+                                    .iter()
+                                    .filter_map(|f| {
+                                        let url = f["fileUrl"].as_str()?;
+                                        let res = f["resolution"]["id"].as_u64().unwrap_or(0);
+                                        Some((res, url.to_string()))
+                                    })
+                                    .max_by_key(|(res, _)| *res)
+                                    .map(|(_, url)| url)
+                            })
+                            // Fall back to HLS playlist URL
+                            .or_else(|| p["playlistUrl"].as_str().map(|s| s.to_string()))
+                    })
+                })
+        });
+
+    let video_url = match video_url {
+        Some(url) => url,
+        None => {
+            let _ = sender
+                .send(LoadProgress::Error(
+                    "No playable video URL found".to_string(),
+                ))
+                .await;
+            return;
+        }
+    };
+
+    let _ = sender
+        .send(LoadProgress::Status(
+            "Loading PeerTube video...".to_string(),
+        ))
+        .await;
+
+    // Determine if this is HLS or direct file
+    let is_hls = video_url.ends_with(".m3u8");
+
+    if is_hls {
+        load_live(sender, &video_url).await;
+    } else {
+        load_direct_url(sender, &video_url).await;
+    }
+}
+
+async fn load_peertube_audio_only(
+    sender: &mut iced::futures::channel::mpsc::Sender<LoadProgress>,
+    instance: &str,
+    video_id: &str,
+) {
+    // PeerTube doesn't have separate audio streams like YouTube
+    // For now, just load the video (audio will be extracted by the player)
+    load_peertube(sender, instance, video_id).await;
 }

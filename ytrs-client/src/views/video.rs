@@ -161,8 +161,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
 /// Build the info box with channel avatar, title, subscribe button, and action buttons
 fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
-    let video_id = app.playing_video_id.clone().unwrap_or_default();
-
     // Get title from video info
     let title = app
         .playing_video_info
@@ -170,9 +168,39 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
         .map(|i| i.title.clone())
         .unwrap_or_default();
 
-    // Get channel name and id from the values passed by PlayVideo message
-    let channel_name = app.playing_channel_name.clone().unwrap_or_default();
-    let channel_id = app.playing_channel_id.clone();
+    // Get channel name and id from video info
+    let channel_name = app
+        .playing_video_info
+        .as_ref()
+        .and_then(|v| v.channel.as_ref())
+        .map(|c| c.name.clone())
+        .unwrap_or_default();
+    let channel_id = app
+        .playing_video_info
+        .as_ref()
+        .and_then(|v| v.channel.as_ref())
+        .and_then(|c| c.id.clone());
+
+    // Get platform_name, platform_icon and instance from video info for constructing ChannelConfig
+    let platform_name = app
+        .playing_video_info
+        .as_ref()
+        .map(|v| v.platform_name.clone())
+        .unwrap_or_else(|| "youtube".to_string());
+
+    let platform_icon = app
+        .playing_video_info
+        .as_ref()
+        .map(|v| v.platform_icon.clone())
+        .unwrap_or_else(|| common::PlatformIcon {
+            name: "youtube".to_string(),
+            icon_type: common::IconType::Brand,
+        });
+
+    let instance = app
+        .playing_video_info
+        .as_ref()
+        .and_then(|v| v.instance.clone());
 
     // Channel avatar (rounded) - look up by channel_id in thumbs or subscription_thumbs
     let avatar_handle = channel_id.as_ref().and_then(|cid| {
@@ -199,7 +227,19 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
     .into();
 
     let title_text = text(title).size(18);
-    let channel_element = channel_name_button(channel_name, channel_id.clone());
+    let channel_config = channel_id.clone().map(|cid| common::ChannelConfig {
+        platform_name: platform_name.clone(),
+        platform_icon: platform_icon.clone(),
+        channel_id: cid,
+        channel_name: channel_name.clone(),
+        channel_handle: None,
+        thumbnail_url: String::new(),
+        instance: instance.clone(),
+        subscribed: false,
+        subscribed_at: None,
+        language: None,
+    });
+    let channel_element = channel_name_button(channel_name, channel_config);
 
     let title_column = column![title_text, channel_element]
         .spacing(4)
@@ -207,12 +247,12 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
 
     // Subscribe button - check if subscribed
     let sub_button: Element<Message> = if let Some(cid) = channel_id {
-        let is_subscribed = app
-            .config
-            .channels
-            .iter()
-            .any(|c| c.channel_id == cid && c.subscribed);
-        subscribe_button(is_subscribed, cid, 40.0)
+        let key = common::ChannelKey {
+            platform_name: platform_name.clone(),
+            channel_id: cid,
+        };
+        let is_subscribed = app.config.channels.get(&key).is_some_and(|c| c.subscribed);
+        subscribe_button(is_subscribed, key, 40.0)
     } else {
         iced::widget::space::Space::new().into()
     };
@@ -225,36 +265,44 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
         .unwrap_or(false);
 
     let icon_size = 20.0;
-    let mode_toggle_button = if is_audio_only {
-        // Currently audio-only, show video button to switch to video
-        icon_button(
-            icon_video(icon_size).into(),
-            40.0,
-            "Switch to Video",
-            Message::PlayVideo(
-                video_id.clone(),
-                app.playing_channel_name.clone(),
-                app.playing_channel_id.clone(),
-            ),
-        )
+    let mode_toggle_button = if let Some(video_info) = app.playing_video_info.as_ref() {
+        let video_boxed = Box::new(video_info.clone());
+        if is_audio_only {
+            // Currently audio-only, show video button to switch to video
+            icon_button(
+                icon_video(icon_size).into(),
+                40.0,
+                "Switch to Video",
+                Message::PlayVideo(video_boxed),
+            )
+        } else {
+            // Currently video, show headphones button to switch to audio-only
+            icon_button(
+                icon_headphones(icon_size).into(),
+                40.0,
+                "Audio Only",
+                Message::PlayAudioOnly(video_boxed),
+            )
+        }
     } else {
-        // Currently video, show headphones button to switch to audio-only
-        icon_button(
-            icon_headphones(icon_size).into(),
-            40.0,
-            "Audio Only",
-            Message::PlayAudioOnly(
-                video_id.clone(),
-                app.playing_channel_name.clone(),
-                app.playing_channel_id.clone(),
-            ),
-        )
+        iced::widget::space::Space::new().into()
     };
+    let watch_url = app
+        .playing_video_info
+        .as_ref()
+        .map(|v| v.watch_url.clone())
+        .unwrap_or_default();
+    let video_id = app
+        .playing_video_info
+        .as_ref()
+        .map(|v| v.id.clone())
+        .unwrap_or_default();
+
     let copy_button = icon_button(
         icon_copy(icon_size).into(),
         40.0,
         "Copy URL",
-        Message::CopyVideoUrl(video_id.clone()),
+        Message::CopyVideoUrl(watch_url),
     );
     let mpv_button = icon_button(
         icon_play(icon_size).into(),

@@ -1,12 +1,12 @@
 //! Channel view for the ytrs-client application
 
+use common::{ChannelTab, LanguageOption, format_relative_time, parse_relative_time};
 use iced::{
     Alignment,
     Alignment::Center,
     Element, Length, Theme,
     widget::{Image, button, column, combo_box, container, pick_list, row, text},
 };
-use ytrs_lib::{ChannelTab, format_relative_time, parse_relative_time};
 
 use crate::App;
 use crate::helpers::{centered_grid_padding, create_thumbnail, create_video_tile, fmt_num};
@@ -17,7 +17,7 @@ use crate::widgets::{Wrap, bounceable_scrollable, subscribe_button};
 /// Render the channel view
 pub fn view(
     app: &App,
-    get_language_by_locale: fn(&str, &str) -> Option<&'static ytrs_lib::LanguageOption>,
+    get_language_by_locale: fn(&str, &str) -> Option<&'static LanguageOption>,
 ) -> Element<'_, Message> {
     if let Some(ref channel) = app.current_channel {
         let mut content = column![].spacing(0);
@@ -59,10 +59,10 @@ pub fn view(
         let is_subscribed = app
             .config
             .channels
-            .iter()
-            .any(|c| c.channel_id == channel.id && c.subscribed);
+            .get(&channel.key())
+            .is_some_and(|c| c.subscribed);
 
-        let sub_button = subscribe_button(is_subscribed, channel.id.clone(), 40.0);
+        let sub_button = subscribe_button(is_subscribed, channel.key(), 40.0);
 
         let header = row![
             button(text("← Back"))
@@ -201,8 +201,10 @@ pub fn view(
                 r.is_premium != Some(true)
             })
             .filter_map(|r| {
-                let vid = r.video_id.as_ref()?;
-                let h = app.thumbs.get(vid)?;
+                if r.id.is_empty() {
+                    return None;
+                }
+                let h = app.thumbs.get(&r.id)?;
 
                 let thumb = Image::new(h.clone()).width(240).height(135);
                 let thumb_with_overlay = create_thumbnail(thumb, false, 0);
@@ -211,7 +213,7 @@ pub fn view(
                 if let Some(v) = r.view_count {
                     meta.push(format!("{} views", fmt_num(v)));
                 }
-                if let Some(ref d) = r.duration {
+                if let Some(d) = &r.duration_string {
                     meta.push(d.clone());
                 }
                 let seconds = parse_relative_time(r.published_text.as_deref());
@@ -222,11 +224,8 @@ pub fn view(
                     &r.title,
                     None,
                     Some(meta.join(" • ")),
-                    Message::PlayVideo(
-                        vid.clone(),
-                        Some(channel.name.clone()),
-                        Some(channel.id.clone()),
-                    ),
+                    Message::PlayVideo(Box::new(r.clone())),
+                    &r.platform_icon,
                 ))
             })
             .collect();

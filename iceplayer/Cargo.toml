@@ -16,6 +16,8 @@ exclude = [
 ]
 
 [dependencies]
+common = { path = "../common" }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 iced = { version = "0.14", features = ["image", "advanced", "wgpu", "tokio"] }
 iced_wgpu = "0.14"
 gstreamer = "0.23"

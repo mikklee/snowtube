@@ -69,17 +69,17 @@ pub struct SerializableLanguageOption {
 }
 
 impl SerializableLanguageOption {
-    /// Convert from ytrs_lib::LanguageOption
-    pub fn from_language_option(lang: &ytrs_lib::LanguageOption) -> Self {
+    /// Convert from common::LanguageOption
+    pub fn from_language_option(lang: &common::LanguageOption) -> Self {
         Self {
             hl: lang.hl.to_string(),
             gl: lang.gl.to_string(),
         }
     }
 
-    /// Find matching LanguageOption from ytrs_lib
-    pub fn to_language_option(&self) -> Option<ytrs_lib::LanguageOption> {
-        ytrs_lib::get_all_languages()
+    /// Find matching LanguageOption from common
+    pub fn to_language_option(&self) -> Option<common::LanguageOption> {
+        common::get_all_languages()
             .iter()
             .find(|lang| lang.hl == self.hl && lang.gl == self.gl)
             .cloned()
@@ -118,14 +118,23 @@ impl From<AppConfigV01> for AppConfig {
             channels: old
                 .subscriptions
                 .into_iter()
-                .map(|sub| ytrs_lib::ChannelConfig {
-                    channel_id: sub.channel_id,
-                    channel_name: sub.channel_name,
-                    channel_handle: sub.channel_handle,
-                    thumbnail_url: sub.thumbnail_url,
-                    subscribed: true,
-                    subscribed_at: Some(sub.subscribed_at),
-                    language: None,
+                .map(|sub| {
+                    let config = common::ChannelConfig {
+                        platform_name: "youtube".to_string(), // v0.1 only had YouTube
+                        platform_icon: common::PlatformIcon {
+                            name: "youtube".to_string(),
+                            icon_type: common::IconType::Brand,
+                        },
+                        channel_id: sub.channel_id,
+                        channel_name: sub.channel_name,
+                        channel_handle: sub.channel_handle,
+                        thumbnail_url: sub.thumbnail_url,
+                        instance: None,
+                        subscribed: true,
+                        subscribed_at: Some(sub.subscribed_at),
+                        language: None,
+                    };
+                    (config.key(), config)
                 })
                 .collect(),
         }
@@ -135,14 +144,51 @@ impl From<AppConfigV01> for AppConfig {
 /// Cached video data for a single channel in the subscription view
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedChannelVideos {
-    pub videos: Vec<ytrs_lib::SearchResult>,
+    pub videos: Vec<common::Video>,
     pub fetched_at: i64, // unix timestamp
+}
+
+/// Custom serialization for HashMap<ChannelKey, CachedChannelVideos> using string keys
+mod cache_map_serde {
+    use super::CachedChannelVideos;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::HashMap;
+
+    pub fn serialize<S>(
+        map: &HashMap<common::ChannelKey, CachedChannelVideos>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let string_map: HashMap<String, &CachedChannelVideos> =
+            map.iter().map(|(k, v)| (k.to_string(), v)).collect();
+        string_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<HashMap<common::ChannelKey, CachedChannelVideos>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let string_map: HashMap<String, CachedChannelVideos> = HashMap::deserialize(deserializer)?;
+        string_map
+            .into_iter()
+            .map(|(k, v)| {
+                k.parse::<common::ChannelKey>()
+                    .map(|key| (key, v))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
+    }
 }
 
 /// Cache for subscription videos
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SubscriptionVideoCache {
-    pub channels: std::collections::HashMap<String, CachedChannelVideos>,
+    #[serde(default, with = "cache_map_serde")]
+    pub channels: std::collections::HashMap<common::ChannelKey, CachedChannelVideos>,
 }
 
 impl SubscriptionVideoCache {
@@ -185,10 +231,10 @@ impl SubscriptionVideoCache {
     }
 
     /// Check if a channel's videos are stale (older than 10 hours)
-    pub fn is_stale(&self, channel_id: &str) -> bool {
+    pub fn is_stale(&self, key: &common::ChannelKey) -> bool {
         const TEN_HOURS_SECS: i64 = 10 * 60 * 60;
 
-        match self.channels.get(channel_id) {
+        match self.channels.get(key) {
             Some(cached) => {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -198,6 +244,42 @@ impl SubscriptionVideoCache {
             }
             None => true,
         }
+    }
+}
+
+/// Custom serialization for HashMap<ChannelKey, ChannelConfig> using string keys
+mod channel_map_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::HashMap;
+
+    pub fn serialize<S>(
+        map: &HashMap<common::ChannelKey, common::ChannelConfig>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let string_map: HashMap<String, &common::ChannelConfig> =
+            map.iter().map(|(k, v)| (k.to_string(), v)).collect();
+        string_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<HashMap<common::ChannelKey, common::ChannelConfig>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let string_map: HashMap<String, common::ChannelConfig> =
+            HashMap::deserialize(deserializer)?;
+        string_map
+            .into_iter()
+            .map(|(k, v)| {
+                k.parse::<common::ChannelKey>()
+                    .map(|key| (key, v))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
     }
 }
 
@@ -217,8 +299,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub audio_visualizer: AudioVisualizer,
     /// Saved channel configurations (subscriptions and/or language overrides)
-    #[serde(default)]
-    pub channels: Vec<ytrs_lib::ChannelConfig>,
+    #[serde(default, with = "channel_map_serde")]
+    pub channels: std::collections::HashMap<common::ChannelKey, common::ChannelConfig>,
 }
 
 fn default_show_scrollbar() -> bool {
@@ -327,7 +409,7 @@ impl YtrsConfig {
 
 #[cfg(test)]
 mod tests {
-    use ytrs_lib::ChannelConfig;
+    use common::ChannelConfig;
 
     use super::*;
 
@@ -341,6 +423,21 @@ mod tests {
 
     #[test]
     fn test_serialization() {
+        let channel = ChannelConfig {
+            platform_name: "youtube".to_string(),
+            platform_icon: common::PlatformIcon {
+                name: "youtube".to_string(),
+                icon_type: common::IconType::Brand,
+            },
+            channel_id: "test_id".to_string(),
+            channel_name: String::new(),
+            channel_handle: None,
+            thumbnail_url: String::new(),
+            instance: None,
+            subscribed: true,
+            subscribed_at: Some(String::new()),
+            language: None,
+        };
         let config = YtrsConfig {
             version: current_version(),
             config: AppConfig {
@@ -349,16 +446,7 @@ mod tests {
                     gl: "JP".to_string(),
                 }),
                 theme: AppTheme::TokyoNight,
-                channels: [ChannelConfig {
-                    channel_id: String::new(),
-                    channel_name: String::new(),
-                    channel_handle: None,
-                    thumbnail_url: String::new(),
-                    subscribed: true,
-                    subscribed_at: Some(String::new()),
-                    language: None,
-                }]
-                .to_vec(),
+                channels: [(channel.key(), channel)].into_iter().collect(),
                 show_scrollbar: true,
                 audio_visualizer: AudioVisualizer::LedSpectrum,
             },
@@ -465,7 +553,11 @@ mod tests {
         assert_eq!(migrated.channels.len(), 2);
 
         // Check first channel
-        let ch1 = &migrated.channels[0];
+        let key1 = common::ChannelKey::new("youtube", "UC123");
+        let ch1 = migrated
+            .channels
+            .get(&key1)
+            .expect("Channel UC123 should exist");
         assert_eq!(ch1.channel_id, "UC123");
         assert_eq!(ch1.channel_name, "Test Channel");
         assert_eq!(ch1.channel_handle, Some("@testchannel".to_string()));
@@ -475,7 +567,11 @@ mod tests {
         assert!(ch1.language.is_none());
 
         // Check second channel
-        let ch2 = &migrated.channels[1];
+        let key2 = common::ChannelKey::new("youtube", "UC456");
+        let ch2 = migrated
+            .channels
+            .get(&key2)
+            .expect("Channel UC456 should exist");
         assert_eq!(ch2.channel_id, "UC456");
         assert_eq!(ch2.channel_name, "Another Channel");
         assert!(ch2.channel_handle.is_none());
