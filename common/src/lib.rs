@@ -4,12 +4,14 @@
 
 mod channel;
 mod language;
+mod relative_time;
 mod service;
 mod time;
 mod video;
 
 pub use channel::*;
 pub use language::*;
+pub use relative_time::parse_relative_time;
 pub use service::*;
 pub use time::*;
 pub use video::*;

@@ -858,7 +858,7 @@ fn get_cjk_keywords() -> &'static Vec<(&'static str, u64)> {
     })
 }
 
-use crate::utils::contains_asian_characters;
+use crate::time::contains_asian_characters;
 
 /// Extract a number from text
 fn extract_number(text: &str) -> u64 {

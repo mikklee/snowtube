@@ -87,45 +87,6 @@ pub fn format_relative_time(seconds: u64) -> String {
     format!("{} {} ago", value, unit)
 }
 
-/// Parse relative time text into seconds for sorting.
-/// Supports English format like "2 days ago", "1 hour ago".
-/// Returns u64::MAX for unparseable strings (sorts to end).
-pub fn parse_relative_time(text: Option<&str>) -> u64 {
-    let text = match text {
-        Some(t) if !t.is_empty() => t.to_lowercase(),
-        _ => return u64::MAX,
-    };
-
-    // Extract number
-    let num: u64 = text
-        .chars()
-        .filter(|c| c.is_ascii_digit())
-        .collect::<String>()
-        .parse()
-        .unwrap_or(1);
-
-    let num = if num == 0 { 1 } else { num };
-
-    // Match time unit
-    if text.contains("second") {
-        num * SECONDS
-    } else if text.contains("minute") {
-        num * MINUTES
-    } else if text.contains("hour") {
-        num * HOURS
-    } else if text.contains("day") {
-        num * DAYS
-    } else if text.contains("week") {
-        num * WEEKS
-    } else if text.contains("month") {
-        num * MONTHS
-    } else if text.contains("year") {
-        num * YEARS
-    } else {
-        u64::MAX
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,18 +124,5 @@ mod tests {
         assert_eq!(format_relative_time(604800), "1 week ago");
         assert_eq!(format_relative_time(2592000), "1 month ago");
         assert_eq!(format_relative_time(31536000), "1 year ago");
-    }
-
-    #[test]
-    fn test_parse_relative_time() {
-        assert_eq!(parse_relative_time(Some("30 seconds ago")), 30);
-        assert_eq!(parse_relative_time(Some("5 minutes ago")), 300);
-        assert_eq!(parse_relative_time(Some("2 hours ago")), 7200);
-        assert_eq!(parse_relative_time(Some("1 day ago")), 86400);
-        assert_eq!(parse_relative_time(Some("3 weeks ago")), 1814400);
-        assert_eq!(parse_relative_time(Some("1 month ago")), 2592000);
-        assert_eq!(parse_relative_time(Some("1 year ago")), 31536000);
-        assert_eq!(parse_relative_time(None), u64::MAX);
-        assert_eq!(parse_relative_time(Some("")), u64::MAX);
     }
 }

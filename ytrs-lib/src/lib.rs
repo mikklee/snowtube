@@ -31,7 +31,6 @@ mod error;
 mod models;
 mod parsers;
 mod provider;
-pub mod relative_time;
 mod utils;
 
 #[cfg(test)]

@@ -1,7 +1,22 @@
 //! PeerTube API response models
 
+use chrono::{DateTime, Utc};
 use common::{IconType, PlatformIcon};
 use serde::{Deserialize, Serialize};
+
+/// Convert ISO 8601 timestamp to relative time string
+fn iso_to_relative_time(iso: &str) -> Option<String> {
+    let dt = DateTime::parse_from_rfc3339(iso).ok()?;
+    let now = Utc::now();
+    let duration = now.signed_duration_since(dt);
+
+    if duration.num_seconds() < 0 {
+        return None; // Future date
+    }
+
+    let seconds = duration.num_seconds() as u64;
+    Some(common::format_relative_time(seconds))
+}
 
 /// Platform name for PeerTube
 pub const PLATFORM_NAME: &str = "peertube";
@@ -177,7 +192,10 @@ impl ApiVideo {
             duration_string: Some(common::format_duration(self.duration)),
             view_count: Some(self.views),
             like_count: Some(self.likes),
-            published_text: self.published_at.as_ref().map(|_| "".to_string()), // TODO: relative time
+            published_text: self
+                .published_at
+                .as_ref()
+                .and_then(|ts| iso_to_relative_time(ts)),
             thumbnails: self
                 .thumbnail_path
                 .as_ref()
