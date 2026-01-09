@@ -97,7 +97,7 @@ struct ChannelSubscriptionV01 {
     subscribed_at: String,
 }
 
-/// Config format from v0.1.x
+/// Config format from v0.1.x/v0.2.x (uses "subscriptions" array)
 #[derive(Debug, Clone, Deserialize, Default)]
 struct AppConfigV01 {
     #[serde(default)]
@@ -106,6 +106,43 @@ struct AppConfigV01 {
     theme: AppTheme,
     #[serde(default)]
     subscriptions: Vec<ChannelSubscriptionV01>,
+}
+
+/// Channel format from v0.3.x (uses "channels" array with camelCase)
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChannelConfigV03 {
+    channel_id: String,
+    channel_name: String,
+    channel_handle: Option<String>,
+    thumbnail_url: String,
+    #[serde(default)]
+    subscribed: bool,
+    subscribed_at: Option<String>,
+    #[serde(default)]
+    language: Option<(String, String)>,
+}
+
+/// Config format from v0.3.x (uses "channels" array instead of map)
+#[derive(Debug, Clone, Deserialize, Default)]
+struct AppConfigV03 {
+    #[serde(default)]
+    default_language: Option<SerializableLanguageOption>,
+    #[serde(default)]
+    theme: AppTheme,
+    #[serde(default = "default_show_scrollbar")]
+    show_scrollbar: bool,
+    #[serde(default)]
+    audio_visualizer: AudioVisualizer,
+    #[serde(default)]
+    channels: Vec<ChannelConfigV03>,
+}
+
+fn youtube_icon() -> common::PlatformIcon {
+    common::PlatformIcon {
+        name: "youtube".to_string(),
+        icon_type: common::IconType::Brand,
+    }
 }
 
 impl From<AppConfigV01> for AppConfig {
@@ -120,11 +157,8 @@ impl From<AppConfigV01> for AppConfig {
                 .into_iter()
                 .map(|sub| {
                     let config = common::ChannelConfig {
-                        platform_name: "youtube".to_string(), // v0.1 only had YouTube
-                        platform_icon: common::PlatformIcon {
-                            name: "youtube".to_string(),
-                            icon_type: common::IconType::Brand,
-                        },
+                        platform_name: "youtube".to_string(),
+                        platform_icon: youtube_icon(),
                         channel_id: sub.channel_id,
                         channel_name: sub.channel_name,
                         channel_handle: sub.channel_handle,
@@ -133,6 +167,36 @@ impl From<AppConfigV01> for AppConfig {
                         subscribed: true,
                         subscribed_at: Some(sub.subscribed_at),
                         language: None,
+                    };
+                    (config.key(), config)
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<AppConfigV03> for AppConfig {
+    fn from(old: AppConfigV03) -> Self {
+        Self {
+            default_language: old.default_language,
+            theme: old.theme,
+            show_scrollbar: old.show_scrollbar,
+            audio_visualizer: old.audio_visualizer,
+            channels: old
+                .channels
+                .into_iter()
+                .map(|ch| {
+                    let config = common::ChannelConfig {
+                        platform_name: "youtube".to_string(),
+                        platform_icon: youtube_icon(),
+                        channel_id: ch.channel_id,
+                        channel_name: ch.channel_name,
+                        channel_handle: ch.channel_handle,
+                        thumbnail_url: ch.thumbnail_url,
+                        instance: None,
+                        subscribed: ch.subscribed,
+                        subscribed_at: ch.subscribed_at,
+                        language: ch.language,
                     };
                     (config.key(), config)
                 })
@@ -372,8 +436,13 @@ impl YtrsConfig {
         }
 
         let config = if stored_version < Version::new(0, 3, 0) {
-            // Migrate from v0.1.x/v0.2.x format with "subscriptions" to new "channels"
+            // Migrate from v0.1.x/v0.2.x format with "subscriptions" array
             let old_config: AppConfigV01 =
+                serde_json::from_value(config_value.clone()).context(DeserializeConfigSnafu)?;
+            AppConfig::from(old_config)
+        } else if stored_version < Version::new(0, 4, 0) {
+            // Migrate from v0.3.x format with "channels" array to v0.4.x map format
+            let old_config: AppConfigV03 =
                 serde_json::from_value(config_value.clone()).context(DeserializeConfigSnafu)?;
             AppConfig::from(old_config)
         } else {
