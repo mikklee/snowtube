@@ -155,45 +155,6 @@ pub struct Caption {
     pub is_auto_generated: bool,
 }
 
-/// Comment information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Comment {
-    pub id: String,
-    pub text: String,
-    pub author: String,
-    pub author_thumbnail: Option<Vec<YtThumbnail>>,
-    pub like_count: Option<u64>,
-    pub published_text: Option<String>,
-    pub is_pinned: bool,
-    pub is_hearted: bool,
-    pub reply_count: Option<u64>,
-}
-
-/// Playlist information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Playlist {
-    pub id: String,
-    pub title: String,
-    pub description: Option<String>,
-    pub channel: Option<YtChannel>,
-    pub video_count: Option<u64>,
-    pub thumbnails: Vec<YtThumbnail>,
-    pub videos: Vec<PlaylistVideo>,
-}
-
-/// Video in a playlist
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlaylistVideo {
-    pub video_id: String,
-    pub title: String,
-    pub index: Option<u64>,
-    pub duration: Option<String>,
-    pub thumbnails: Vec<YtThumbnail>,
-}
-
 // ============================================================================
 // Conversion implementations from YouTube types to common types
 // ============================================================================

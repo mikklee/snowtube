@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 
 use crate::error::{Error, Result};
-use crate::models::{ApiSearchResponse, ApiVideo, PLATFORM_NAME};
+use crate::models::{ApiSearchResponse, PLATFORM_NAME};
 use common::{
     ChannelConfig, ChannelInfo, ChannelProvider, ChannelTab, ChannelVideos, ContinuationToken,
     ProviderError, SearchResults, Video, VideoProvider,
@@ -101,14 +101,10 @@ impl VideoProvider for PeerTubeClient {
 
     async fn search_continuation(
         &self,
-        token: &str,
+        _token: &str,
         _hl: &str,
         _gl: &str,
     ) -> std::result::Result<SearchResults, ProviderError> {
-        // Token is the start offset; we need the original query too
-        // For now, continuation isn't fully supported - would need to encode query in token
-        let start: u32 = token.parse().unwrap_or(0);
-
         // TODO: Properly encode query in continuation token
         // For now, return empty since we don't have the query
         Ok(SearchResults {
@@ -118,7 +114,7 @@ impl VideoProvider for PeerTubeClient {
         })
     }
 
-    async fn get_video(&self, id: &str) -> std::result::Result<Video, ProviderError> {
+    async fn get_video(&self, _id: &str) -> std::result::Result<Video, ProviderError> {
         // id format should be "instance|video_id" for PeerTube
         // Or we need to look it up via the video's stored instance
         Err(ProviderError::Api {
@@ -235,35 +231,6 @@ pub(crate) struct PeerTube {
 }
 
 impl PeerTube {
-    /// Get video details by UUID or short UUID
-    pub async fn get_video_details(&self, id: &str) -> Result<ApiVideo> {
-        let url = format!("{}/api/v1/videos/{}", self.instance, id);
-
-        let response = self.client.get(&url).send().await?;
-
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(Error::VideoNotFound { id: id.to_string() });
-        }
-
-        if !response.status().is_success() {
-            return Err(Error::Api {
-                message: format!("Get video failed with status: {}", response.status()),
-            });
-        }
-
-        let video: ApiVideo = response.json().await?;
-        Ok(video)
-    }
-
-    /// Get the best quality playable URL for a video
-    pub async fn get_video_url(&self, id: &str) -> Result<String> {
-        let video = self.get_video_details(id).await?;
-        video
-            .best_file_url()
-            .map(|s| s.to_string())
-            .ok_or(Error::NoPlayableFile)
-    }
-
     /// Get channel details by handle
     pub async fn get_channel_info(&self, handle: &str) -> Result<crate::models::ApiVideoChannel> {
         let url = format!("{}/api/v1/video-channels/{}", self.instance, handle);

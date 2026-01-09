@@ -76,7 +76,6 @@ pub enum Message {
     // Error notifications
     ShowError(String),          // Display an error notification
     DismissNotification(usize), // Dismiss a specific notification by ID
-    ClearNotifications,         // Clear all notifications
     NotificationTick,           // Timer tick to auto-dismiss old notifications
 }
 

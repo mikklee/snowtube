@@ -17,7 +17,6 @@ pub fn contains_asian_characters(text: &str) -> bool {
 }
 
 /// Time unit multipliers (in seconds)
-const SECONDS: u64 = 1;
 const MINUTES: u64 = 60;
 const HOURS: u64 = 60 * 60;
 const DAYS: u64 = 60 * 60 * 24;

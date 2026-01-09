@@ -1559,10 +1559,6 @@ impl App {
                 self.notifications.retain(|n| n.id != id);
                 Task::none()
             }
-            Message::ClearNotifications => {
-                self.notifications.clear();
-                Task::none()
-            }
             Message::NotificationTick => {
                 // Auto-dismiss notifications older than 10 seconds
                 let now = std::time::Instant::now();
