@@ -129,13 +129,20 @@ impl VideoPlayerState {
     }
 
     /// Get the duration.
-    /// Returns the video duration if loaded, otherwise the preset duration if set.
+    /// Prefers preset_duration (from video metadata) over GStreamer-queried duration,
+    /// as some streams (e.g., HLS from PeerTube) report incorrect durations.
     pub fn duration(&self) -> Duration {
+        // Prefer preset duration if set (from video metadata)
+        if let Some(preset) = self.preset_duration {
+            if preset > Duration::ZERO {
+                return preset;
+            }
+        }
+        // Fall back to GStreamer-queried duration
         self.video
             .as_ref()
             .map(|v| v.duration())
-            .filter(|d| *d > Duration::ZERO) // Ignore zero duration from video
-            .or(self.preset_duration)
+            .filter(|d| *d > Duration::ZERO)
             .unwrap_or(Duration::ZERO)
     }
 }
