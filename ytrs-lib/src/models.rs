@@ -3,19 +3,10 @@
 //! This module contains YouTube-specific types used for parsing API responses.
 //! These are converted to common types at the client boundary.
 
-use common::{IconType, PlatformIcon};
 use serde::{Deserialize, Serialize};
 
 /// Platform name for YouTube
 pub const PLATFORM_NAME: &str = "youtube";
-
-/// Platform icon for YouTube
-pub fn platform_icon() -> PlatformIcon {
-    PlatformIcon {
-        name: "youtube".to_string(),
-        icon_type: IconType::Brand,
-    }
-}
 
 /// InnerTube context for API requests
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,7 +254,6 @@ impl From<YtSearchResult> for common::Video {
         let video_id = r.video_id.unwrap_or_default();
         common::Video {
             platform_name: PLATFORM_NAME.to_string(),
-            platform_icon: platform_icon(),
             id: video_id.clone(),
             title: r.title,
             description: r.description,
@@ -292,7 +282,6 @@ impl From<&YtSearchResult> for common::Video {
         let video_id = r.video_id.clone().unwrap_or_default();
         common::Video {
             platform_name: PLATFORM_NAME.to_string(),
-            platform_icon: platform_icon(),
             id: video_id.clone(),
             title: r.title.clone(),
             description: r.description.clone(),
@@ -348,7 +337,6 @@ impl From<YtChannelInfo> for common::ChannelInfo {
     fn from(c: YtChannelInfo) -> Self {
         common::ChannelInfo {
             platform_name: PLATFORM_NAME.to_string(),
-            platform_icon: platform_icon(),
             id: c.id,
             name: c.name,
             handle: c.handle,
@@ -381,7 +369,6 @@ impl From<&VideoInfo> for common::Video {
     fn from(v: &VideoInfo) -> Self {
         common::Video {
             platform_name: PLATFORM_NAME.to_string(),
-            platform_icon: platform_icon(),
             id: v.video_id.clone(),
             title: v.title.clone(),
             description: v.description.clone(),

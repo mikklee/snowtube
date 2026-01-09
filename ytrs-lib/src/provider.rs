@@ -2,21 +2,17 @@
 
 use async_trait::async_trait;
 use common::{
-    ChannelConfig, ChannelInfo, ChannelProvider, ChannelTab, ChannelVideos, PlatformIcon,
-    ProviderError, SearchResults, Video, VideoProvider,
+    ChannelConfig, ChannelInfo, ChannelProvider, ChannelTab, ChannelVideos, ProviderError,
+    SearchResults, Video, VideoProvider,
 };
 
 use crate::client::InnerTube;
-use crate::models::{PLATFORM_NAME, platform_icon};
+use crate::models::PLATFORM_NAME;
 
 #[async_trait]
 impl VideoProvider for InnerTube {
     fn platform_name(&self) -> &'static str {
         PLATFORM_NAME
-    }
-
-    fn platform_icon(&self) -> PlatformIcon {
-        platform_icon()
     }
 
     async fn search_with_locale(

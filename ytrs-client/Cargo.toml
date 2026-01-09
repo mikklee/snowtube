@@ -10,7 +10,7 @@ license = "GPL-3.0"
 common = { path = "../common" }
 ytrs-lib = { path = "../ytrs-lib", optional = true }
 ptrs-lib = { path = "../ptrs-lib", optional = true }
-iced = { version = "0.14", features = ["tokio", "image", "lazy", "advanced", "wgpu", "debug", "canvas"], default-features = false }
+iced = { version = "0.14", features = ["tokio", "image", "lazy", "advanced", "wgpu", "debug", "canvas", "svg"], default-features = false }
 iceplayer = { path = "../iceplayer" }
 url = "2"
 tokio = { version = "1", features = ["full"] }

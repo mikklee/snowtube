@@ -4,10 +4,10 @@ use async_trait::async_trait;
 use reqwest::Client;
 
 use crate::error::{Error, Result};
-use crate::models::{ApiSearchResponse, ApiVideo, PLATFORM_NAME, platform_icon};
+use crate::models::{ApiSearchResponse, ApiVideo, PLATFORM_NAME};
 use common::{
     ChannelConfig, ChannelInfo, ChannelProvider, ChannelTab, ChannelVideos, ContinuationToken,
-    PlatformIcon, ProviderError, SearchResults, Video, VideoProvider,
+    ProviderError, SearchResults, Video, VideoProvider,
 };
 
 const SEPIA_SEARCH_URL: &str = "https://sepiasearch.org";
@@ -70,10 +70,6 @@ impl Default for PeerTubeClient {
 impl VideoProvider for PeerTubeClient {
     fn platform_name(&self) -> &'static str {
         PLATFORM_NAME
-    }
-
-    fn platform_icon(&self) -> PlatformIcon {
-        platform_icon()
     }
 
     async fn search_with_locale(

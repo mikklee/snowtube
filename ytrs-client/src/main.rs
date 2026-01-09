@@ -499,7 +499,6 @@ impl App {
                         // Create ChannelConfig from ChannelInfo
                         let channel_config = ChannelConfig {
                             platform_name: channel.platform_name.clone(),
-                            platform_icon: channel.platform_icon.clone(),
                             channel_id: channel.id.clone(),
                             channel_name: channel.name.clone(),
                             channel_handle: channel.handle.clone(),
@@ -828,7 +827,6 @@ impl App {
 
                                 let new_config = ChannelConfig {
                                     platform_name: channel.platform_name.clone(),
-                                    platform_icon: channel.platform_icon.clone(),
                                     channel_id: channel.id.clone(),
                                     channel_name: channel.name.clone(),
                                     channel_handle: channel.handle.clone(),
@@ -972,7 +970,6 @@ impl App {
                         // Create new channel config
                         let channel_config = ChannelConfig {
                             platform_name: channel.platform_name.clone(),
-                            platform_icon: channel.platform_icon.clone(),
                             channel_id: channel.id.clone(),
                             channel_name: channel.name.clone(),
                             channel_handle: channel.handle.clone(),

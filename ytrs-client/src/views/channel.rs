@@ -225,7 +225,7 @@ pub fn view(
                     None,
                     Some(meta.join(" • ")),
                     Message::PlayVideo(Box::new(r.clone())),
-                    &r.platform_icon,
+                    crate::providers::get_platform_icon(&r.platform_name),
                 ))
             })
             .collect();

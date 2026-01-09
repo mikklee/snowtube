@@ -26,10 +26,11 @@ mod models;
 
 pub use client::PeerTubeClient;
 pub use error::{Error, Result};
-pub use models::{ApiChannel, ApiSearchResponse, ApiVideo, StreamingPlaylist, VideoFile};
+pub use models::{
+    ApiChannel, ApiSearchResponse, ApiVideo, PLATFORM_NAME, StreamingPlaylist, VideoFile,
+};
 
 // Re-export common types for convenience
 pub use common::{
-    Channel, PlatformIcon, ProviderError, SearchResults, Thumbnail, Video, VideoProvider,
-    format_duration,
+    Channel, ProviderError, SearchResults, Thumbnail, Video, VideoProvider, format_duration,
 };

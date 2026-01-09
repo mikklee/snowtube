@@ -138,13 +138,6 @@ struct AppConfigV03 {
     channels: Vec<ChannelConfigV03>,
 }
 
-fn youtube_icon() -> common::PlatformIcon {
-    common::PlatformIcon {
-        name: "youtube".to_string(),
-        icon_type: common::IconType::Brand,
-    }
-}
-
 impl From<AppConfigV01> for AppConfig {
     fn from(old: AppConfigV01) -> Self {
         Self {
@@ -158,7 +151,6 @@ impl From<AppConfigV01> for AppConfig {
                 .map(|sub| {
                     let config = common::ChannelConfig {
                         platform_name: "youtube".to_string(),
-                        platform_icon: youtube_icon(),
                         channel_id: sub.channel_id,
                         channel_name: sub.channel_name,
                         channel_handle: sub.channel_handle,
@@ -188,7 +180,6 @@ impl From<AppConfigV03> for AppConfig {
                 .map(|ch| {
                     let config = common::ChannelConfig {
                         platform_name: "youtube".to_string(),
-                        platform_icon: youtube_icon(),
                         channel_id: ch.channel_id,
                         channel_name: ch.channel_name,
                         channel_handle: ch.channel_handle,
@@ -494,10 +485,6 @@ mod tests {
     fn test_serialization() {
         let channel = ChannelConfig {
             platform_name: "youtube".to_string(),
-            platform_icon: common::PlatformIcon {
-                name: "youtube".to_string(),
-                icon_type: common::IconType::Brand,
-            },
             channel_id: "test_id".to_string(),
             channel_name: String::new(),
             channel_handle: None,

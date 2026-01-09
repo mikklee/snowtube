@@ -2,27 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Font Awesome icon type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum IconType {
-    Solid,
-    Brand,
-}
-
-/// Platform icon information
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PlatformIcon {
-    pub name: String,
-    pub icon_type: IconType,
-}
-
 /// Unified video metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Video {
     /// Platform identifier (e.g., "youtube", "peertube")
     pub platform_name: String,
-    /// Platform icon for UI display
-    pub platform_icon: PlatformIcon,
     pub id: String,
     pub title: String,
     pub description: Option<String>,

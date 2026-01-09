@@ -29,12 +29,6 @@ fn create_theme_preview() -> Element<'static, Message> {
         ..Default::default()
     });
 
-    // Create a mock platform icon for preview
-    let mock_icon = common::PlatformIcon {
-        name: "youtube".to_string(),
-        icon_type: common::IconType::Brand,
-    };
-
     create_video_tile(
         mock_thumbnail.into(),
         "Example video tile",
@@ -44,7 +38,7 @@ fn create_theme_preview() -> Element<'static, Message> {
         }),
         Some("20.4K views • 14:46".to_string()),
         Message::NoOp,
-        &mock_icon,
+        crate::providers::get_platform_icon("_fallback"),
     )
 }
 

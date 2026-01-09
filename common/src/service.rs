@@ -86,13 +86,11 @@ impl VideoService {
         let mut continuations: Vec<ContinuationToken> = Vec::new();
         let mut detected_locale = None;
 
-        for result in results {
-            if let Ok(sr) = result {
-                all_videos.extend(sr.results);
-                continuations.extend(sr.continuations);
-                if detected_locale.is_none() {
-                    detected_locale = sr.detected_locale;
-                }
+        for sr in results.into_iter().flatten() {
+            all_videos.extend(sr.results);
+            continuations.extend(sr.continuations);
+            if detected_locale.is_none() {
+                detected_locale = sr.detected_locale;
             }
         }
 
@@ -128,13 +126,11 @@ impl VideoService {
         let mut new_continuations: Vec<ContinuationToken> = Vec::new();
         let mut detected_locale = None;
 
-        for result in results {
-            if let Ok(sr) = result {
-                all_videos.extend(sr.results);
-                new_continuations.extend(sr.continuations);
-                if detected_locale.is_none() {
-                    detected_locale = sr.detected_locale;
-                }
+        for sr in results.into_iter().flatten() {
+            all_videos.extend(sr.results);
+            new_continuations.extend(sr.continuations);
+            if detected_locale.is_none() {
+                detected_locale = sr.detected_locale;
             }
         }
 

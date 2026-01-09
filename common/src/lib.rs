@@ -37,9 +37,6 @@ pub trait VideoProvider: Send + Sync {
     /// Get the platform name (e.g., "youtube", "peertube")
     fn platform_name(&self) -> &'static str;
 
-    /// Get the platform icon for UI display
-    fn platform_icon(&self) -> PlatformIcon;
-
     /// Search for videos with default locale
     async fn search(&self, query: &str) -> Result<SearchResults, ProviderError> {
         self.search_with_locale(query, "en", "US").await

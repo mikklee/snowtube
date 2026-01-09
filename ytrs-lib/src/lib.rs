@@ -40,7 +40,7 @@ mod parsers_tests;
 
 pub use client::InnerTube;
 pub use error::{Error, Result};
-pub use models::*;
+pub use models::PLATFORM_NAME;
 pub use utils::contains_asian_characters;
 
 // Re-export all common types
@@ -55,7 +55,6 @@ pub use common::{
     ChannelVideos,
     // Language types
     LanguageOption,
-    PlatformIcon,
     ProviderError,
     SearchResults,
     SortFilter,

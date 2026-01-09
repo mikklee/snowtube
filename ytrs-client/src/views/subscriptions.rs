@@ -156,16 +156,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
                 // Clone all data for lazy closure (must be owned)
                 let vid = video.id.clone();
+                let platform_name = video.platform_name.clone();
                 let view_count = video.view_count;
                 let duration_string = video.duration_string.clone();
                 let published_text = video.published_text.clone();
                 let title = video.title.clone();
                 let video_boxed = Box::new(video.clone());
-                let platform_icon = video.platform_icon.clone();
 
                 // Lazy widget caches rendering - only rebuilds when vid changes
                 Some(
                     lazy(vid.clone(), move |_| {
+                        let platform_icon = crate::providers::get_platform_icon(&platform_name);
                         let thumb = Image::new(thumb_handle.clone()).width(240).height(135);
                         let thumb_with_overlay = create_thumbnail(thumb, false, 0);
 
@@ -198,7 +199,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                             channel_info,
                             metadata_text,
                             Message::PlayVideo(video_boxed.clone()),
-                            &platform_icon,
+                            platform_icon,
                         )
                     })
                     .into(),

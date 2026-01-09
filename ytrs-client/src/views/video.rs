@@ -188,15 +188,6 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
         .map(|v| v.platform_name.clone())
         .unwrap_or_else(|| "youtube".to_string());
 
-    let platform_icon = app
-        .playing_video_info
-        .as_ref()
-        .map(|v| v.platform_icon.clone())
-        .unwrap_or_else(|| common::PlatformIcon {
-            name: "youtube".to_string(),
-            icon_type: common::IconType::Brand,
-        });
-
     let instance = app
         .playing_video_info
         .as_ref()
@@ -229,7 +220,6 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
     let title_text = text(title).size(18);
     let channel_config = channel_id.clone().map(|cid| common::ChannelConfig {
         platform_name: platform_name.clone(),
-        platform_icon: platform_icon.clone(),
         channel_id: cid,
         channel_name: channel_name.clone(),
         channel_handle: None,

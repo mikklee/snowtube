@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{PlatformIcon, Thumbnail, Video};
+use crate::{Thumbnail, Video};
 
 /// Composite key for channel lookups (platform_name + channel_id)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -44,7 +44,6 @@ impl std::str::FromStr for ChannelKey {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelInfo {
     pub platform_name: String,
-    pub platform_icon: PlatformIcon,
     pub id: String,
     pub name: String,
     pub handle: Option<String>,
@@ -101,7 +100,6 @@ pub enum ChannelTab {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChannelConfig {
     pub platform_name: String,
-    pub platform_icon: PlatformIcon,
     pub channel_id: String,
     pub channel_name: String,
     pub channel_handle: Option<String>,

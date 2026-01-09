@@ -1,7 +1,6 @@
 //! PeerTube API response models
 
 use chrono::{DateTime, Utc};
-use common::{IconType, PlatformIcon};
 use serde::{Deserialize, Serialize};
 
 /// Convert ISO 8601 timestamp to relative time string
@@ -20,14 +19,6 @@ fn iso_to_relative_time(iso: &str) -> Option<String> {
 
 /// Platform name for PeerTube
 pub const PLATFORM_NAME: &str = "peertube";
-
-/// Platform icon for PeerTube
-pub fn platform_icon() -> PlatformIcon {
-    PlatformIcon {
-        name: "podcast".to_string(),
-        icon_type: IconType::Solid,
-    }
-}
 
 /// Search results response from PeerTube API
 #[derive(Debug, Clone, Deserialize)]
@@ -184,7 +175,6 @@ impl ApiVideo {
     pub fn to_common_video_with_instance(&self, instance: &str) -> common::Video {
         common::Video {
             platform_name: PLATFORM_NAME.to_string(),
-            platform_icon: platform_icon(),
             id: self.uuid.clone(),
             title: self.name.clone(),
             description: self.description.clone(),
@@ -237,7 +227,6 @@ impl ApiVideoChannel {
     pub fn to_channel_info(&self, instance: &str) -> common::ChannelInfo {
         common::ChannelInfo {
             platform_name: PLATFORM_NAME.to_string(),
-            platform_icon: platform_icon(),
             id: self.name.clone(),
             name: self.display_name.clone(),
             handle: Some(format!("{}@{}", self.name, self.host)),

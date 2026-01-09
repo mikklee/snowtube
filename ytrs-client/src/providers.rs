@@ -32,6 +32,9 @@ pub fn service() -> &'static VideoService {
             tracing::info!("PeerTube provider initialized");
         }
 
+        // Initialize platform icons now so views never block
+        let _ = PLATFORM_ICONS.get_or_init(init_platform_icons);
+
         service
     })
 }
@@ -134,4 +137,59 @@ pub async fn fetch_thumbnail_for_video(video: &Video) -> Result<Vec<u8>, String>
         .fetch_thumbnail_for_video(video)
         .await
         .map_err(|e| e.to_string())
+}
+
+// =============================================================================
+// Platform icons
+// =============================================================================
+
+use iced::widget::svg;
+use iced::{Element, Theme};
+use iced_font_awesome::fa_icon_brands;
+use std::collections::HashMap;
+
+/// PeerTube icon (Public Domain)
+const PEERTUBE_ICON: &[u8] = include_bytes!("../assets/peertube.svg");
+
+/// Fallback icon for unknown platforms
+const FALLBACK_ICON: &[u8] = include_bytes!("../assets/fallback.svg");
+
+/// Cached SVG handles for platform icons (initialized once at first access)
+static PLATFORM_ICONS: OnceLock<HashMap<String, svg::Handle>> = OnceLock::new();
+
+fn init_platform_icons() -> HashMap<String, svg::Handle> {
+    let mut icons = HashMap::new();
+
+    #[cfg(feature = "peertube")]
+    icons.insert(
+        "peertube".to_string(),
+        svg::Handle::from_memory(PEERTUBE_ICON),
+    );
+
+    // Load fallback
+    icons.insert(
+        "_fallback".to_string(),
+        svg::Handle::from_memory(FALLBACK_ICON),
+    );
+
+    icons
+}
+
+/// Get platform icon as an Element by platform name.
+/// YouTube uses Font Awesome (CC BY 4.0), PeerTube uses SVG (Public Domain).
+pub fn get_platform_icon<'a, M: 'a>(platform_name: &str) -> Element<'a, M, Theme> {
+    // YouTube uses Font Awesome brands icon
+    if platform_name == "youtube" {
+        return fa_icon_brands("youtube").size(16.0).into();
+    }
+
+    // Other platforms use SVG
+    let icons = PLATFORM_ICONS.get_or_init(init_platform_icons);
+    let handle = icons
+        .get(platform_name)
+        .or_else(|| icons.get("_fallback"))
+        .cloned()
+        .expect("Fallback icon should always exist");
+
+    svg::Svg::new(handle).width(16).height(16).into()
 }

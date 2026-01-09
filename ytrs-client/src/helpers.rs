@@ -344,28 +344,16 @@ pub fn create_video_tile<'a>(
     channel: Option<ChannelInfo>,
     metadata_text: Option<String>,
     on_press: Message,
-    platform_icon: &common::PlatformIcon,
+    platform_icon: Element<'a, Message>,
 ) -> Element<'a, Message> {
-    use common::IconType;
     use iced::{
         Length,
         widget::text::Shaping,
         widget::{button, column, container, stack, text, tooltip},
     };
-    use iced_font_awesome::{fa_icon_brands, fa_icon_solid};
 
     // Create thumbnail with platform icon overlay in bottom-right corner
-    let icon = match platform_icon.icon_type {
-        IconType::Brand => fa_icon_brands(&platform_icon.name),
-        IconType::Solid => fa_icon_solid(&platform_icon.name),
-    };
-
-    let icon_element: Element<'a, Message> = icon
-        .size(14.0)
-        .style(|_theme: &Theme| iced::widget::text::Style {
-            color: Some(iced::Color::WHITE),
-        })
-        .into();
+    let icon_element: Element<'a, Message> = platform_icon;
 
     let icon_badge = container(icon_element)
         .padding(4)
