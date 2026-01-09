@@ -38,14 +38,25 @@ impl PeerTubeClient {
     }
 
     /// Search videos using SepiaSearch (federated search)
-    async fn search_sepia(&self, query: &str, start: u32, count: u32) -> Result<ApiSearchResponse> {
-        let url = format!(
+    async fn search_sepia(
+        &self,
+        query: &str,
+        start: u32,
+        count: u32,
+        language: Option<&str>,
+    ) -> Result<ApiSearchResponse> {
+        let mut url = format!(
             "{}/api/v1/search/videos?search={}&start={}&count={}&sort=-match",
             SEPIA_SEARCH_URL,
             urlencoding::encode(query),
             start,
             count
         );
+
+        // Add language filter if specified
+        if let Some(lang) = language {
+            url.push_str(&format!("&languageOneOf={}", urlencoding::encode(lang)));
+        }
 
         let response = self.client.get(&url).send().await?;
 
@@ -75,11 +86,18 @@ impl VideoProvider for PeerTubeClient {
     async fn search_with_locale(
         &self,
         query: &str,
-        _hl: &str,
+        hl: &str,
         _gl: &str,
     ) -> std::result::Result<SearchResults, ProviderError> {
+        // Pass language filter if not default "en"
+        let language = if hl.is_empty() || hl == "en" {
+            None
+        } else {
+            Some(hl)
+        };
+
         let response = self
-            .search_sepia(query, 0, 20)
+            .search_sepia(query, 0, 20, language)
             .await
             .map_err(ProviderError::from)?;
 
