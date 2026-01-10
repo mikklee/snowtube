@@ -202,10 +202,23 @@ pub(crate) fn parse_video_renderer(video: &Value) -> Result<YtSearchResult> {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
+    // Try multiple paths for channel thumbnail - YouTube's response structure varies
     let channel_thumbnail =
         parse_thumbnails(video.pointer(
             "/channelThumbnailSupportedRenderers/channelThumbnailWithLinkRenderer/thumbnail",
         ));
+    let channel_thumbnail = if channel_thumbnail.is_empty() {
+        // Fallback: try ownerBadges path
+        parse_thumbnails(video.pointer("/ownerBadges/0/metadataBadgeRenderer/thumbnail"))
+    } else {
+        channel_thumbnail
+    };
+    let channel_thumbnail = if channel_thumbnail.is_empty() {
+        // Fallback: try channelThumbnail path (used in some responses)
+        parse_thumbnails(video.pointer("/channelThumbnail"))
+    } else {
+        channel_thumbnail
+    };
 
     let channel = Some(YtChannel {
         id: channel_id,
