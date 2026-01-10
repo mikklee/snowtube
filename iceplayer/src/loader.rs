@@ -64,7 +64,7 @@ pub fn load_video(
                 load_peertube_audio_only(&mut sender, &instance, &video_id).await;
             }
             VideoSource::DirectUrl(url) => {
-                load_direct_url(&mut sender, &url).await;
+                load_with_playbin(&mut sender, &url).await;
             }
             VideoSource::Live(url) => {
                 load_live(&mut sender, &url).await;
@@ -365,7 +365,9 @@ async fn load_youtube_audio_only(
     }
 }
 
-async fn load_direct_url(
+/// Load video using GStreamer's playbin element.
+/// This handles HLS streams (.m3u8), direct file URLs, and other formats.
+async fn load_with_playbin(
     sender: &mut iced::futures::channel::mpsc::Sender<LoadProgress>,
     url: &str,
 ) {
@@ -512,43 +514,44 @@ async fn load_peertube(
     };
 
     // Extract best quality video URL
-    // Try direct files first (sorted by resolution), then streaming playlists
-    let video_url = video_info["files"]
+    // Prefer HLS playlist URLs (.m3u8) as they support proper seeking
+    // Fragmented MP4 files have duration=0 in their moov atom, breaking seeking
+    let video_url = video_info["streamingPlaylists"]
         .as_array()
-        .and_then(|files| {
-            files
-                .iter()
-                .filter_map(|f| {
-                    let url = f["fileUrl"].as_str()?;
-                    let res = f["resolution"]["id"].as_u64().unwrap_or(0);
-                    Some((res, url.to_string()))
-                })
-                .max_by_key(|(res, _)| *res)
-                .map(|(_, url)| url)
-        })
-        .or_else(|| {
-            video_info["streamingPlaylists"]
-                .as_array()
-                .and_then(|playlists| {
-                    playlists.first().and_then(|p| {
-                        // Try files in playlist first (highest resolution)
-                        p["files"]
-                            .as_array()
-                            .and_then(|files| {
-                                files
-                                    .iter()
-                                    .filter_map(|f| {
-                                        let url = f["fileUrl"].as_str()?;
-                                        let res = f["resolution"]["id"].as_u64().unwrap_or(0);
-                                        Some((res, url.to_string()))
-                                    })
-                                    .max_by_key(|(res, _)| *res)
-                                    .map(|(_, url)| url)
+        .and_then(|playlists| {
+            playlists.first().and_then(|p| {
+                // Prefer HLS playlist URL - it supports seeking with proper duration
+                // Find highest resolution HLS playlist
+                p["files"]
+                    .as_array()
+                    .and_then(|files| {
+                        files
+                            .iter()
+                            .filter_map(|f| {
+                                let url = f["playlistUrl"].as_str()?;
+                                let res = f["resolution"]["id"].as_u64().unwrap_or(0);
+                                Some((res, url.to_string()))
                             })
-                            // Fall back to HLS playlist URL
-                            .or_else(|| p["playlistUrl"].as_str().map(|s| s.to_string()))
+                            .max_by_key(|(res, _)| *res)
+                            .map(|(_, url)| url)
                     })
-                })
+                    // Fall back to main playlist URL
+                    .or_else(|| p["playlistUrl"].as_str().map(|s| s.to_string()))
+            })
+        })
+        // Fall back to direct files if no streaming playlists (older PeerTube instances)
+        .or_else(|| {
+            video_info["files"].as_array().and_then(|files| {
+                files
+                    .iter()
+                    .filter_map(|f| {
+                        let url = f["fileUrl"].as_str()?;
+                        let res = f["resolution"]["id"].as_u64().unwrap_or(0);
+                        Some((res, url.to_string()))
+                    })
+                    .max_by_key(|(res, _)| *res)
+                    .map(|(_, url)| url)
+            })
         });
 
     let video_url = match video_url {
@@ -569,14 +572,8 @@ async fn load_peertube(
         ))
         .await;
 
-    // Determine if this is HLS or direct file
-    let is_hls = video_url.ends_with(".m3u8");
-
-    if is_hls {
-        load_live(sender, &video_url).await;
-    } else {
-        load_direct_url(sender, &video_url).await;
-    }
+    // Use playbin for all PeerTube URLs - it handles both HLS (.m3u8) and direct files
+    load_with_playbin(sender, &video_url).await;
 }
 
 async fn load_peertube_audio_only(

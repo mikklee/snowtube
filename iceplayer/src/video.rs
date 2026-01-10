@@ -12,6 +12,24 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+/// Get the best available video converter element name.
+/// Prefers hardware-accelerated conversion: NVIDIA (nvvideoconvert), VA-API (vapostproc),
+/// falling back to software (videoconvert).
+fn get_best_video_convert() -> &'static str {
+    if gst::ElementFactory::find("nvvideoconvert").is_some() {
+        tracing::info!(
+            "Using nvvideoconvert (NVIDIA CUDA) for hardware-accelerated video conversion"
+        );
+        "nvvideoconvert"
+    } else if gst::ElementFactory::find("vapostproc").is_some() {
+        tracing::info!("Using vapostproc (VA-API) for hardware-accelerated video conversion");
+        "vapostproc"
+    } else {
+        tracing::info!("Using videoconvert (software) for video conversion");
+        "videoconvert"
+    }
+}
+
 /// Position in the media.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Position {
@@ -317,19 +335,7 @@ impl Video {
         // Use souphttpsrc (requires GIO_EXTRA_MODULES for TLS) + downloadbuffer (enables seeking)
         // Note: curlhttpsrc fails when combined with downloadbuffer
         // multiqueue with sync-by-running-time=true ensures A/V synchronization after seeking
-        // Prefer hardware-accelerated video conversion: NVIDIA (nvvideoconvert), VA-API (vapostproc), or software fallback
-        let video_convert = if gst::ElementFactory::find("nvvideoconvert").is_some() {
-            tracing::info!(
-                "Using nvvideoconvert (NVIDIA CUDA) for hardware-accelerated video conversion"
-            );
-            "nvvideoconvert"
-        } else if gst::ElementFactory::find("vapostproc").is_some() {
-            tracing::info!("Using vapostproc (VA-API) for hardware-accelerated video conversion");
-            "vapostproc"
-        } else {
-            tracing::info!("Using videoconvert (software) for video conversion");
-            "videoconvert"
-        };
+        let video_convert = get_best_video_convert();
 
         let pipeline_str = format!(
             "souphttpsrc name=videosrc location=\"{video_url}\" user-agent=\"{user_agent}\" ! \
