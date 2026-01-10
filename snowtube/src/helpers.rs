@@ -13,7 +13,7 @@ use crate::messages::Message;
 fn get_cache_dir() -> Result<PathBuf, String> {
     let cache_dir = dirs::cache_dir()
         .ok_or_else(|| "Could not determine cache directory".to_string())?
-        .join("ytrs")
+        .join("snowtube")
         .join("thumbnails");
     std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
     Ok(cache_dir)

@@ -1,9 +1,9 @@
 [package]
-name = "ytrs-client"
+name = "snowtube"
 version = "0.4.0"
 edition = "2024"
-authors = ["ytrs contributors"]
-description = "GUI client for ytrs - YouTube search and playback"
+authors = ["SnowTube contributors"]
+description = "SnowTube - A multi-platform video player for YouTube and PeerTube"
 license = "GPL-3.0"
 
 [dependencies]

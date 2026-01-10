@@ -72,7 +72,7 @@ fn main() -> iced::Result {
 }
 
 fn cosmic_title(_: &App) -> String {
-    "ytrs".to_string()
+    "SnowTube".to_string()
 }
 
 fn app_theme(app: &App) -> Theme {
@@ -1210,7 +1210,7 @@ impl App {
             Message::ExportSearchResults => {
                 if !self.search_results.is_empty() {
                     let mut content = String::new();
-                    content.push_str("=== YTRS Search Results Export ===\n\n");
+                    content.push_str("=== SnowTube Search Results Export ===\n\n");
 
                     for (idx, result) in self.search_results.iter().enumerate() {
                         content.push_str(&format!("{}. {}\n", idx + 1, result.title));
@@ -1228,7 +1228,7 @@ impl App {
                     }
 
                     let filename = format!(
-                        "ytrs-search-export-{}.txt",
+                        "snowtube-search-export-{}.txt",
                         chrono::Utc::now().format("%Y%m%d-%H%M%S")
                     );
 

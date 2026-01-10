@@ -264,10 +264,9 @@ pub fn view(
             // Show "Load More" button or loading indicator
             if app.channel_preloading {
                 // Still preloading initial videos
-                let loading_indicator =
-                    container(text("Still requesting videos from YouTube...").size(14))
-                        .padding(20)
-                        .center_x(Length::Fill);
+                let loading_indicator = container(text("Still requesting videos...").size(14))
+                    .padding(20)
+                    .center_x(Length::Fill);
                 video_content = video_content.push(loading_indicator);
             } else if app.channel_loading_more {
                 let loading_indicator = container(text("Loading more...").size(14))

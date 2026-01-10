@@ -18,7 +18,7 @@ use iced::{
 /// Render the search view
 pub fn view(app: &App) -> Element<'_, Message> {
     let search_input: iced::widget::TextInput<'_, Message> =
-        text_input("Search YouTube...", &app.query)
+        text_input("Search videos...", &app.query)
             .on_input(Message::InputChanged)
             .on_submit(Message::Search)
             .padding(10)
@@ -48,17 +48,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
         if app.searching {
             container(text("Searching...")).padding(40).into()
         } else {
-            container(
-                column![
-                    text("ytrs").size(40),
-                    text("YouTube for polyglots").size(14)
-                ]
-                .spacing(10)
-                .align_x(Alignment::Center),
-            )
-            .padding(60)
-            .center_x(Length::FillPortion(1))
-            .into()
+            container(text("SnowTube").size(40))
+                .padding(60)
+                .center_x(Length::FillPortion(1))
+                .into()
         }
     } else {
         let cards: Vec<Element<Message>> = app

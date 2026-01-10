@@ -250,7 +250,7 @@ impl SubscriptionVideoCache {
     /// Get the path to the cache file
     fn cache_path() -> Option<PathBuf> {
         dirs::cache_dir().map(|mut path| {
-            path.push("ytrs");
+            path.push("snowtube");
             path.push("subscription_videos.json");
             path
         })
@@ -382,7 +382,7 @@ impl YtrsConfig {
     /// Get the path to the config file
     fn config_path() -> Option<PathBuf> {
         dirs::config_dir().map(|mut path| {
-            path.push("ytrs");
+            path.push("snowtube");
             path.push("config.json");
             path
         })
