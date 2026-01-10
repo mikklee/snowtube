@@ -82,10 +82,10 @@ fn app_theme(app: &App) -> Theme {
 pub struct App {
     // Shared state
     pub query: String,
-    pub thumbs: HashMap<String, iced::widget::image::Handle>,
-    pub subscription_thumbs: HashMap<String, iced::widget::image::Handle>, // Channel avatars for subscriptions
-    pub subscription_videos: HashMap<common::ChannelKey, Vec<Video>>,      // channel_key -> videos
-    pub subscription_videos_cache: config::SubscriptionVideoCache,         // Persistent cache
+    pub video_thumbs: HashMap<String, iced::widget::image::Handle>, // watch_url -> thumbnail
+    pub channel_avatars: HashMap<common::ChannelKey, iced::widget::image::Handle>,
+    pub subscription_videos: HashMap<common::ChannelKey, Vec<Video>>, // channel_key -> videos
+    pub subscription_videos_cache: config::SubscriptionVideoCache,    // Persistent cache
     pub subscription_videos_loading: std::collections::HashSet<common::ChannelKey>, // Channels currently being fetched
     pub current_view: View,
     pub previous_view: View, // Track which view to return to from config
@@ -98,7 +98,7 @@ pub struct App {
     pub window_width: f32,    // Current window width for responsive layout
     pub window_height: f32,   // Current window height for responsive layout
     pub current_theme: Theme, // Current theme
-    pub pending_thumb_updates: Vec<(String, Vec<u8>)>, // Batched thumbnail updates
+    pub pending_avatar_updates: Vec<(common::ChannelKey, Vec<u8>)>, // Batched avatar updates
     pub last_thumb_update: Option<std::time::Instant>, // Last time we processed thumb updates
 
     // Search-specific state
@@ -140,8 +140,8 @@ impl App {
             Self {
                 // Shared state
                 query: String::new(),
-                thumbs: HashMap::new(),
-                subscription_thumbs: HashMap::new(),
+                video_thumbs: HashMap::new(),
+                channel_avatars: HashMap::new(),
                 subscription_videos: HashMap::new(),
                 subscription_videos_cache: config::SubscriptionVideoCache::default(),
                 subscription_videos_loading: std::collections::HashSet::new(),
@@ -156,7 +156,7 @@ impl App {
                 window_width: 800.0,
                 window_height: 600.0,
                 current_theme: AppTheme::default().to_iced_theme(),
-                pending_thumb_updates: Vec::new(),
+                pending_avatar_updates: Vec::new(),
                 last_thumb_update: None,
 
                 // Search-specific state
@@ -375,27 +375,34 @@ impl App {
                     }
                 }
             }
-            Message::ThumbLoaded(id, res) => {
+            Message::VideoThumbLoaded(watch_url, res) => {
                 if let Ok(bytes) = res {
-                    // Batch thumbnail updates instead of updating immediately
-                    self.pending_thumb_updates.push((id, bytes));
+                    self.video_thumbs
+                        .insert(watch_url, iced::widget::image::Handle::from_bytes(bytes));
+                }
+                Task::none()
+            }
+            Message::ChannelAvatarLoaded(key, res) => {
+                if let Ok(bytes) = res {
+                    // Batch avatar updates instead of updating immediately
+                    self.pending_avatar_updates.push((key, bytes));
 
                     let now = std::time::Instant::now();
                     let should_flush = match self.last_thumb_update {
                         None => true,
                         Some(last) => {
                             // Flush if we have 10+ pending or 100ms has passed
-                            self.pending_thumb_updates.len() >= 10
+                            self.pending_avatar_updates.len() >= 10
                                 || now.duration_since(last).as_millis() >= 100
                         }
                     };
 
                     if should_flush {
                         // Process all pending updates at once
-                        for (thumb_id, thumb_bytes) in self.pending_thumb_updates.drain(..) {
-                            self.thumbs.insert(
-                                thumb_id,
-                                iced::widget::image::Handle::from_bytes(thumb_bytes),
+                        for (avatar_key, avatar_bytes) in self.pending_avatar_updates.drain(..) {
+                            self.channel_avatars.insert(
+                                avatar_key,
+                                iced::widget::image::Handle::from_bytes(avatar_bytes),
                             );
                         }
                         self.last_thumb_update = Some(now);
@@ -476,18 +483,19 @@ impl App {
                         };
 
                         // Load channel avatar (circular) if not already cached
-                        let avatar_task = if self.subscription_thumbs.contains_key(&channel.id) {
+                        let channel_key =
+                            common::ChannelKey::new(&channel.platform_name, &channel.id);
+                        let avatar_task = if self.channel_avatars.contains_key(&channel_key) {
                             Task::none()
                         } else if let Some(thumb) = channel.thumbnails.first() {
                             let url = thumb.url.clone();
-                            let id = channel.id.clone();
                             Task::perform(
                                 async move {
                                     helpers::load_circular_thumb(&url, 80)
                                         .await
                                         .map_err(|e| e.to_string())
                                 },
-                                move |r| Message::SubscriptionChannelThumbLoaded(id.clone(), r),
+                                move |r| Message::ChannelAvatarLoaded(channel_key.clone(), r),
                             )
                         } else {
                             Task::none()
@@ -772,15 +780,15 @@ impl App {
                 self.loading_channel = false;
                 self.channel_loading_more = false;
 
-                // Load thumbnails for any newly subscribed channels
+                // Load avatars for any newly subscribed channels
                 let tasks: Vec<Task<Message>> = self
                     .config
                     .channels
                     .values()
                     .filter(|c| c.subscribed)
-                    .filter(|c| !self.subscription_thumbs.contains_key(&c.channel_id))
+                    .filter(|c| !self.channel_avatars.contains_key(&c.key()))
                     .map(|c| {
-                        let channel_id = c.channel_id.clone();
+                        let channel_key = c.key();
                         let url = c.thumbnail_url.clone();
                         Task::perform(
                             async move {
@@ -788,9 +796,7 @@ impl App {
                                     .await
                                     .map_err(|e| e.to_string())
                             },
-                            move |res| {
-                                Message::SubscriptionChannelThumbLoaded(channel_id.clone(), res)
-                            },
+                            move |res| Message::ChannelAvatarLoaded(channel_key.clone(), res),
                         )
                     })
                     .collect();
@@ -1001,13 +1007,7 @@ impl App {
 
                 save_config(self.config.clone())
             }
-            Message::SubscriptionChannelThumbLoaded(channel_id, res) => {
-                if let Ok(bytes) = res {
-                    self.subscription_thumbs
-                        .insert(channel_id, iced::widget::image::Handle::from_bytes(bytes));
-                }
-                Task::none()
-            }
+
             Message::TabSelected(tab_id) => {
                 self.active_tab = tab_id;
 
@@ -1031,14 +1031,14 @@ impl App {
                     TabId::Channels => {
                         self.current_view = View::Channels;
                         // Load circular thumbnails for all subscribed channels that aren't already loaded
-                        let thumb_tasks: Vec<Task<Message>> = self
+                        let avatar_tasks: Vec<Task<Message>> = self
                             .config
                             .channels
                             .values()
                             .filter(|c| c.subscribed)
-                            .filter(|c| !self.subscription_thumbs.contains_key(&c.channel_id))
+                            .filter(|c| !self.channel_avatars.contains_key(&c.key()))
                             .map(|c| {
-                                let channel_id = c.channel_id.clone();
+                                let channel_key = c.key();
                                 let url = c.thumbnail_url.clone();
                                 Task::perform(
                                     async move {
@@ -1047,10 +1047,7 @@ impl App {
                                             .map_err(|e| e.to_string())
                                     },
                                     move |res| {
-                                        Message::SubscriptionChannelThumbLoaded(
-                                            channel_id.clone(),
-                                            res,
-                                        )
+                                        Message::ChannelAvatarLoaded(channel_key.clone(), res)
                                     },
                                 )
                             })
@@ -1071,7 +1068,7 @@ impl App {
                             self.fetch_stale_subscription_videos()
                         };
 
-                        Task::batch(thumb_tasks).chain(cache_task)
+                        Task::batch(avatar_tasks).chain(cache_task)
                     }
                     TabId::Settings => {
                         self.current_view = View::Config;
@@ -1252,7 +1249,6 @@ impl App {
                 let video_id_str = video.id.clone();
                 let title = Some(video.title.clone());
                 let duration = video.duration.map(std::time::Duration::from_secs);
-                let channel_id = video.channel.as_ref().and_then(|c| c.id.clone());
 
                 // Store the video info
                 self.playing_video_info = Some((*video).clone());
@@ -1296,45 +1292,20 @@ impl App {
                     Message::VideoThumbnailLoaded,
                 );
 
-                // Fetch channel avatar if not already cached
-                let channel_thumb_task = if let Some(ref cid) = channel_id {
-                    if self.thumbs.contains_key(cid) || self.subscription_thumbs.contains_key(cid) {
-                        Task::none()
-                    } else {
-                        // Get channel thumbnail URL from video info if available
-                        let channel_thumb_url = self
-                            .playing_video_info
-                            .as_ref()
-                            .and_then(|v| v.channel.as_ref())
-                            .and_then(|c| c.thumbnails.first())
-                            .map(|t| t.url.clone());
+                // Fetch video metadata (full description, channel info including avatar)
+                let video_for_metadata = video.clone();
+                let metadata_task = Task::perform(
+                    async move { providers::get_video_metadata(&video_for_metadata).await },
+                    Message::VideoMetadataLoaded,
+                );
 
-                        if let Some(url) = channel_thumb_url {
-                            let cid_for_msg = cid.clone();
-                            Task::perform(
-                                async move {
-                                    helpers::load_circular_thumb(&url, 48)
-                                        .await
-                                        .map_err(|e| e.to_string())
-                                },
-                                move |res| Message::ThumbLoaded(cid_for_msg, res),
-                            )
-                        } else {
-                            Task::none()
-                        }
-                    }
-                } else {
-                    Task::none()
-                };
-
-                Task::batch([thumb_task, channel_thumb_task])
+                Task::batch([thumb_task, metadata_task])
             }
             Message::PlayAudioOnly(video) => {
                 // Similar to PlayVideo but uses audio-only source
                 let video_id_str = video.id.clone();
                 let title = Some(video.title.clone());
                 let duration = video.duration.map(std::time::Duration::from_secs);
-                let channel_id = video.channel.as_ref().and_then(|c| c.id.clone());
 
                 // Store the video info
                 self.playing_video_info = Some((*video).clone());
@@ -1385,38 +1356,14 @@ impl App {
                     Message::VideoThumbnailLoaded,
                 );
 
-                // Fetch channel avatar if not already cached
-                let channel_thumb_task = if let Some(ref cid) = channel_id {
-                    if self.thumbs.contains_key(cid) || self.subscription_thumbs.contains_key(cid) {
-                        Task::none()
-                    } else {
-                        // Get channel thumbnail URL from video info if available
-                        let channel_thumb_url = self
-                            .playing_video_info
-                            .as_ref()
-                            .and_then(|v| v.channel.as_ref())
-                            .and_then(|c| c.thumbnails.first())
-                            .map(|t| t.url.clone());
+                // Fetch video metadata (full description, channel info including avatar)
+                let video_for_metadata = video.clone();
+                let metadata_task = Task::perform(
+                    async move { providers::get_video_metadata(&video_for_metadata).await },
+                    Message::VideoMetadataLoaded,
+                );
 
-                        if let Some(url) = channel_thumb_url {
-                            let cid_for_msg = cid.clone();
-                            Task::perform(
-                                async move {
-                                    helpers::load_circular_thumb(&url, 48)
-                                        .await
-                                        .map_err(|e| e.to_string())
-                                },
-                                move |res| Message::ThumbLoaded(cid_for_msg, res),
-                            )
-                        } else {
-                            Task::none()
-                        }
-                    }
-                } else {
-                    Task::none()
-                };
-
-                Task::batch([load_task, thumb_task, channel_thumb_task])
+                Task::batch([load_task, thumb_task, metadata_task])
             }
             Message::VideoPlayer(msg) => {
                 // Delegate to the video player widget's update function
@@ -1475,6 +1422,51 @@ impl App {
                 {
                     let handle = iced::widget::image::Handle::from_bytes(bytes);
                     state.thumbnail = Some(handle);
+                }
+                Task::none()
+            }
+
+            Message::VideoMetadataLoaded(result) => {
+                if let Ok(metadata) = result {
+                    let channel_id = metadata.channel_id.clone();
+                    let avatar_url = metadata.channel_avatar_url.clone();
+                    let platform_name = self
+                        .playing_video_info
+                        .as_ref()
+                        .map(|v| v.platform_name.clone());
+
+                    if let Some(ref mut video_info) = self.playing_video_info {
+                        // Update description if we got a full one
+                        if let Some(desc) = metadata.description {
+                            video_info.description = Some(desc);
+                        }
+                        // Update channel info if available
+                        if let Some(ref mut channel) = video_info.channel {
+                            if let Some(name) = metadata.channel_name {
+                                channel.name = name;
+                            }
+                            if let Some(ref id) = channel_id {
+                                channel.id = Some(id.clone());
+                            }
+                        }
+                    }
+
+                    // Fetch channel avatar if we have URL and channel_id, and not already cached
+                    if let (Some(platform), Some(cid), Some(url)) =
+                        (platform_name, channel_id, avatar_url)
+                    {
+                        let channel_key = common::ChannelKey::new(&platform, &cid);
+                        if !self.channel_avatars.contains_key(&channel_key) {
+                            return Task::perform(
+                                async move {
+                                    helpers::load_circular_thumb(&url, 80)
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                },
+                                move |res| Message::ChannelAvatarLoaded(channel_key, res),
+                            );
+                        }
+                    }
                 }
                 Task::none()
             }

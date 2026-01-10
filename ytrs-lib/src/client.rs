@@ -189,18 +189,59 @@ impl InnerTube {
     pub async fn get_video(&self, video_id_or_url: &str) -> Result<VideoInfo> {
         let video_id = utils::extract_video_id(video_id_or_url)?;
 
-        let body = json!({
+        let player_body = json!({
             "context": self.context,
             "videoId": video_id,
         });
 
-        let response = self.post("/player", body).await?;
-        parsers::parse_video_info(&response)
+        let next_body = json!({
+            "context": self.context,
+            "videoId": video_id,
+        });
+
+        // Fetch both /player and /next endpoints concurrently
+        // /player has streaming data, /next has full description
+        let (player_response, next_response) = tokio::join!(
+            self.post("/player", player_body),
+            self.post("/next", next_body)
+        );
+
+        let player_response = player_response?;
+        let mut video_info = parsers::parse_video_info(&player_response)?;
+
+        // Try to get the full description and channel info from /next endpoint
+        if let Ok(next_data) = next_response {
+            let metadata = parsers::parse_video_metadata(&next_data);
+            if let Some(desc) = metadata.description {
+                video_info.description = Some(desc);
+            }
+            // Update channel info if available
+            if let Some(name) = metadata.channel_name {
+                video_info.channel.name = name;
+            }
+            if metadata.channel_id.is_some() {
+                video_info.channel.id = metadata.channel_id;
+            }
+        }
+
+        Ok(video_info)
     }
 
     /// Get basic video info (lightweight alternative to get_video)
     pub async fn get_basic_info(&self, video_id_or_url: &str) -> Result<VideoInfo> {
         self.get_video(video_id_or_url).await
+    }
+
+    /// Fetch additional video metadata (full description, channel info) from /next endpoint.
+    /// This is useful when you have a video from search results and need the full description.
+    pub async fn get_video_metadata(&self, video_id: &str) -> Result<parsers::ParsedVideoMetadata> {
+        let body = json!({
+            "context": self.context,
+            "videoId": video_id,
+        });
+
+        let response = self.post("/next", body).await?;
+        Ok(parsers::parse_video_metadata(&response))
     }
 
     /// Get related videos for a given video ID

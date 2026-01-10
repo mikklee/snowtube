@@ -87,3 +87,17 @@ impl Video {
         self.channel.as_ref().and_then(|c| c.id.as_deref())
     }
 }
+
+/// Additional metadata fetched separately from initial video data.
+/// Used to get full description and channel info that aren't in search results.
+#[derive(Debug, Clone, Default)]
+pub struct VideoMetadata {
+    /// Full video description (not truncated)
+    pub description: Option<String>,
+    /// Channel name
+    pub channel_name: Option<String>,
+    /// Channel ID
+    pub channel_id: Option<String>,
+    /// Channel avatar URL (best quality available)
+    pub channel_avatar_url: Option<String>,
+}

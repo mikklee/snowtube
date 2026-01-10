@@ -7,7 +7,7 @@ use crate::error::{Error, Result};
 use crate::models::{ApiSearchResponse, PLATFORM_NAME};
 use common::{
     ChannelConfig, ChannelInfo, ChannelProvider, ChannelTab, ChannelVideos, ContinuationToken,
-    ProviderError, SearchResults, Video, VideoProvider,
+    ProviderError, SearchResults, Video, VideoMetadata, VideoProvider,
 };
 
 const SEPIA_SEARCH_URL: &str = "https://sepiasearch.org";
@@ -174,6 +174,37 @@ impl VideoProvider for PeerTubeClient {
             message: "Use fetch_thumbnail with URL for PeerTube".to_string(),
         })
     }
+
+    async fn get_video_metadata(
+        &self,
+        video: &Video,
+    ) -> std::result::Result<VideoMetadata, ProviderError> {
+        let instance = video.instance.as_ref().ok_or_else(|| ProviderError::Api {
+            message: "PeerTube video requires instance URL for metadata".to_string(),
+        })?;
+
+        let pt = self.for_instance(instance);
+        let video_details = pt
+            .get_video(&video.id)
+            .await
+            .map_err(|e| ProviderError::Api {
+                message: e.to_string(),
+            })?;
+
+        // Get channel avatar URL (largest available)
+        let channel_avatar_url = video_details
+            .channel
+            .avatars
+            .last()
+            .map(|a| format!("{}{}", instance, a.path));
+
+        Ok(VideoMetadata {
+            description: video_details.description,
+            channel_name: Some(video_details.channel.display_name),
+            channel_id: Some(video_details.channel.name),
+            channel_avatar_url,
+        })
+    }
 }
 
 #[async_trait]
@@ -296,5 +327,27 @@ impl PeerTube {
 
         let videos: ApiSearchResponse = response.json().await?;
         Ok(videos)
+    }
+
+    /// Get video details by UUID
+    pub async fn get_video(&self, uuid: &str) -> Result<crate::models::ApiVideo> {
+        let url = format!("{}/api/v1/videos/{}", self.instance, uuid);
+
+        let response = self.client.get(&url).send().await?;
+
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err(Error::Api {
+                message: format!("Video not found: {}", uuid),
+            });
+        }
+
+        if !response.status().is_success() {
+            return Err(Error::Api {
+                message: format!("Get video failed with status: {}", response.status()),
+            });
+        }
+
+        let video: crate::models::ApiVideo = response.json().await?;
+        Ok(video)
     }
 }

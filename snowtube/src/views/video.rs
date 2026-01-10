@@ -193,11 +193,10 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
         .as_ref()
         .and_then(|v| v.instance.clone());
 
-    // Channel avatar (rounded) - look up by channel_id in thumbs or subscription_thumbs
+    // Channel avatar (rounded) - look up by ChannelKey
     let avatar_handle = channel_id.as_ref().and_then(|cid| {
-        app.thumbs
-            .get(cid)
-            .or_else(|| app.subscription_thumbs.get(cid))
+        let channel_key = common::ChannelKey::new(&platform_name, cid);
+        app.channel_avatars.get(&channel_key)
     });
 
     let avatar: Element<Message> = if let Some(handle) = avatar_handle {
@@ -311,10 +310,29 @@ fn build_info_box(app: &App, video_width: f32) -> Element<'_, Message> {
     .spacing(8)
     .width(Length::Fixed(240.0));
 
-    // Always two rows: title on top, buttons below (right-aligned)
-    let info_content = row![avatar, title_column, action_buttons]
+    // Header row: avatar, title/channel, action buttons
+    let header_row = row![avatar, title_column, action_buttons]
         .spacing(12)
         .align_y(Alignment::Center);
+
+    // Description (if available)
+    let description = app
+        .playing_video_info
+        .as_ref()
+        .and_then(|v| v.description.clone())
+        .unwrap_or_default();
+
+    let info_content = if description.is_empty() {
+        column![header_row].spacing(0)
+    } else {
+        let description_text = text(description)
+            .size(14)
+            .color(Color::from_rgb(0.7, 0.7, 0.7))
+            .wrapping(iced::widget::text::Wrapping::Word);
+        column![header_row, description_text]
+            .spacing(16)
+            .width(Length::Fill)
+    };
 
     container(info_content)
         .width(Length::Fixed(video_width))

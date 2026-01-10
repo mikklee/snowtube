@@ -61,8 +61,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let channel_cards: Vec<Element<Message>> = subscribed_channels
             .iter()
             .filter_map(|channel_config| {
-                let channel_id = &channel_config.channel_id;
-                let avatar_handle = app.subscription_thumbs.get(channel_id)?.clone();
+                let channel_key = channel_config.key();
+                let avatar_handle = app.channel_avatars.get(&channel_key)?.clone();
                 let name = channel_config.channel_name.clone();
 
                 let avatar = Image::new(avatar_handle).width(80).height(80);
@@ -152,7 +152,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 }
 
                 // Only render videos if thumbnail is loaded
-                let thumb_handle = app.thumbs.get(&video.id)?.clone();
+                let thumb_handle = app.video_thumbs.get(&video.watch_url)?.clone();
 
                 // Clone all data for lazy closure (must be owned)
                 let vid = video.id.clone();

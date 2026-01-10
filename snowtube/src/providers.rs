@@ -139,6 +139,14 @@ pub async fn fetch_thumbnail_for_video(video: &Video) -> Result<Vec<u8>, String>
         .map_err(|e| e.to_string())
 }
 
+/// Fetch additional video metadata (full description, channel info)
+pub async fn get_video_metadata(video: &Video) -> Result<common::VideoMetadata, String> {
+    service()
+        .get_video_metadata(video)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // =============================================================================
 // Platform icons
 // =============================================================================

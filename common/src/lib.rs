@@ -66,6 +66,11 @@ pub trait VideoProvider: Send + Sync {
 
     /// Fetch high-quality thumbnail for a video by ID (platform-specific)
     async fn fetch_hq_thumbnail(&self, video_id: &str) -> Result<Vec<u8>, ProviderError>;
+
+    /// Fetch additional metadata for a video (full description, channel info).
+    /// This is separate from get_video() because search results contain enough
+    /// info to play videos, but may have truncated descriptions.
+    async fn get_video_metadata(&self, video: &Video) -> Result<VideoMetadata, ProviderError>;
 }
 
 /// Trait for providers that support channel browsing

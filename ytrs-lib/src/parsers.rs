@@ -343,6 +343,75 @@ fn parse_view_count(text: &str) -> Option<u64> {
     }
 }
 
+/// Video metadata extracted from /next endpoint
+#[derive(Debug, Clone, Default)]
+pub struct ParsedVideoMetadata {
+    pub description: Option<String>,
+    pub channel_name: Option<String>,
+    pub channel_id: Option<String>,
+    pub channel_avatar_url: Option<String>,
+}
+
+/// Extract video metadata from /next endpoint response.
+/// Returns description from videoSecondaryInfoRenderer.attributedDescription
+/// and channel info from videoSecondaryInfoRenderer.owner.videoOwnerRenderer
+pub fn parse_video_metadata(data: &Value) -> ParsedVideoMetadata {
+    let mut metadata = ParsedVideoMetadata::default();
+
+    // Find videoSecondaryInfoRenderer in the response
+    let secondary_info = data
+        .pointer("/contents/twoColumnWatchNextResults/results/results/contents")
+        .and_then(|v| v.as_array())
+        .and_then(|contents| {
+            contents
+                .iter()
+                .find_map(|c| c.get("videoSecondaryInfoRenderer"))
+        });
+
+    if let Some(info) = secondary_info {
+        // Extract full description from attributedDescription.content
+        if let Some(desc) = info
+            .pointer("/attributedDescription/content")
+            .and_then(|v| v.as_str())
+        {
+            metadata.description = Some(desc.to_string());
+        }
+
+        // Extract channel info from owner.videoOwnerRenderer
+        if let Some(owner) = info.pointer("/owner/videoOwnerRenderer") {
+            // Channel name from title.runs[0].text
+            if let Some(name) = owner.pointer("/title/runs/0/text").and_then(|v| v.as_str()) {
+                metadata.channel_name = Some(name.to_string());
+            }
+
+            // Channel ID from navigationEndpoint.browseEndpoint.browseId
+            if let Some(id) = owner
+                .pointer("/navigationEndpoint/browseEndpoint/browseId")
+                .and_then(|v| v.as_str())
+            {
+                metadata.channel_id = Some(id.to_string());
+            }
+
+            // Channel avatar - get the largest thumbnail
+            if let Some(thumbs) = owner
+                .pointer("/thumbnail/thumbnails")
+                .and_then(|v| v.as_array())
+            {
+                // Get the last (largest) thumbnail
+                if let Some(url) = thumbs
+                    .last()
+                    .and_then(|t| t.pointer("/url"))
+                    .and_then(|v| v.as_str())
+                {
+                    metadata.channel_avatar_url = Some(url.to_string());
+                }
+            }
+        }
+    }
+
+    metadata
+}
+
 /// Parse video info from player response
 pub fn parse_video_info(data: &Value) -> Result<VideoInfo> {
     use crate::models::YtChannel;

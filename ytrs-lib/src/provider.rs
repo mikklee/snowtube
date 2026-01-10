@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use common::{
     ChannelConfig, ChannelInfo, ChannelProvider, ChannelTab, ChannelVideos, ProviderError,
-    SearchResults, Video, VideoProvider,
+    SearchResults, Video, VideoMetadata, VideoProvider,
 };
 
 use crate::client::InnerTube;
@@ -69,6 +69,21 @@ impl VideoProvider for InnerTube {
             .map_err(|e| ProviderError::Network {
                 message: e.to_string(),
             })
+    }
+
+    async fn get_video_metadata(&self, video: &Video) -> Result<VideoMetadata, ProviderError> {
+        let metadata = InnerTube::get_video_metadata(self, &video.id)
+            .await
+            .map_err(|e| ProviderError::Api {
+                message: e.to_string(),
+            })?;
+
+        Ok(VideoMetadata {
+            description: metadata.description,
+            channel_name: metadata.channel_name,
+            channel_id: metadata.channel_id,
+            channel_avatar_url: metadata.channel_avatar_url,
+        })
     }
 }
 

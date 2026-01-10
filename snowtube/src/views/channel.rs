@@ -43,7 +43,8 @@ pub fn view(
         content = content.push(banner_image);
 
         // Back button, avatar, and channel info on same row
-        let avatar: Element<Message> = if let Some(h) = app.subscription_thumbs.get(&channel.id) {
+        let channel_key = common::ChannelKey::new(&channel.platform_name, &channel.id);
+        let avatar: Element<Message> = if let Some(h) = app.channel_avatars.get(&channel_key) {
             Image::new(h.clone()).width(80).height(80).into()
         } else {
             container(iced::widget::space()).width(80).height(80).into()
@@ -204,7 +205,7 @@ pub fn view(
                 if r.id.is_empty() {
                     return None;
                 }
-                let h = app.thumbs.get(&r.id)?;
+                let h = app.video_thumbs.get(&r.watch_url)?;
 
                 let thumb = Image::new(h.clone()).width(240).height(135);
                 let thumb_with_overlay = create_thumbnail(thumb, false, 0);

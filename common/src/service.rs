@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::{
     ChannelConfig, ChannelInfo, ChannelProvider, ChannelTab, ChannelVideos, ContinuationToken,
-    ProviderError, SearchResults, Video, VideoProvider,
+    ProviderError, SearchResults, Video, VideoMetadata, VideoProvider,
 };
 
 /// A unified video service that combines multiple providers.
@@ -247,6 +247,17 @@ impl VideoService {
         } else {
             Err(ProviderError::NotFound {
                 message: format!("{} provider not available", platform_name),
+            })
+        }
+    }
+
+    /// Get additional video metadata (full description, channel info)
+    pub async fn get_video_metadata(&self, video: &Video) -> Result<VideoMetadata, ProviderError> {
+        if let Some(provider) = self.provider_for_platform(&video.platform_name) {
+            provider.get_video_metadata(video).await
+        } else {
+            Err(ProviderError::NotFound {
+                message: format!("{} provider not available", video.platform_name),
             })
         }
     }

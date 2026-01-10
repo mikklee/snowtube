@@ -67,7 +67,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 }
 
                 // Only render videos if thumbnail is loaded
-                let h = app.thumbs.get(&r.id)?.clone();
+                let h = app.video_thumbs.get(&r.watch_url)?.clone();
 
                 // Clone all data for lazy closure (must be owned)
                 let vid = r.id.clone();

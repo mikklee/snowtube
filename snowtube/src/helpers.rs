@@ -227,40 +227,31 @@ pub fn create_thumbnail(
 /// Helper function to create thumbnail loading tasks for videos
 /// All thumbnails are loaded in parallel using tokio::spawn
 pub fn create_thumbnail_tasks(results: &[common::Video]) -> Vec<Task<Message>> {
+    // Use watch_url as unique key for video thumbnails
     let thumb_data: Vec<(String, String)> = results
         .iter()
         .filter_map(|v| {
-            // Get video ID and thumbnail URL
-            if !v.id.is_empty() {
-                v.thumbnails.first().map(|t| (v.id.clone(), t.url.clone()))
-            } else if let Some(channel) = v.channel.as_ref() {
-                // Load channel thumbnails
-                if let Some(cid) = channel.id.as_ref() {
-                    v.thumbnails.first().map(|t| (cid.clone(), t.url.clone()))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
+            v.thumbnails
+                .first()
+                .map(|t| (v.watch_url.clone(), t.url.clone()))
         })
         .collect();
 
     // Spawn ALL downloads in parallel
     thumb_data
         .into_iter()
-        .map(|(id, url)| {
+        .map(|(watch_url, thumb_url)| {
             Task::perform(
                 async move {
-                    let id_clone = id.clone();
+                    let key = watch_url.clone();
                     // Spawn on tokio runtime for true parallelism
                     tokio::spawn(async move {
-                        (id_clone, load_thumb(&url).await.map_err(|e| e.to_string()))
+                        (key, load_thumb(&thumb_url).await.map_err(|e| e.to_string()))
                     })
                     .await
-                    .unwrap_or_else(|_| (id, Err("Task panicked".to_string())))
+                    .unwrap_or_else(|_| (watch_url, Err("Task panicked".to_string())))
                 },
-                move |(id, res)| Message::ThumbLoaded(id, res),
+                move |(watch_url, res)| Message::VideoThumbLoaded(watch_url, res),
             )
         })
         .collect()

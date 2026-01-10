@@ -28,7 +28,8 @@ pub enum Message {
     Search,
     // Unified search results
     SearchDone(Result<common::SearchResults, String>),
-    ThumbLoaded(String, Result<Vec<u8>, String>),
+    VideoThumbLoaded(String, Result<Vec<u8>, String>), // watch_url -> thumbnail
+    ChannelAvatarLoaded(common::ChannelKey, Result<Vec<u8>, String>),
     BannerLoaded(Result<Vec<u8>, String>),
     ViewChannel(common::ChannelConfig), // channel config (platform + id)
     ChannelLoaded(Result<ChannelInfo, String>),
@@ -50,7 +51,7 @@ pub enum Message {
     // Subscription-related messages
     SubscribeToChannel,
     UnsubscribeFromChannel(common::ChannelKey), // channel key (platform + id)
-    SubscriptionChannelThumbLoaded(String, Result<Vec<u8>, String>), // channel_id, thumb_data
+
     SubscriptionVideosLoaded(common::ChannelKey, Result<ChannelVideos, String>), // channel_key, videos
     SubscriptionVideosCacheLoaded(Result<crate::config::SubscriptionVideoCache, String>),
     RefreshSubscriptionVideos,
@@ -66,6 +67,7 @@ pub enum Message {
     VideoPlayer(VideoPlayerMessage),               // Internal player messages
     VideoEvent(PlayerEvent),                       // High-level events from player
     VideoThumbnailLoaded(Result<Vec<u8>, String>), // High-res thumbnail for player
+    VideoMetadataLoaded(Result<common::VideoMetadata, String>), // Full description, channel info
     BackFromVideo,                                 // Navigate back from video view
     LaunchInMpv(String),                           // Launch video in mpv (video_id)
     CopyVideoUrl(String),                          // Copy video URL to clipboard
