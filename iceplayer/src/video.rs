@@ -308,6 +308,97 @@ impl Video {
         Self::from_gst_pipeline(pipeline, video_sink, Some(text_sink))
     }
 
+    /// Create an audio-only player from a PeerTube video URL.
+    ///
+    /// PeerTube doesn't have separate audio streams, so we use the video URL
+    /// but discard video frames to save CPU. Includes spectrum analyzer for visualizations.
+    pub fn peertube_audio_only(uri: &url::Url) -> Result<Self, Error> {
+        gst::init()?;
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
+
+        // Use playbin with fakesink for video (discards video frames)
+        // Audio goes through spectrum analyzer for visualizations
+        let pipeline_str = format!(
+            "playbin uri=\"{}\" \
+             video-sink=\"fakesink sync=false\" \
+             audio-sink=\"audioconvert ! audioresample ! \
+                 tee name=t ! queue ! autoaudiosink sync=true \
+                 t. ! queue ! spectrum name=spectrum bands={SPECTRUM_BANDS} interval=50000000 threshold=-80 post-messages=true message-magnitude=true ! fakesink sync=true\"",
+            uri.as_str()
+        );
+
+        tracing::info!("Creating PeerTube audio-only pipeline");
+
+        let pipeline = gst::parse::launch(&pipeline_str)?
+            .downcast::<gst::Pipeline>()
+            .map_err(|_| Error::Cast)?;
+
+        let bus = pipeline.bus().ok_or(Error::Bus)?;
+
+        macro_rules! cleanup {
+            ($expr:expr) => {
+                $expr.map_err(|e| {
+                    let _ = pipeline.set_state(gst::State::Null);
+                    e
+                })
+            };
+        }
+
+        cleanup!(pipeline.set_state(gst::State::Playing))?;
+        cleanup!(pipeline.state(gst::ClockTime::from_seconds(5)).0)?;
+
+        let duration = Duration::from_nanos(
+            pipeline
+                .query_duration::<gst::ClockTime>()
+                .map(|duration| duration.nseconds())
+                .unwrap_or(0),
+        );
+
+        // Audio-only: use 1080p dimensions for proper 16:9 aspect ratio
+        let width = 1920;
+        let height = 1080;
+        let framerate = 1.0;
+
+        let sync_av = pipeline.has_property("av-offset", None);
+
+        // Empty frame (no video)
+        let frame = Arc::new(Mutex::new(Frame::empty()));
+        let upload_frame = Arc::new(AtomicBool::new(false));
+        let alive = Arc::new(AtomicBool::new(true));
+        let last_frame_time = Arc::new(Mutex::new(Instant::now()));
+
+        let subtitle_text = Arc::new(Mutex::new(None));
+        let upload_text = Arc::new(AtomicBool::new(false));
+        let spectrum = Arc::new(Mutex::new([0.0f32; SPECTRUM_BANDS]));
+
+        Ok(Video(RwLock::new(Internal {
+            id,
+            bus,
+            source: pipeline,
+            alive,
+            worker: None,
+            width,
+            height,
+            framerate,
+            duration,
+            speed: 1.0,
+            sync_av,
+            frame,
+            upload_frame,
+            last_frame_time,
+            looping: false,
+            is_eos: false,
+            restart_stream: false,
+            sync_av_avg: 0,
+            sync_av_counter: 0,
+            subtitle_text,
+            upload_text,
+            ytdlp_process: None,
+            spectrum,
+        })))
+    }
+
     /// Create a new video player from direct video and audio URLs with custom HTTP headers.
     ///
     /// This is useful for playing YouTube videos where yt-dlp provides separate

@@ -581,7 +581,112 @@ async fn load_peertube_audio_only(
     instance: &str,
     video_id: &str,
 ) {
-    // PeerTube doesn't have separate audio streams like YouTube
-    // For now, just load the video (audio will be extracted by the player)
-    load_peertube(sender, instance, video_id).await;
+    use iced::futures::SinkExt;
+
+    let _ = sender
+        .send(LoadProgress::Status(
+            "Fetching PeerTube video info...".to_string(),
+        ))
+        .await;
+
+    // Fetch video info from PeerTube API
+    let api_url = format!("{}/api/v1/videos/{}", instance, video_id);
+    let client = reqwest::Client::new();
+
+    let video_info: serde_json::Value = match client.get(&api_url).send().await {
+        Ok(resp) => match resp.json().await {
+            Ok(json) => json,
+            Err(e) => {
+                let _ = sender
+                    .send(LoadProgress::Error(format!(
+                        "Failed to parse response: {}",
+                        e
+                    )))
+                    .await;
+                return;
+            }
+        },
+        Err(e) => {
+            let _ = sender
+                .send(LoadProgress::Error(format!(
+                    "Failed to fetch video info: {}",
+                    e
+                )))
+                .await;
+            return;
+        }
+    };
+
+    // Extract video URL (prefer HLS, fall back to direct files)
+    let video_url = video_info["streamingPlaylists"]
+        .as_array()
+        .and_then(|playlists| {
+            playlists.first().and_then(|p| {
+                p["files"]
+                    .as_array()
+                    .and_then(|files| {
+                        files
+                            .iter()
+                            .filter_map(|f| {
+                                let url = f["playlistUrl"].as_str()?;
+                                let res = f["resolution"]["id"].as_u64().unwrap_or(0);
+                                Some((res, url.to_string()))
+                            })
+                            .max_by_key(|(res, _)| *res)
+                            .map(|(_, url)| url)
+                    })
+                    .or_else(|| p["playlistUrl"].as_str().map(|s| s.to_string()))
+            })
+        })
+        .or_else(|| {
+            video_info["files"].as_array().and_then(|files| {
+                files
+                    .iter()
+                    .filter_map(|f| {
+                        let url = f["fileUrl"].as_str()?;
+                        let res = f["resolution"]["id"].as_u64().unwrap_or(0);
+                        Some((res, url.to_string()))
+                    })
+                    .max_by_key(|(res, _)| *res)
+                    .map(|(_, url)| url)
+            })
+        });
+
+    let video_url = match video_url {
+        Some(url) => url,
+        None => {
+            let _ = sender
+                .send(LoadProgress::Error(
+                    "No playable video URL found".to_string(),
+                ))
+                .await;
+            return;
+        }
+    };
+
+    let _ = sender
+        .send(LoadProgress::Status(
+            "Loading PeerTube audio...".to_string(),
+        ))
+        .await;
+
+    // Use peertube_audio_only which discards video but keeps audio with visualizer
+    let result = tokio::task::spawn_blocking(move || {
+        let uri = url::Url::parse(&video_url).map_err(|e| format!("Invalid URL: {}", e))?;
+        Video::peertube_audio_only(&uri)
+            .map(Arc::new)
+            .map_err(|e| format!("Failed to create player: {:?}", e))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))
+    .and_then(|r| r);
+
+    match result {
+        Ok(video) => {
+            let _ = sender.send(LoadProgress::Done(video)).await;
+        }
+        Err(e) => {
+            let _ = sender.send(LoadProgress::Error(e)).await;
+        }
+    }
 }
