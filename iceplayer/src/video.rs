@@ -311,22 +311,22 @@ impl Video {
     /// Create an audio-only player from a PeerTube video URL.
     ///
     /// PeerTube doesn't have separate audio streams, so we use the video URL
-    /// but discard video frames to save CPU. Includes spectrum analyzer for visualizations.
+    /// but disable video decoding to save CPU. Includes spectrum analyzer for visualizations.
     pub fn peertube_audio_only(uri: &url::Url) -> Result<Self, Error> {
         gst::init()?;
         static NEXT_ID: AtomicU64 = AtomicU64::new(0);
         let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
 
-        // Use playbin with fakesink for video (discards video frames)
-        // Audio goes through spectrum analyzer for visualizations
+        // Build pipeline: fetch source, demux, decode audio only, add spectrum analyzer
+        // Using decodebin with caps to only decode audio
         let pipeline_str = format!(
-            "playbin uri=\"{}\" \
-             video-sink=\"fakesink sync=false\" \
+            "playbin uri=\"{}\" flags=0x00000002 \
              audio-sink=\"audioconvert ! audioresample ! \
                  tee name=t ! queue ! autoaudiosink sync=true \
                  t. ! queue ! spectrum name=spectrum bands={SPECTRUM_BANDS} interval=50000000 threshold=-80 post-messages=true message-magnitude=true ! fakesink sync=true\"",
             uri.as_str()
         );
+        // flags=0x02 means audio only (GstPlayFlags: audio=0x02, video=0x01, text=0x04)
 
         tracing::info!("Creating PeerTube audio-only pipeline");
 
