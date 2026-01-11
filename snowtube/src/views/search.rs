@@ -14,6 +14,7 @@ use iced::{
     Alignment, Element, Length, Padding,
     widget::{Image, button, column, container, lazy, row, stack, svg, text, text_input},
 };
+use iceplayer::widget::snowflake_spinner;
 
 const SNOWTUBE_LOGO: &[u8] = include_bytes!("../../assets/snowtube.svg");
 
@@ -177,9 +178,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
         // Show "Load More" button or loading indicator (hide while preloading)
         if app.search_loading_more || app.search_preloading {
-            let loading_indicator = container(text("Loading more...").size(14))
-                .padding(20)
-                .center_x(Length::Fill);
+            let loading_indicator = container(snowflake_spinner::<Message>(
+                32.0,
+                &app.config.theme.to_iced_theme(),
+            ))
+            .padding(20)
+            .center_x(Length::Fill);
             search_content = search_content.push(loading_indicator);
         } else if !app.search_next_page_tokens.is_empty() {
             // Show "Load More" button if we have more results to load

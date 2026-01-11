@@ -861,4 +861,5 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
 
 /// Re-export for convenience
 pub use controls::glass_container_style;
+pub use snowflake::snowflake_spinner;
 pub use spinner::spinner;

@@ -7,6 +7,7 @@ use iced::{
     Element, Length, Theme,
     widget::{Image, button, column, combo_box, container, pick_list, row, text},
 };
+use iceplayer::widget::snowflake_spinner;
 
 use crate::App;
 use crate::helpers::{centered_grid_padding, create_thumbnail, create_video_tile, fmt_num};
@@ -233,10 +234,13 @@ pub fn view(
 
         let videos_section: Element<Message> = if video_cards.is_empty() {
             if app.loading_channel {
-                container(text("Loading..."))
-                    .padding(40)
-                    .center_x(Length::Fill)
-                    .into()
+                container(snowflake_spinner::<Message>(
+                    48.0,
+                    &app.config.theme.to_iced_theme(),
+                ))
+                .padding(40)
+                .center_x(Length::Fill)
+                .into()
             } else {
                 container(text("No videos found"))
                     .padding(40)
@@ -263,16 +267,13 @@ pub fn view(
             ];
 
             // Show "Load More" button or loading indicator
-            if app.channel_preloading {
-                // Still preloading initial videos
-                let loading_indicator = container(text("Still requesting videos...").size(14))
-                    .padding(20)
-                    .center_x(Length::Fill);
-                video_content = video_content.push(loading_indicator);
-            } else if app.channel_loading_more {
-                let loading_indicator = container(text("Loading more...").size(14))
-                    .padding(20)
-                    .center_x(Length::Fill);
+            if app.channel_preloading || app.channel_loading_more {
+                let loading_indicator = container(snowflake_spinner::<Message>(
+                    32.0,
+                    &app.config.theme.to_iced_theme(),
+                ))
+                .padding(20)
+                .center_x(Length::Fill);
                 video_content = video_content.push(loading_indicator);
             } else if app.channel_continuation.is_some() {
                 // Show "Load More" button if we have more videos to load
@@ -297,6 +298,12 @@ pub fn view(
 
         content.into()
     } else {
-        container(text("Loading channel...")).padding(40).into()
+        container(snowflake_spinner::<Message>(
+            48.0,
+            &app.config.theme.to_iced_theme(),
+        ))
+        .padding(40)
+        .center_x(Length::Fill)
+        .into()
     }
 }

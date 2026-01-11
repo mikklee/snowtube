@@ -4,7 +4,6 @@
 
 use super::controls::glass_container_style;
 use super::snowflake::snowflake_spinner;
-use super::spinner::spinner;
 use iced::widget::{button, column, container, stack, text};
 use iced::{Color, Element, Length, Padding, Renderer, Theme};
 use iced_font_awesome::fa_icon_solid;
@@ -62,7 +61,7 @@ pub fn loading_overlay<'a, Message: 'static>(
 pub fn seeking_overlay<Message: 'static>(
     theme: &Theme,
 ) -> Element<'static, Message, Theme, Renderer> {
-    let spinner_widget: Element<'static, Message, Theme, Renderer> = spinner(48.0, theme);
+    let spinner_widget: Element<'static, Message, Theme, Renderer> = snowflake_spinner(96.0, theme);
 
     let seeking_content = column![
         spinner_widget,

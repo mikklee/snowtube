@@ -15,6 +15,7 @@ use iced::{
     widget::text::Shaping,
     widget::{Image, button, column, container, lazy, row, text},
 };
+use iceplayer::widget::snowflake_spinner;
 
 /// Render the channels (subscriptions) view
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -226,10 +227,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 .iter()
                 .any(|c| app.subscription_videos_loading.contains(&c.key()))
             {
-                container(text("Loading videos...").size(14))
-                    .padding(40)
-                    .center_x(Length::Fill)
-                    .into()
+                container(snowflake_spinner::<Message>(
+                    48.0,
+                    &app.config.theme.to_iced_theme(),
+                ))
+                .padding(40)
+                .center_x(Length::Fill)
+                .into()
             } else {
                 container(text("No videos yet").size(14))
                     .padding(40)
