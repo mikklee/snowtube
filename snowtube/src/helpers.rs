@@ -257,6 +257,36 @@ pub fn create_thumbnail_tasks(results: &[common::Video]) -> Vec<Task<Message>> {
         .collect()
 }
 
+/// Helper function to create avatar loading tasks for subscribed channels
+/// All avatars are loaded in parallel using tokio::spawn
+pub fn create_avatar_tasks(channels: &[&common::ChannelConfig]) -> Vec<Task<Message>> {
+    channels
+        .iter()
+        .filter(|c| !c.thumbnail_url.is_empty())
+        .map(|c| {
+            let channel_key = c.key();
+            let url = c.thumbnail_url.clone();
+            Task::perform(
+                async move {
+                    let key = channel_key.clone();
+                    let result: Result<(common::ChannelKey, Result<Vec<u8>, String>), _> =
+                        tokio::spawn(async move {
+                            (
+                                key,
+                                load_circular_thumb(&url, 80)
+                                    .await
+                                    .map_err(|e| e.to_string()),
+                            )
+                        })
+                        .await;
+                    result.unwrap_or_else(|_| (channel_key, Err("Task panicked".to_string())))
+                },
+                move |(key, res)| Message::ChannelAvatarLoaded(key, res),
+            )
+        })
+        .collect()
+}
+
 /// Format large numbers with K/M/B suffixes
 pub fn fmt_num(n: u64) -> String {
     if n >= 1_000_000_000 {

@@ -119,8 +119,6 @@ pub struct App {
     pub window_width: f32,    // Current window width for responsive layout
     pub window_height: f32,   // Current window height for responsive layout
     pub current_theme: Theme, // Current theme
-    pub pending_avatar_updates: Vec<(common::ChannelKey, Vec<u8>)>, // Batched avatar updates
-    pub last_thumb_update: Option<std::time::Instant>, // Last time we processed thumb updates
 
     // Search-specific state
     pub search_results: Vec<common::Video>,
@@ -177,8 +175,6 @@ impl App {
                 window_width: 800.0,
                 window_height: 600.0,
                 current_theme: AppTheme::default().to_iced_theme(),
-                pending_avatar_updates: Vec::new(),
-                last_thumb_update: None,
 
                 // Search-specific state
                 search_results: Vec::new(),
@@ -404,29 +400,8 @@ impl App {
             }
             Message::ChannelAvatarLoaded(key, res) => {
                 if let Ok(bytes) = res {
-                    // Batch avatar updates instead of updating immediately
-                    self.pending_avatar_updates.push((key, bytes));
-
-                    let now = std::time::Instant::now();
-                    let should_flush = match self.last_thumb_update {
-                        None => true,
-                        Some(last) => {
-                            // Flush if we have 10+ pending or 100ms has passed
-                            self.pending_avatar_updates.len() >= 10
-                                || now.duration_since(last).as_millis() >= 100
-                        }
-                    };
-
-                    if should_flush {
-                        // Process all pending updates at once
-                        for (avatar_key, avatar_bytes) in self.pending_avatar_updates.drain(..) {
-                            self.channel_avatars.insert(
-                                avatar_key,
-                                iced::widget::image::Handle::from_bytes(avatar_bytes),
-                            );
-                        }
-                        self.last_thumb_update = Some(now);
-                    }
+                    self.channel_avatars
+                        .insert(key, iced::widget::image::Handle::from_bytes(bytes));
                 }
                 Task::none()
             }
@@ -943,6 +918,27 @@ impl App {
                             self.search_locale = (lang.hl.to_string(), lang.gl.to_string());
                             self.channel_locale = (lang.hl.to_string(), lang.gl.to_string());
                         }
+
+                        // Preload avatars for subscribed channels
+                        let subscribed_channels: Vec<_> = self
+                            .config
+                            .channels
+                            .values()
+                            .filter(|c| c.subscribed)
+                            .collect();
+                        let avatar_tasks = helpers::create_avatar_tasks(&subscribed_channels);
+
+                        // Preload subscription videos cache and thumbnails at startup
+                        let cache_task = Task::perform(
+                            async { config::SubscriptionVideoCache::load().await },
+                            |res| {
+                                Message::SubscriptionVideosCacheLoaded(
+                                    res.map_err(|e| e.to_string()),
+                                )
+                            },
+                        );
+
+                        return Task::batch(avatar_tasks).chain(cache_task);
                     }
                     Err(e) => {
                         self.show_error(format!("Failed to load config: {}", e));
