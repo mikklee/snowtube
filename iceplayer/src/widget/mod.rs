@@ -5,6 +5,7 @@
 
 pub mod controls;
 pub mod overlay;
+pub mod snowflake;
 pub mod spinner;
 
 use crate::event::PlayerEvent;
