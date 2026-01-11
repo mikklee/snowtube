@@ -83,6 +83,18 @@ impl Frame {
                 .map(|meta| meta.stride()[0] as u32)
         })
     }
+
+    /// Get the frame dimensions (width, height) from sample caps.
+    /// This is needed for HLS streams where resolution can change mid-stream.
+    pub fn dimensions(&self) -> Option<(u32, u32)> {
+        self.0.caps().and_then(|caps| {
+            caps.structure(0).and_then(|s| {
+                let w = s.get::<i32>("width").ok()?;
+                let h = s.get::<i32>("height").ok()?;
+                Some((w as u32, h as u32))
+            })
+        })
+    }
 }
 
 /// Number of frequency bands for audio spectrum analysis.

@@ -158,6 +158,19 @@ impl VideoPipeline {
     ) {
         // Use stride from GStreamer's VideoMeta if available, otherwise assume stride == width
         let stride = stride.unwrap_or(width);
+
+        // Handle resolution changes (e.g., HLS adaptive streaming)
+        if let Some(existing) = self.videos.get(&video_id) {
+            let tex_size = existing.texture_y.size();
+            if tex_size.width != width || tex_size.height != height {
+                if let Some(old) = self.videos.remove(&video_id) {
+                    old.texture_y.destroy();
+                    old.texture_uv.destroy();
+                    old.instances.destroy();
+                }
+            }
+        }
+
         if let Entry::Vacant(entry) = self.videos.entry(video_id) {
             let texture_y = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("iceplayer texture"),
@@ -433,13 +446,18 @@ impl Primitive for VideoPrimitive {
         if self.upload_frame {
             let frame_guard = self.frame.lock().expect("lock frame mutex");
             let stride = frame_guard.stride();
+            // Use actual frame dimensions from caps (handles HLS resolution changes).
+            // This is a patch to make some missbehaving peertube videos work.
+            // The fix unfortunately causes a small frame skip/catchup sequence.
+            // Better than green/purple corruptions I guess.
+            let size = frame_guard.dimensions().unwrap_or(self.size);
             if let Some(readable) = frame_guard.readable() {
                 pipeline.upload(
                     device,
                     queue,
                     self.video_id,
                     &self.alive,
-                    self.size,
+                    size,
                     readable.as_slice(),
                     stride,
                 );
