@@ -52,8 +52,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
         } else {
             let logo = svg::Svg::new(svg::Handle::from_memory(SNOWTUBE_LOGO))
                 .width(120)
-                .height(120);
-            container(column![logo, text("SnowTube").size(40)].align_x(Alignment::Center))
+                .height(120)
+                .style(|theme: &iced::Theme, _status| svg::Style {
+                    color: Some(theme.palette().text),
+                });
+            let title = text("SnowTube")
+                .size(40)
+                .color(app.config.theme.to_iced_theme().palette().text);
+            container(column![logo, title].align_x(Alignment::Center))
                 .padding(60)
                 .center_x(Length::FillPortion(1))
                 .into()
