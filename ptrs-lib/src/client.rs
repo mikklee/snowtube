@@ -118,6 +118,7 @@ impl VideoProvider for PeerTubeClient {
                 vec![NextPageToken {
                     platform_name: PLATFORM_NAME.to_string(),
                     token: encode_next_page_token(query, next_offset),
+                    locale: (hl.to_string(), _gl.to_string()),
                 }]
             } else {
                 vec![]
@@ -171,6 +172,7 @@ impl VideoProvider for PeerTubeClient {
                 vec![NextPageToken {
                     platform_name: PLATFORM_NAME.to_string(),
                     token: encode_next_page_token(&query, next_offset),
+                    locale: (hl.to_string(), _gl.to_string()),
                 }]
             } else {
                 vec![]

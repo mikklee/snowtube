@@ -36,6 +36,27 @@ fn get_language_by_locale(hl: &str, gl: &str) -> Option<&'static LanguageOption>
     map.get(&(hl.to_string(), gl.to_string())).copied()
 }
 
+/// Parse `loc:XX` from query string and return (cleaned_query, optional_locale)
+/// Uses country code (e.g., loc:us, loc:gb, loc:no, loc:jp)
+fn parse_locale_from_query(query: &str) -> (String, Option<(String, String)>) {
+    let mut locale = None;
+    let mut parts: Vec<&str> = Vec::new();
+
+    for part in query.split_whitespace() {
+        if let Some(loc) = part.strip_prefix("loc:") {
+            let gl = loc.to_uppercase();
+            // Find language by country code from supported languages
+            if let Some(lang) = get_all_languages().iter().find(|l| l.gl == gl) {
+                locale = Some((lang.hl.to_string(), gl));
+            }
+        } else {
+            parts.push(part);
+        }
+    }
+
+    (parts.join(" "), locale)
+}
+
 /// Helper to create a task that saves the config to disk
 fn save_config(config: AppConfig) -> Task<Message> {
     Task::perform(
@@ -284,8 +305,10 @@ impl App {
                 self.search_next_page_tokens.clear();
                 self.search_preload_count = 0;
                 self.search_preloading = true;
-                let q = self.query.clone();
-                let (hl, gl) = self.search_locale.clone();
+
+                // Parse loc:XX from query to temporarily override locale for this search
+                let (q, temp_locale) = parse_locale_from_query(&self.query);
+                let (hl, gl) = temp_locale.unwrap_or_else(|| self.search_locale.clone());
 
                 // Search all enabled providers in parallel
                 Task::perform(
@@ -341,17 +364,13 @@ impl App {
                                 && !self.search_next_page_tokens.is_empty()
                             {
                                 let next_page_tokens = self.search_next_page_tokens.clone();
-                                let (hl, gl) = self.search_locale.clone();
 
                                 // Start loading thumbnails for current batch while fetching next page
                                 let thumb_tasks = helpers::create_thumbnail_tasks(&new_results);
 
-                                // Fetch next page with stored locale
+                                // Fetch next page (locale is stored in tokens)
                                 let next_page_task = Task::perform(
-                                    async move {
-                                        providers::search_next_page(&next_page_tokens, &hl, &gl)
-                                            .await
-                                    },
+                                    async move { providers::search_next_page(&next_page_tokens).await },
                                     Message::SearchDone,
                                 );
 
@@ -757,10 +776,9 @@ impl App {
                     self.search_preloading = true;
 
                     let next_page_tokens = self.search_next_page_tokens.clone();
-                    // Use stored locale for consistent results
-                    let (hl, gl) = self.search_locale.clone();
+                    // Locale is stored in tokens
                     return Task::perform(
-                        async move { providers::search_next_page(&next_page_tokens, &hl, &gl).await },
+                        async move { providers::search_next_page(&next_page_tokens).await },
                         Message::SearchDone,
                     );
                 }

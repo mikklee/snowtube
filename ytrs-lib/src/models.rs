@@ -268,6 +268,10 @@ impl From<&YtSearchResult> for common::Video {
 
 impl From<YtSearchResults> for common::SearchResults {
     fn from(r: YtSearchResults) -> Self {
+        let locale = r
+            .detected_locale
+            .clone()
+            .unwrap_or_else(|| ("en".to_string(), "US".to_string()));
         common::SearchResults {
             results: r.results.into_iter().map(|v| v.into()).collect(),
             next_page_tokens: r
@@ -276,6 +280,7 @@ impl From<YtSearchResults> for common::SearchResults {
                     vec![common::NextPageToken {
                         platform_name: PLATFORM_NAME.to_string(),
                         token,
+                        locale,
                     }]
                 })
                 .unwrap_or_default(),

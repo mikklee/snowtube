@@ -105,8 +105,6 @@ impl VideoService {
     pub async fn search_next_page(
         &self,
         next_page_tokens: &[NextPageToken],
-        hl: &str,
-        gl: &str,
     ) -> Result<SearchResults, ProviderError> {
         use futures::future::join_all;
 
@@ -124,7 +122,8 @@ impl VideoService {
             .filter_map(|npt| {
                 self.provider_for_platform(&npt.platform_name).map(|p| {
                     let token = npt.token.clone();
-                    async move { p.search_next_page(&token, hl, gl).await }
+                    let (hl, gl) = npt.locale.clone();
+                    async move { p.search_next_page(&token, &hl, &gl).await }
                 })
             })
             .collect();

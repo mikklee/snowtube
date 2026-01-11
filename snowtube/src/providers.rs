@@ -51,13 +51,9 @@ pub async fn search_with_locale(query: &str, hl: &str, gl: &str) -> Result<Searc
 }
 
 /// Continue search using next page tokens
-pub async fn search_next_page(
-    next_page_tokens: &[NextPageToken],
-    hl: &str,
-    gl: &str,
-) -> Result<SearchResults, String> {
+pub async fn search_next_page(next_page_tokens: &[NextPageToken]) -> Result<SearchResults, String> {
     service()
-        .search_next_page(next_page_tokens, hl, gl)
+        .search_next_page(next_page_tokens)
         .await
         .map_err(|e| e.to_string())
 }

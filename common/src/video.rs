@@ -59,6 +59,8 @@ pub struct Thumbnail {
 pub struct NextPageToken {
     pub platform_name: String,
     pub token: String,
+    /// Locale used for this search (hl, gl) - needed for consistent pagination
+    pub locale: (String, String),
 }
 
 /// Search results container
