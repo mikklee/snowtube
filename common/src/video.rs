@@ -54,9 +54,9 @@ pub struct Thumbnail {
     pub height: Option<u32>,
 }
 
-/// Continuation token with platform information for multi-platform search
+/// Next page token with platform information for multi-platform search pagination
 #[derive(Debug, Clone)]
-pub struct ContinuationToken {
+pub struct NextPageToken {
     pub platform_name: String,
     pub token: String,
 }
@@ -65,8 +65,8 @@ pub struct ContinuationToken {
 #[derive(Debug, Clone)]
 pub struct SearchResults {
     pub results: Vec<Video>,
-    /// Continuation tokens for each platform that has more results
-    pub continuations: Vec<ContinuationToken>,
+    /// Next page tokens for each platform that has more results
+    pub next_page_tokens: Vec<NextPageToken>,
     /// Detected locale from YouTube (hl, gl)
     pub detected_locale: Option<(String, String)>,
 }

@@ -270,10 +270,10 @@ impl From<YtSearchResults> for common::SearchResults {
     fn from(r: YtSearchResults) -> Self {
         common::SearchResults {
             results: r.results.into_iter().map(|v| v.into()).collect(),
-            continuations: r
+            next_page_tokens: r
                 .continuation
                 .map(|token| {
-                    vec![common::ContinuationToken {
+                    vec![common::NextPageToken {
                         platform_name: PLATFORM_NAME.to_string(),
                         token,
                     }]

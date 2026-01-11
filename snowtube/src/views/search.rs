@@ -170,7 +170,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 .padding(20)
                 .center_x(Length::Fill);
             search_content = search_content.push(loading_indicator);
-        } else if !app.search_continuations.is_empty() {
+        } else if !app.search_next_page_tokens.is_empty() {
             // Show "Load More" button if we have more results to load
             let load_more_btn = container(
                 button(text("Load More Results"))

@@ -103,7 +103,7 @@ pub struct App {
 
     // Search-specific state
     pub search_results: Vec<common::Video>,
-    pub search_continuations: Vec<common::ContinuationToken>,
+    pub search_next_page_tokens: Vec<common::NextPageToken>,
     pub search_preload_count: usize,
     pub search_locale: (String, String),
     pub searching: bool,
@@ -161,7 +161,7 @@ impl App {
 
                 // Search-specific state
                 search_results: Vec::new(),
-                search_continuations: Vec::new(),
+                search_next_page_tokens: Vec::new(),
                 search_preload_count: 0,
                 search_locale: ("en".to_string(), "GB".to_string()),
                 searching: false,
@@ -281,14 +281,15 @@ impl App {
                 }
                 self.searching = true;
                 self.search_results.clear();
-                self.search_continuations.clear();
+                self.search_next_page_tokens.clear();
                 self.search_preload_count = 0;
                 self.search_preloading = true;
                 let q = self.query.clone();
+                let (hl, gl) = self.search_locale.clone();
 
                 // Search all enabled providers in parallel
                 Task::perform(
-                    async move { providers::search_all(&q).await },
+                    async move { providers::search_with_locale(&q, &hl, &gl).await },
                     Message::SearchDone,
                 )
             }
@@ -303,7 +304,7 @@ impl App {
                         let new_results = search_results.results;
 
                         // Store continuation tokens for pagination
-                        self.search_continuations = search_results.continuations;
+                        self.search_next_page_tokens = search_results.next_page_tokens;
 
                         // Store detected locale only if no manual language is selected
                         if self.selected_language.is_none()
@@ -335,11 +336,11 @@ impl App {
                         if self.search_preloading {
                             self.search_preload_count += 1;
 
-                            // Keep fetching if we don't have enough displayable results and have continuations
+                            // Keep fetching if we don't have enough displayable results and have next page tokens
                             if displayable_count < MIN_DISPLAYABLE_RESULTS
-                                && !self.search_continuations.is_empty()
+                                && !self.search_next_page_tokens.is_empty()
                             {
-                                let continuations = self.search_continuations.clone();
+                                let next_page_tokens = self.search_next_page_tokens.clone();
                                 let (hl, gl) = self.search_locale.clone();
 
                                 // Start loading thumbnails for current batch while fetching next page
@@ -348,7 +349,7 @@ impl App {
                                 // Fetch next page with stored locale
                                 let next_page_task = Task::perform(
                                     async move {
-                                        providers::search_continuation(&continuations, &hl, &gl)
+                                        providers::search_next_page(&next_page_tokens, &hl, &gl)
                                             .await
                                     },
                                     Message::SearchDone,
@@ -749,17 +750,17 @@ impl App {
                 Task::none()
             }
             Message::LoadMoreSearchResults => {
-                if !self.search_continuations.is_empty() && !self.search_loading_more {
+                if !self.search_next_page_tokens.is_empty() && !self.search_loading_more {
                     self.search_loading_more = true;
                     // Enable preloading to fetch 3 more pages
                     self.search_preload_count = 0;
                     self.search_preloading = true;
 
-                    let continuations = self.search_continuations.clone();
+                    let next_page_tokens = self.search_next_page_tokens.clone();
                     // Use stored locale for consistent results
                     let (hl, gl) = self.search_locale.clone();
                     return Task::perform(
-                        async move { providers::search_continuation(&continuations, &hl, &gl).await },
+                        async move { providers::search_next_page(&next_page_tokens, &hl, &gl).await },
                         Message::SearchDone,
                     );
                 }
@@ -878,7 +879,7 @@ impl App {
                         if !self.query.is_empty() && !self.searching {
                             self.searching = true;
                             self.search_results.clear();
-                            self.search_continuations.clear();
+                            self.search_next_page_tokens.clear();
                             self.search_preload_count = 0;
                             self.search_preloading = true;
                             let q = self.query.clone();

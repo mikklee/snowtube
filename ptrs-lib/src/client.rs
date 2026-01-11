@@ -6,7 +6,7 @@ use reqwest::Client;
 use crate::error::{Error, Result};
 use crate::models::{ApiSearchResponse, PLATFORM_NAME};
 use common::{
-    ChannelConfig, ChannelInfo, ChannelProvider, ChannelTab, ChannelVideos, ContinuationToken,
+    ChannelConfig, ChannelInfo, ChannelProvider, ChannelTab, ChannelVideos, NextPageToken,
     ProviderError, SearchResults, Video, VideoMetadata, VideoProvider,
 };
 
@@ -102,13 +102,22 @@ impl VideoProvider for PeerTubeClient {
             .map_err(ProviderError::from)?;
 
         let has_more = response.data.len() == 20 && response.total > 20;
+        let next_offset = 20u32;
+
+        tracing::debug!(
+            "PeerTube search_with_locale: query={}, got {} results, total={}, has_more={}",
+            query,
+            response.data.len(),
+            response.total,
+            has_more
+        );
 
         Ok(SearchResults {
             results: response.data.iter().map(|v| v.to_common_video()).collect(),
-            continuations: if has_more {
-                vec![ContinuationToken {
+            next_page_tokens: if has_more {
+                vec![NextPageToken {
                     platform_name: PLATFORM_NAME.to_string(),
-                    token: "20".to_string(), // Next start offset
+                    token: encode_next_page_token(query, next_offset),
                 }]
             } else {
                 vec![]
@@ -117,17 +126,55 @@ impl VideoProvider for PeerTubeClient {
         })
     }
 
-    async fn search_continuation(
+    async fn search_next_page(
         &self,
-        _token: &str,
-        _hl: &str,
+        token: &str,
+        hl: &str,
         _gl: &str,
     ) -> std::result::Result<SearchResults, ProviderError> {
-        // TODO: Properly encode query in continuation token
-        // For now, return empty since we don't have the query
+        tracing::debug!("PeerTube search_next_page called with token: {}", token);
+
+        let (query, offset) = decode_next_page_token(token).ok_or_else(|| ProviderError::Api {
+            message: "Invalid next page token".to_string(),
+        })?;
+
+        tracing::debug!(
+            "PeerTube search_next_page decoded: query={}, offset={}",
+            query,
+            offset
+        );
+
+        let language = if hl.is_empty() || hl == "en" {
+            None
+        } else {
+            Some(hl.to_string())
+        };
+
+        let response = self
+            .search_sepia(&query, offset, 20, language.as_deref())
+            .await
+            .map_err(ProviderError::from)?;
+
+        let has_more = response.data.len() == 20 && (offset + 20) < response.total;
+        let next_offset = offset + 20;
+
+        tracing::debug!(
+            "PeerTube search_next_page: got {} results, total={}, has_more={}",
+            response.data.len(),
+            response.total,
+            has_more
+        );
+
         Ok(SearchResults {
-            results: vec![],
-            continuations: vec![],
+            results: response.data.iter().map(|v| v.to_common_video()).collect(),
+            next_page_tokens: if has_more {
+                vec![NextPageToken {
+                    platform_name: PLATFORM_NAME.to_string(),
+                    token: encode_next_page_token(&query, next_offset),
+                }]
+            } else {
+                vec![]
+            },
             detected_locale: None,
         })
     }
@@ -350,4 +397,16 @@ impl PeerTube {
         let video: crate::models::ApiVideo = response.json().await?;
         Ok(video)
     }
+}
+
+/// Encode query and offset into a next page token
+fn encode_next_page_token(query: &str, offset: u32) -> String {
+    format!("{}|{}", query, offset)
+}
+
+/// Decode a next page token into query and offset
+fn decode_next_page_token(token: &str) -> Option<(String, u32)> {
+    let (query, offset_str) = token.rsplit_once('|')?;
+    let offset = offset_str.parse().ok()?;
+    Some((query.to_string(), offset))
 }

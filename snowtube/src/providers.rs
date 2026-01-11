@@ -4,7 +4,7 @@
 //! The client should never need to know about specific platforms.
 
 use common::{
-    ChannelConfig, ChannelInfo, ChannelTab, ChannelVideos, ContinuationToken, LanguageOption,
+    ChannelConfig, ChannelInfo, ChannelTab, ChannelVideos, LanguageOption, NextPageToken,
     SearchResults, Video, VideoService,
 };
 use std::sync::OnceLock;
@@ -42,17 +42,6 @@ pub fn service() -> &'static VideoService {
 // =============================================================================
 // Search operations (fully platform-agnostic)
 // =============================================================================
-
-/// Search all enabled providers
-pub async fn search(query: &str) -> Result<SearchResults, String> {
-    service().search(query).await.map_err(|e| e.to_string())
-}
-
-/// Search all enabled providers (alias for search)
-pub async fn search_all(query: &str) -> Result<SearchResults, String> {
-    search(query).await
-}
-
 /// Search with locale
 pub async fn search_with_locale(query: &str, hl: &str, gl: &str) -> Result<SearchResults, String> {
     service()
@@ -61,14 +50,14 @@ pub async fn search_with_locale(query: &str, hl: &str, gl: &str) -> Result<Searc
         .map_err(|e| e.to_string())
 }
 
-/// Continue search using continuation tokens
-pub async fn search_continuation(
-    continuations: &[ContinuationToken],
+/// Continue search using next page tokens
+pub async fn search_next_page(
+    next_page_tokens: &[NextPageToken],
     hl: &str,
     gl: &str,
 ) -> Result<SearchResults, String> {
     service()
-        .search_continuation(continuations, hl, gl)
+        .search_next_page(next_page_tokens, hl, gl)
         .await
         .map_err(|e| e.to_string())
 }

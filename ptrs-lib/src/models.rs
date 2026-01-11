@@ -23,7 +23,7 @@ pub const PLATFORM_NAME: &str = "peertube";
 /// Search results response from PeerTube API
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiSearchResponse {
-    pub total: u64,
+    pub total: u32,
     pub data: Vec<ApiVideo>,
 }
 

@@ -50,8 +50,8 @@ pub trait VideoProvider: Send + Sync {
         gl: &str,
     ) -> Result<SearchResults, ProviderError>;
 
-    /// Get more search results using continuation token
-    async fn search_continuation(
+    /// Get more search results using next page token
+    async fn search_next_page(
         &self,
         token: &str,
         hl: &str,

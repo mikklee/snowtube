@@ -30,7 +30,7 @@ impl VideoProvider for InnerTube {
         Ok(results)
     }
 
-    async fn search_continuation(
+    async fn search_next_page(
         &self,
         token: &str,
         hl: &str,

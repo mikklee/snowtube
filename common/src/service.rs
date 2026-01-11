@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::{
-    ChannelConfig, ChannelInfo, ChannelProvider, ChannelTab, ChannelVideos, ContinuationToken,
+    ChannelConfig, ChannelInfo, ChannelProvider, ChannelTab, ChannelVideos, NextPageToken,
     ProviderError, SearchResults, Video, VideoMetadata, VideoProvider,
 };
 
@@ -83,12 +83,12 @@ impl VideoService {
         let results = join_all(futures).await;
 
         let mut all_videos: Vec<Video> = Vec::new();
-        let mut continuations: Vec<ContinuationToken> = Vec::new();
+        let mut next_page_tokens: Vec<NextPageToken> = Vec::new();
         let mut detected_locale = None;
 
         for sr in results.into_iter().flatten() {
             all_videos.extend(sr.results);
-            continuations.extend(sr.continuations);
+            next_page_tokens.extend(sr.next_page_tokens);
             if detected_locale.is_none() {
                 detected_locale = sr.detected_locale;
             }
@@ -96,26 +96,35 @@ impl VideoService {
 
         Ok(SearchResults {
             results: all_videos,
-            continuations,
+            next_page_tokens,
             detected_locale,
         })
     }
 
-    /// Continue search using continuation tokens
-    pub async fn search_continuation(
+    /// Continue search using next page tokens
+    pub async fn search_next_page(
         &self,
-        continuations: &[ContinuationToken],
+        next_page_tokens: &[NextPageToken],
         hl: &str,
         gl: &str,
     ) -> Result<SearchResults, ProviderError> {
         use futures::future::join_all;
 
-        let futures: Vec<_> = continuations
+        tracing::debug!(
+            "search_next_page called with {} tokens: {:?}",
+            next_page_tokens.len(),
+            next_page_tokens
+                .iter()
+                .map(|t| &t.platform_name)
+                .collect::<Vec<_>>()
+        );
+
+        let futures: Vec<_> = next_page_tokens
             .iter()
-            .filter_map(|ct| {
-                self.provider_for_platform(&ct.platform_name).map(|p| {
-                    let token = ct.token.clone();
-                    async move { p.search_continuation(&token, hl, gl).await }
+            .filter_map(|npt| {
+                self.provider_for_platform(&npt.platform_name).map(|p| {
+                    let token = npt.token.clone();
+                    async move { p.search_next_page(&token, hl, gl).await }
                 })
             })
             .collect();
@@ -123,12 +132,12 @@ impl VideoService {
         let results = join_all(futures).await;
 
         let mut all_videos: Vec<Video> = Vec::new();
-        let mut new_continuations: Vec<ContinuationToken> = Vec::new();
+        let mut new_next_page_tokens: Vec<NextPageToken> = Vec::new();
         let mut detected_locale = None;
 
         for sr in results.into_iter().flatten() {
             all_videos.extend(sr.results);
-            new_continuations.extend(sr.continuations);
+            new_next_page_tokens.extend(sr.next_page_tokens);
             if detected_locale.is_none() {
                 detected_locale = sr.detected_locale;
             }
@@ -136,7 +145,7 @@ impl VideoService {
 
         Ok(SearchResults {
             results: all_videos,
-            continuations: new_continuations,
+            next_page_tokens: new_next_page_tokens,
             detected_locale,
         })
     }
