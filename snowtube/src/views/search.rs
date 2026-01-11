@@ -12,8 +12,10 @@ use crate::widgets::{Wrap, bounceable_scrollable, glass_container_style};
 use common::{format_relative_time, parse_relative_time};
 use iced::{
     Alignment, Element, Length, Padding,
-    widget::{Image, button, column, container, lazy, row, stack, text, text_input},
+    widget::{Image, button, column, container, lazy, row, stack, svg, text, text_input},
 };
+
+const SNOWTUBE_LOGO: &[u8] = include_bytes!("../../assets/snowtube.svg");
 
 /// Render the search view
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -48,7 +50,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
         if app.searching {
             container(text("Searching...")).padding(40).into()
         } else {
-            container(text("SnowTube").size(40))
+            let logo = svg::Svg::new(svg::Handle::from_memory(SNOWTUBE_LOGO))
+                .width(120)
+                .height(120);
+            container(column![logo, text("SnowTube").size(40)].align_x(Alignment::Center))
                 .padding(60)
                 .center_x(Length::FillPortion(1))
                 .into()
