@@ -25,7 +25,7 @@ pub fn tab_bar<'a>(active_tab: TabId, items: &[TabItem]) -> Element<'a, Message>
             tab_button(
                 item.id,
                 item.label,
-                (item.icon_fn)(item.icon_size).into(),
+                (item.icon_fn)(item.icon_size),
                 is_active,
             )
         })

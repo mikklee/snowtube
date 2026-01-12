@@ -1,0 +1,17 @@
+[package]
+name = "ptrs-lib"
+version = "0.1.0"
+edition = "2024"
+description = "A Rust client for PeerTube API"
+license = "GPL-3.0"
+
+[dependencies]
+common = { path = "../common" }
+async-trait = "0.1"
+chrono = "0.4"
+reqwest = { version = "0.12", features = ["json", "gzip", "rustls-tls"], default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+snafu = "0.8"
+tracing = "0.1"
+urlencoding = "2.1"

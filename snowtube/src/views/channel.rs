@@ -1,12 +1,13 @@
 //! Channel view for the ytrs-client application
 
+use common::{ChannelTab, LanguageOption, format_relative_time, parse_relative_time};
 use iced::{
     Alignment,
     Alignment::Center,
     Element, Length, Theme,
     widget::{Image, button, column, combo_box, container, pick_list, row, text},
 };
-use ytrs_lib::{ChannelTab, format_relative_time, parse_relative_time};
+use iceplayer::widget::snowflake_spinner;
 
 use crate::App;
 use crate::helpers::{centered_grid_padding, create_thumbnail, create_video_tile, fmt_num};
@@ -17,7 +18,7 @@ use crate::widgets::{Wrap, bounceable_scrollable, subscribe_button};
 /// Render the channel view
 pub fn view(
     app: &App,
-    get_language_by_locale: fn(&str, &str) -> Option<&'static ytrs_lib::LanguageOption>,
+    get_language_by_locale: fn(&str, &str) -> Option<&'static LanguageOption>,
 ) -> Element<'_, Message> {
     if let Some(ref channel) = app.current_channel {
         let mut content = column![].spacing(0);
@@ -43,7 +44,8 @@ pub fn view(
         content = content.push(banner_image);
 
         // Back button, avatar, and channel info on same row
-        let avatar: Element<Message> = if let Some(h) = app.subscription_thumbs.get(&channel.id) {
+        let channel_key = common::ChannelKey::new(&channel.platform_name, &channel.id);
+        let avatar: Element<Message> = if let Some(h) = app.channel_avatars.get(&channel_key) {
             Image::new(h.clone()).width(80).height(80).into()
         } else {
             container(iced::widget::space()).width(80).height(80).into()
@@ -59,10 +61,10 @@ pub fn view(
         let is_subscribed = app
             .config
             .channels
-            .iter()
-            .any(|c| c.channel_id == channel.id && c.subscribed);
+            .get(&channel.key())
+            .is_some_and(|c| c.subscribed);
 
-        let sub_button = subscribe_button(is_subscribed, channel.id.clone(), 40.0);
+        let sub_button = subscribe_button(is_subscribed, channel.key(), 40.0);
 
         let header = row![
             button(text("← Back"))
@@ -201,8 +203,10 @@ pub fn view(
                 r.is_premium != Some(true)
             })
             .filter_map(|r| {
-                let vid = r.video_id.as_ref()?;
-                let h = app.thumbs.get(vid)?;
+                if r.id.is_empty() {
+                    return None;
+                }
+                let h = app.video_thumbs.get(&r.watch_url)?;
 
                 let thumb = Image::new(h.clone()).width(240).height(135);
                 let thumb_with_overlay = create_thumbnail(thumb, false, 0);
@@ -211,7 +215,7 @@ pub fn view(
                 if let Some(v) = r.view_count {
                     meta.push(format!("{} views", fmt_num(v)));
                 }
-                if let Some(ref d) = r.duration {
+                if let Some(d) = &r.duration_string {
                     meta.push(d.clone());
                 }
                 let seconds = parse_relative_time(r.published_text.as_deref());
@@ -222,21 +226,21 @@ pub fn view(
                     &r.title,
                     None,
                     Some(meta.join(" • ")),
-                    Message::PlayVideo(
-                        vid.clone(),
-                        Some(channel.name.clone()),
-                        Some(channel.id.clone()),
-                    ),
+                    Message::PlayVideo(Box::new(r.clone())),
+                    crate::providers::get_platform_icon(&r.platform_name),
                 ))
             })
             .collect();
 
         let videos_section: Element<Message> = if video_cards.is_empty() {
             if app.loading_channel {
-                container(text("Loading..."))
-                    .padding(40)
-                    .center_x(Length::Fill)
-                    .into()
+                container(snowflake_spinner::<Message>(
+                    48.0,
+                    &app.config.theme.to_iced_theme(),
+                ))
+                .padding(40)
+                .center_x(Length::Fill)
+                .into()
             } else {
                 container(text("No videos found"))
                     .padding(40)
@@ -263,17 +267,13 @@ pub fn view(
             ];
 
             // Show "Load More" button or loading indicator
-            if app.channel_preloading {
-                // Still preloading initial videos
-                let loading_indicator =
-                    container(text("Still requesting videos from YouTube...").size(14))
-                        .padding(20)
-                        .center_x(Length::Fill);
-                video_content = video_content.push(loading_indicator);
-            } else if app.channel_loading_more {
-                let loading_indicator = container(text("Loading more...").size(14))
-                    .padding(20)
-                    .center_x(Length::Fill);
+            if app.channel_preloading || app.channel_loading_more {
+                let loading_indicator = container(snowflake_spinner::<Message>(
+                    32.0,
+                    &app.config.theme.to_iced_theme(),
+                ))
+                .padding(20)
+                .center_x(Length::Fill);
                 video_content = video_content.push(loading_indicator);
             } else if app.channel_continuation.is_some() {
                 // Show "Load More" button if we have more videos to load
@@ -298,6 +298,12 @@ pub fn view(
 
         content.into()
     } else {
-        container(text("Loading channel...")).padding(40).into()
+        container(snowflake_spinner::<Message>(
+            48.0,
+            &app.config.theme.to_iced_theme(),
+        ))
+        .padding(40)
+        .center_x(Length::Fill)
+        .into()
     }
 }

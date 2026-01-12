@@ -1,6 +1,108 @@
 use super::parsers::*;
 use serde_json::json;
 
+// ============================================================================
+// Video metadata parsing tests
+// ============================================================================
+
+#[test]
+fn test_parse_video_metadata_full() {
+    // Test parsing full metadata from videoSecondaryInfoRenderer
+    let data = json!({
+        "contents": {
+            "twoColumnWatchNextResults": {
+                "results": {
+                    "results": {
+                        "contents": [
+                            {
+                                "videoSecondaryInfoRenderer": {
+                                    "attributedDescription": {
+                                        "content": "This is the full video description."
+                                    },
+                                    "owner": {
+                                        "videoOwnerRenderer": {
+                                            "title": {
+                                                "runs": [{"text": "Test Channel"}]
+                                            },
+                                            "navigationEndpoint": {
+                                                "browseEndpoint": {
+                                                    "browseId": "UC123456"
+                                                }
+                                            },
+                                            "thumbnail": {
+                                                "thumbnails": [
+                                                    {"url": "https://example.com/avatar_small.jpg", "width": 48},
+                                                    {"url": "https://example.com/avatar_large.jpg", "width": 176}
+                                                ]
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    });
+
+    let result = parse_video_metadata(&data);
+    assert_eq!(
+        result.description,
+        Some("This is the full video description.".to_string())
+    );
+    assert_eq!(result.channel_name, Some("Test Channel".to_string()));
+    assert_eq!(result.channel_id, Some("UC123456".to_string()));
+    assert_eq!(
+        result.channel_avatar_url,
+        Some("https://example.com/avatar_large.jpg".to_string())
+    );
+}
+
+#[test]
+fn test_parse_video_metadata_empty() {
+    // Test when data doesn't contain expected fields
+    let data = json!({
+        "contents": {}
+    });
+
+    let result = parse_video_metadata(&data);
+    assert_eq!(result.description, None);
+    assert_eq!(result.channel_name, None);
+    assert_eq!(result.channel_id, None);
+    assert_eq!(result.channel_avatar_url, None);
+}
+
+#[test]
+fn test_parse_video_metadata_partial() {
+    // Test when only some fields are present
+    let data = json!({
+        "contents": {
+            "twoColumnWatchNextResults": {
+                "results": {
+                    "results": {
+                        "contents": [
+                            {
+                                "videoSecondaryInfoRenderer": {
+                                    "attributedDescription": {
+                                        "content": "Description only"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    });
+
+    let result = parse_video_metadata(&data);
+    assert_eq!(result.description, Some("Description only".to_string()));
+    assert_eq!(result.channel_name, None);
+    assert_eq!(result.channel_id, None);
+    assert_eq!(result.channel_avatar_url, None);
+}
+
 #[test]
 fn test_parse_badges_premium() {
     // Test video with Premium badge (style field is what matters)

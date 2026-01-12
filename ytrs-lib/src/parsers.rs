@@ -5,7 +5,7 @@ use crate::models::*;
 use serde_json::Value;
 
 /// Parse search results from InnerTube API response
-pub fn parse_search_results(data: &Value) -> Result<SearchResults> {
+pub fn parse_search_results(data: &Value) -> Result<YtSearchResults> {
     let mut results = Vec::new();
     let mut continuation = None;
 
@@ -57,7 +57,7 @@ pub fn parse_search_results(data: &Value) -> Result<SearchResults> {
         }
     }
 
-    Ok(SearchResults {
+    Ok(YtSearchResults {
         results,
         continuation,
         detected_locale: None, // Will be set by caller
@@ -65,7 +65,7 @@ pub fn parse_search_results(data: &Value) -> Result<SearchResults> {
 }
 
 /// Parse continuation items from search continuation response
-fn parse_continuation_items(items: &Value) -> Result<SearchResults> {
+fn parse_continuation_items(items: &Value) -> Result<YtSearchResults> {
     let mut results = Vec::new();
     let mut continuation = None;
 
@@ -94,7 +94,7 @@ fn parse_continuation_items(items: &Value) -> Result<SearchResults> {
         }
     }
 
-    Ok(SearchResults {
+    Ok(YtSearchResults {
         results,
         continuation,
         detected_locale: None,
@@ -178,7 +178,7 @@ pub(crate) fn is_short(video: &Value) -> Option<bool> {
 }
 
 /// Parse a video renderer object
-pub(crate) fn parse_video_renderer(video: &Value) -> Result<SearchResult> {
+pub(crate) fn parse_video_renderer(video: &Value) -> Result<YtSearchResult> {
     let video_id = video
         .pointer("/videoId")
         .and_then(|v| v.as_str())
@@ -202,12 +202,25 @@ pub(crate) fn parse_video_renderer(video: &Value) -> Result<SearchResult> {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
+    // Try multiple paths for channel thumbnail - YouTube's response structure varies
     let channel_thumbnail =
         parse_thumbnails(video.pointer(
             "/channelThumbnailSupportedRenderers/channelThumbnailWithLinkRenderer/thumbnail",
         ));
+    let channel_thumbnail = if channel_thumbnail.is_empty() {
+        // Fallback: try ownerBadges path
+        parse_thumbnails(video.pointer("/ownerBadges/0/metadataBadgeRenderer/thumbnail"))
+    } else {
+        channel_thumbnail
+    };
+    let channel_thumbnail = if channel_thumbnail.is_empty() {
+        // Fallback: try channelThumbnail path (used in some responses)
+        parse_thumbnails(video.pointer("/channelThumbnail"))
+    } else {
+        channel_thumbnail
+    };
 
-    let channel = Some(Channel {
+    let channel = Some(YtChannel {
         id: channel_id,
         name: channel_name,
         url: channel_url,
@@ -230,7 +243,7 @@ pub(crate) fn parse_video_renderer(video: &Value) -> Result<SearchResult> {
     let (is_premium, badges) = parse_badges(video);
     let is_short = is_short(video);
 
-    Ok(SearchResult {
+    Ok(YtSearchResult {
         video_id,
         title,
         description,
@@ -269,7 +282,7 @@ fn extract_text(value: Option<&Value>) -> Option<String> {
 }
 
 /// Parse thumbnails from YouTube thumbnail object
-fn parse_thumbnails(value: Option<&Value>) -> Vec<Thumbnail> {
+fn parse_thumbnails(value: Option<&Value>) -> Vec<YtThumbnail> {
     let mut thumbnails = Vec::new();
 
     if let Some(thumbs) = value
@@ -278,7 +291,7 @@ fn parse_thumbnails(value: Option<&Value>) -> Vec<Thumbnail> {
     {
         for thumb in thumbs {
             if let Some(url) = thumb.pointer("/url").and_then(|u| u.as_str()) {
-                thumbnails.push(Thumbnail {
+                thumbnails.push(YtThumbnail {
                     url: url.to_string(),
                     width: thumb
                         .pointer("/width")
@@ -330,8 +343,78 @@ fn parse_view_count(text: &str) -> Option<u64> {
     }
 }
 
+/// Video metadata extracted from /next endpoint
+#[derive(Debug, Clone, Default)]
+pub struct ParsedVideoMetadata {
+    pub description: Option<String>,
+    pub channel_name: Option<String>,
+    pub channel_id: Option<String>,
+    pub channel_avatar_url: Option<String>,
+}
+
+/// Extract video metadata from /next endpoint response.
+/// Returns description from videoSecondaryInfoRenderer.attributedDescription
+/// and channel info from videoSecondaryInfoRenderer.owner.videoOwnerRenderer
+pub fn parse_video_metadata(data: &Value) -> ParsedVideoMetadata {
+    let mut metadata = ParsedVideoMetadata::default();
+
+    // Find videoSecondaryInfoRenderer in the response
+    let secondary_info = data
+        .pointer("/contents/twoColumnWatchNextResults/results/results/contents")
+        .and_then(|v| v.as_array())
+        .and_then(|contents| {
+            contents
+                .iter()
+                .find_map(|c| c.get("videoSecondaryInfoRenderer"))
+        });
+
+    if let Some(info) = secondary_info {
+        // Extract full description from attributedDescription.content
+        if let Some(desc) = info
+            .pointer("/attributedDescription/content")
+            .and_then(|v| v.as_str())
+        {
+            metadata.description = Some(desc.to_string());
+        }
+
+        // Extract channel info from owner.videoOwnerRenderer
+        if let Some(owner) = info.pointer("/owner/videoOwnerRenderer") {
+            // Channel name from title.runs[0].text
+            if let Some(name) = owner.pointer("/title/runs/0/text").and_then(|v| v.as_str()) {
+                metadata.channel_name = Some(name.to_string());
+            }
+
+            // Channel ID from navigationEndpoint.browseEndpoint.browseId
+            if let Some(id) = owner
+                .pointer("/navigationEndpoint/browseEndpoint/browseId")
+                .and_then(|v| v.as_str())
+            {
+                metadata.channel_id = Some(id.to_string());
+            }
+
+            // Channel avatar - get the largest thumbnail
+            if let Some(thumbs) = owner
+                .pointer("/thumbnail/thumbnails")
+                .and_then(|v| v.as_array())
+            {
+                // Get the last (largest) thumbnail
+                if let Some(url) = thumbs
+                    .last()
+                    .and_then(|t| t.pointer("/url"))
+                    .and_then(|v| v.as_str())
+                {
+                    metadata.channel_avatar_url = Some(url.to_string());
+                }
+            }
+        }
+    }
+
+    metadata
+}
+
 /// Parse video info from player response
 pub fn parse_video_info(data: &Value) -> Result<VideoInfo> {
+    use crate::models::YtChannel;
     let video_details = data
         .pointer("/videoDetails")
         .ok_or_else(|| Error::DataNotFound("videoDetails".to_string()))?;
@@ -364,7 +447,7 @@ pub fn parse_video_info(data: &Value) -> Result<VideoInfo> {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    let channel = Channel {
+    let channel = YtChannel {
         id: channel_id,
         name: channel_name,
         url: None,
@@ -383,7 +466,7 @@ pub fn parse_video_info(data: &Value) -> Result<VideoInfo> {
         .and_then(|v| v.as_str())
         .and_then(|s| s.parse().ok());
 
-    let thumbnails = parse_thumbnails(video_details.pointer("/thumbnail"));
+    let thumbnails = parse_thumbnails_for_video_info(video_details.pointer("/thumbnail"));
 
     let formats = parse_formats(data.pointer("/streamingData/formats"));
     let adaptive_formats = parse_formats(data.pointer("/streamingData/adaptiveFormats"));
@@ -402,6 +485,11 @@ pub fn parse_video_info(data: &Value) -> Result<VideoInfo> {
         adaptive_formats,
         captions: None,
     })
+}
+
+/// Parse thumbnails for VideoInfo (uses YtThumbnail)
+fn parse_thumbnails_for_video_info(value: Option<&Value>) -> Vec<YtThumbnail> {
+    parse_thumbnails(value)
 }
 
 /// Parse video formats
@@ -464,7 +552,7 @@ fn parse_formats(value: Option<&Value>) -> Vec<Format> {
 }
 
 /// Parse channel info from InnerTube browse response
-pub fn parse_channel_info(data: &Value) -> Result<ChannelInfo> {
+pub fn parse_channel_info(data: &Value) -> Result<YtChannelInfo> {
     // Try to get metadata first (available in both formats)
     let metadata = data
         .pointer("/metadata/channelMetadataRenderer")
@@ -508,7 +596,7 @@ pub fn parse_channel_info(data: &Value) -> Result<ChannelInfo> {
                     thumb
                         .pointer("/url")
                         .and_then(|u| u.as_str())
-                        .map(|url| Thumbnail {
+                        .map(|url| YtThumbnail {
                             url: url.to_string(),
                             width: thumb
                                 .pointer("/width")
@@ -574,7 +662,7 @@ pub fn parse_channel_info(data: &Value) -> Result<ChannelInfo> {
                     sources
                         .iter()
                         .filter_map(|src| {
-                            src.pointer("/url").and_then(|u| u.as_str()).map(|url| Thumbnail {
+                            src.pointer("/url").and_then(|u| u.as_str()).map(|url| YtThumbnail {
                                 url: url.to_string(),
                                 width: src
                                     .pointer("/width")
@@ -591,7 +679,7 @@ pub fn parse_channel_info(data: &Value) -> Result<ChannelInfo> {
                 .filter(|v| !v.is_empty())
         });
 
-    Ok(ChannelInfo {
+    Ok(YtChannelInfo {
         id: channel_id,
         name,
         handle,
@@ -607,7 +695,7 @@ pub fn parse_channel_info(data: &Value) -> Result<ChannelInfo> {
 
 /// Parse channel videos from InnerTube browse response
 /// Parse a feedFilterChipBarRenderer into SortFilters
-fn parse_chip_bar(chip_bar: &Value) -> Option<Vec<SortFilter>> {
+fn parse_chip_bar(chip_bar: &Value) -> Option<Vec<YtSortFilter>> {
     let mut filters = Vec::new();
 
     if let Some(contents) = chip_bar.pointer("/contents").and_then(|v| v.as_array()) {
@@ -626,7 +714,7 @@ fn parse_chip_bar(chip_bar: &Value) -> Option<Vec<SortFilter>> {
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
 
-                filters.push(SortFilter {
+                filters.push(YtSortFilter {
                     label,
                     is_selected,
                     continuation_token,
@@ -643,7 +731,7 @@ fn parse_chip_bar(chip_bar: &Value) -> Option<Vec<SortFilter>> {
 }
 
 /// Parse sort filters from YouTube's feedFilterChipBarRenderer
-fn parse_sort_filters(data: &Value) -> Option<Vec<SortFilter>> {
+fn parse_sort_filters(data: &Value) -> Option<Vec<YtSortFilter>> {
     // First check initial response: tabs -> tabRenderer -> content -> richGridRenderer -> header
     if let Some(tabs) = data.pointer("/contents/twoColumnBrowseResultsRenderer/tabs")
         && let Some(tabs_array) = tabs.as_array()
@@ -683,7 +771,7 @@ fn parse_sort_filters(data: &Value) -> Option<Vec<SortFilter>> {
     None
 }
 
-pub fn parse_channel_videos(data: &Value) -> Result<ChannelVideos> {
+pub fn parse_channel_videos(data: &Value) -> Result<YtChannelVideos> {
     let mut videos = Vec::new();
     let mut continuation = None;
 
@@ -789,7 +877,7 @@ pub fn parse_channel_videos(data: &Value) -> Result<ChannelVideos> {
         }
     }
 
-    Ok(ChannelVideos {
+    Ok(YtChannelVideos {
         videos,
         continuation,
         sort_filters,
@@ -798,7 +886,7 @@ pub fn parse_channel_videos(data: &Value) -> Result<ChannelVideos> {
 }
 
 /// Parse a grid video renderer (used in channel videos grid layout)
-fn parse_grid_video_renderer(video: &Value) -> Result<SearchResult> {
+fn parse_grid_video_renderer(video: &Value) -> Result<YtSearchResult> {
     let video_id = video
         .pointer("/videoId")
         .and_then(|v| v.as_str())
@@ -819,7 +907,7 @@ fn parse_grid_video_renderer(video: &Value) -> Result<SearchResult> {
     let (is_premium, badges) = parse_badges(video);
     let is_short = is_short(video);
 
-    Ok(SearchResult {
+    Ok(YtSearchResult {
         video_id,
         title,
         description: None,
@@ -835,7 +923,7 @@ fn parse_grid_video_renderer(video: &Value) -> Result<SearchResult> {
 }
 
 /// Parse a shorts lockup (used in Shorts tab)
-fn parse_shorts_lockup(short: &Value) -> Result<SearchResult> {
+fn parse_shorts_lockup(short: &Value) -> Result<YtSearchResult> {
     // Extract video ID from the onTap command URL
     let video_id = short
         .pointer("/onTap/innertubeCommand/commandMetadata/webCommandMetadata/url")
@@ -872,7 +960,7 @@ fn parse_shorts_lockup(short: &Value) -> Result<SearchResult> {
                 .filter_map(|src| {
                     src.pointer("/url")
                         .and_then(|u| u.as_str())
-                        .map(|url| Thumbnail {
+                        .map(|url| YtThumbnail {
                             url: url.to_string(),
                             width: src
                                 .pointer("/width")
@@ -907,7 +995,7 @@ fn parse_shorts_lockup(short: &Value) -> Result<SearchResult> {
 
     let (is_premium, badges) = parse_badges(short);
 
-    Ok(SearchResult {
+    Ok(YtSearchResult {
         video_id,
         title,
         description: None,

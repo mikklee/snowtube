@@ -38,6 +38,7 @@ fn create_theme_preview() -> Element<'static, Message> {
         }),
         Some("20.4K views • 14:46".to_string()),
         Message::NoOp,
+        crate::providers::get_platform_icon("_fallback"),
     )
 }
 

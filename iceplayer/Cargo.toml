@@ -16,6 +16,8 @@ exclude = [
 ]
 
 [dependencies]
+common = { path = "../common" }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 iced = { version = "0.14", features = ["image", "advanced", "wgpu", "tokio"] }
 iced_wgpu = "0.14"
 gstreamer = "0.23"
@@ -34,6 +36,7 @@ futures = "0.3" # stream utilities
 serde = { version = "1", features = ["derive"] } # serialization
 strum = { version = "0.27", features = ["derive"] } # enum utilities
 iced_font_awesome = "0.4"
+resvg = "0.45"
 
 [package.metadata.nix]
 systems = ["x86_64-linux"]

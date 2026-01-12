@@ -6,7 +6,6 @@ use iced::{
     widget::{Image, button, column, container, stack, text},
 };
 use std::path::PathBuf;
-use ytrs_lib::SearchResult;
 
 use crate::messages::Message;
 
@@ -14,7 +13,7 @@ use crate::messages::Message;
 fn get_cache_dir() -> Result<PathBuf, String> {
     let cache_dir = dirs::cache_dir()
         .ok_or_else(|| "Could not determine cache directory".to_string())?
-        .join("ytrs")
+        .join("snowtube")
         .join("thumbnails");
     std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
     Ok(cache_dir)
@@ -171,7 +170,7 @@ fn truncate_title(title: &str, max_chars: usize) -> String {
 
 /// Truncate title with different limits for CJK vs non-CJK text
 pub fn truncate_title_smart(title: &str, cjk_limit: usize, non_cjk_limit: usize) -> String {
-    let limit = if ytrs_lib::contains_asian_characters(title) {
+    let limit = if common::contains_asian_characters(title) {
         cjk_limit
     } else {
         non_cjk_limit
@@ -225,44 +224,64 @@ pub fn create_thumbnail(
     }
 }
 
-/// Helper function to create thumbnail loading tasks for search results
+/// Helper function to create thumbnail loading tasks for videos
 /// All thumbnails are loaded in parallel using tokio::spawn
-pub fn create_thumbnail_tasks(results: &[SearchResult]) -> Vec<Task<Message>> {
+pub fn create_thumbnail_tasks(results: &[common::Video]) -> Vec<Task<Message>> {
+    // Use watch_url as unique key for video thumbnails
     let thumb_data: Vec<(String, String)> = results
         .iter()
-        .filter_map(|r| {
-            // Load video thumbnails
-            if let Some(vid) = r.video_id.as_ref() {
-                r.thumbnails.first().map(|t| (vid.clone(), t.url.clone()))
-            }
-            // Load channel thumbnails
-            else if let Some(channel) = r.channel.as_ref() {
-                if let Some(cid) = channel.id.as_ref() {
-                    r.thumbnails.first().map(|t| (cid.clone(), t.url.clone()))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
+        .filter_map(|v| {
+            v.thumbnails
+                .first()
+                .map(|t| (v.watch_url.clone(), t.url.clone()))
         })
         .collect();
 
     // Spawn ALL downloads in parallel
     thumb_data
         .into_iter()
-        .map(|(id, url)| {
+        .map(|(watch_url, thumb_url)| {
             Task::perform(
                 async move {
-                    let id_clone = id.clone();
+                    let key = watch_url.clone();
                     // Spawn on tokio runtime for true parallelism
                     tokio::spawn(async move {
-                        (id_clone, load_thumb(&url).await.map_err(|e| e.to_string()))
+                        (key, load_thumb(&thumb_url).await.map_err(|e| e.to_string()))
                     })
                     .await
-                    .unwrap_or_else(|_| (id, Err("Task panicked".to_string())))
+                    .unwrap_or_else(|_| (watch_url, Err("Task panicked".to_string())))
                 },
-                move |(id, res)| Message::ThumbLoaded(id, res),
+                move |(watch_url, res)| Message::VideoThumbLoaded(watch_url, res),
+            )
+        })
+        .collect()
+}
+
+/// Helper function to create avatar loading tasks for subscribed channels
+/// All avatars are loaded in parallel using tokio::spawn
+pub fn create_avatar_tasks(channels: &[&common::ChannelConfig]) -> Vec<Task<Message>> {
+    channels
+        .iter()
+        .filter(|c| !c.thumbnail_url.is_empty())
+        .map(|c| {
+            let channel_key = c.key();
+            let url = c.thumbnail_url.clone();
+            Task::perform(
+                async move {
+                    let key = channel_key.clone();
+                    let result: Result<(common::ChannelKey, Result<Vec<u8>, String>), _> =
+                        tokio::spawn(async move {
+                            (
+                                key,
+                                load_circular_thumb(&url, 80)
+                                    .await
+                                    .map_err(|e| e.to_string()),
+                            )
+                        })
+                        .await;
+                    result.unwrap_or_else(|_| (channel_key, Err("Task panicked".to_string())))
+                },
+                move |(key, res)| Message::ChannelAvatarLoaded(key, res),
             )
         })
         .collect()
@@ -322,15 +341,15 @@ pub fn channel_button_style(theme: &Theme, status: button::Status) -> button::St
 /// Create a clickable channel name button
 pub fn channel_name_button<'a>(
     name: impl Into<String>,
-    channel_id: Option<String>,
+    channel_config: Option<common::ChannelConfig>,
 ) -> Element<'a, Message> {
     use iced::widget::{button, text};
 
     let name_str = name.into();
 
-    if let Some(cid) = channel_id {
+    if let Some(config) = channel_config {
         button(text(name_str).size(14))
-            .on_press(Message::ViewChannel(cid))
+            .on_press(Message::ViewChannel(config))
             .padding(0)
             .style(channel_button_style)
             .into()
@@ -346,12 +365,40 @@ pub fn create_video_tile<'a>(
     channel: Option<ChannelInfo>,
     metadata_text: Option<String>,
     on_press: Message,
+    platform_icon: Element<'a, Message>,
 ) -> Element<'a, Message> {
     use iced::{
         Length,
         widget::text::Shaping,
-        widget::{button, column, container, text, tooltip},
+        widget::{button, column, container, stack, text, tooltip},
     };
+
+    // Create thumbnail with platform icon overlay in bottom-right corner
+    let icon_element: Element<'a, Message> = platform_icon;
+
+    let icon_badge = container(icon_element)
+        .padding(4)
+        .style(|_theme: &Theme| container::Style {
+            background: Some(iced::Background::Color(iced::Color::from_rgba(
+                0.0, 0.0, 0.0, 0.7,
+            ))),
+            border: iced::Border {
+                radius: 4.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+    let thumbnail_with_icon: Element<'a, Message> = stack![
+        thumbnail,
+        container(icon_badge)
+            .width(240)
+            .height(135)
+            .align_x(iced::alignment::Horizontal::Right)
+            .align_y(iced::alignment::Vertical::Bottom)
+            .padding(6)
+    ]
+    .into();
 
     // Create title with tooltip
     let full_title = title_text.to_string();
@@ -387,7 +434,7 @@ pub fn create_video_tile<'a>(
     }
 
     let card = column![
-        thumbnail,
+        thumbnail_with_icon,
         container(info_col.spacing(4))
             .padding(8)
             .width(240)

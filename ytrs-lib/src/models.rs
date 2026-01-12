@@ -1,6 +1,12 @@
 //! Data models for YouTube API responses
+//!
+//! This module contains YouTube-specific types used for parsing API responses.
+//! These are converted to common types at the client boundary.
 
 use serde::{Deserialize, Serialize};
+
+/// Platform name for YouTube
+pub const PLATFORM_NAME: &str = "youtube";
 
 /// InnerTube context for API requests
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,27 +26,27 @@ pub struct InnerTubeClient {
     pub user_agent: String,
 }
 
-/// Search results with continuation support
+/// YouTube search results (internal type, converted to common::SearchResults)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SearchResults {
-    pub results: Vec<SearchResult>,
+pub struct YtSearchResults {
+    pub results: Vec<YtSearchResult>,
     pub continuation: Option<String>,
-    pub detected_locale: Option<(String, String)>, // (hl, gl) detected locale
+    pub detected_locale: Option<(String, String)>,
 }
 
-/// Search result
+/// YouTube search result (internal type, converted to common::Video)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SearchResult {
+pub struct YtSearchResult {
     pub video_id: Option<String>,
     pub title: String,
     pub description: Option<String>,
-    pub channel: Option<Channel>,
+    pub channel: Option<YtChannel>,
     pub view_count: Option<u64>,
     pub duration: Option<String>,
     pub published_text: Option<String>,
-    pub thumbnails: Vec<Thumbnail>,
+    pub thumbnails: Vec<YtThumbnail>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_premium: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,20 +55,20 @@ pub struct SearchResult {
     pub badges: Option<Vec<String>>,
 }
 
-/// Channel information (basic)
+/// YouTube channel (internal type, converted to common::Channel)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Channel {
+pub struct YtChannel {
     pub id: Option<String>,
     pub name: String,
     pub url: Option<String>,
-    pub thumbnail: Option<Vec<Thumbnail>>,
+    pub thumbnail: Option<Vec<YtThumbnail>>,
 }
 
-/// Detailed channel information
+/// YouTube channel info (internal type, converted to common::ChannelInfo)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChannelInfo {
+pub struct YtChannelInfo {
     pub id: String,
     pub name: String,
     pub handle: Option<String>,
@@ -71,74 +77,51 @@ pub struct ChannelInfo {
     pub subscriber_count: Option<String>,
     pub video_count: Option<u64>,
     pub verified: Option<bool>,
-    pub thumbnails: Vec<Thumbnail>,
-    pub banner: Option<Vec<Thumbnail>>,
+    pub thumbnails: Vec<YtThumbnail>,
+    pub banner: Option<Vec<YtThumbnail>>,
 }
 
-/// Channel videos response
+/// YouTube channel videos (internal type, converted to common::ChannelVideos)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChannelVideos {
-    pub videos: Vec<SearchResult>,
+pub struct YtChannelVideos {
+    pub videos: Vec<YtSearchResult>,
     pub continuation: Option<String>,
-    pub sort_filters: Option<Vec<SortFilter>>,
-    pub detected_locale: Option<(String, String)>, // (hl, gl) detected locale
+    pub sort_filters: Option<Vec<YtSortFilter>>,
+    pub detected_locale: Option<(String, String)>,
 }
 
-/// Sort filter information for channel videos
+/// YouTube sort filter (internal type, converted to common::SortFilter)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SortFilter {
+pub struct YtSortFilter {
     pub label: String,
     pub is_selected: bool,
     pub continuation_token: Option<String>,
 }
 
-/// Channel tab types for browsing different content
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ChannelTab {
-    /// Videos tab
-    #[default]
-    Videos,
-    /// Shorts tab
-    Shorts,
-    /// Live streams tab
-    Streams,
-}
-
-impl ChannelTab {
-    /// Get the params string for the InnerTube API
-    pub fn params(&self) -> &'static str {
-        match self {
-            ChannelTab::Videos => "EgZ2aWRlb3PyBgQKAjoA",
-            ChannelTab::Shorts => "EgZzaG9ydHPyBgUKA5oBAA%3D%3D",
-            ChannelTab::Streams => "EgdzdHJlYW1z8gYECgJ6AA%3D%3D",
-        }
-    }
-}
-
-/// Thumbnail information
+/// YouTube thumbnail
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Thumbnail {
+pub struct YtThumbnail {
     pub url: String,
     pub width: Option<u32>,
     pub height: Option<u32>,
 }
 
-/// Video information
+/// Video information (full details from video page)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoInfo {
     pub video_id: String,
     pub title: String,
     pub description: Option<String>,
-    pub channel: Channel,
+    pub channel: YtChannel,
     pub view_count: Option<u64>,
     pub like_count: Option<u64>,
     pub duration: Option<u64>,
     pub published_date: Option<String>,
-    pub thumbnails: Vec<Thumbnail>,
+    pub thumbnails: Vec<YtThumbnail>,
     pub formats: Vec<Format>,
     pub adaptive_formats: Vec<Format>,
     pub captions: Option<Vec<Caption>>,
@@ -172,59 +155,207 @@ pub struct Caption {
     pub is_auto_generated: bool,
 }
 
-/// Comment information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Comment {
-    pub id: String,
-    pub text: String,
-    pub author: String,
-    pub author_thumbnail: Option<Vec<Thumbnail>>,
-    pub like_count: Option<u64>,
-    pub published_text: Option<String>,
-    pub is_pinned: bool,
-    pub is_hearted: bool,
-    pub reply_count: Option<u64>,
+// ============================================================================
+// Conversion implementations from YouTube types to common types
+// ============================================================================
+
+impl From<YtThumbnail> for common::Thumbnail {
+    fn from(t: YtThumbnail) -> Self {
+        common::Thumbnail {
+            url: t.url,
+            width: t.width,
+            height: t.height,
+        }
+    }
 }
 
-/// Playlist information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Playlist {
-    pub id: String,
-    pub title: String,
-    pub description: Option<String>,
-    pub channel: Option<Channel>,
-    pub video_count: Option<u64>,
-    pub thumbnails: Vec<Thumbnail>,
-    pub videos: Vec<PlaylistVideo>,
+impl From<&YtThumbnail> for common::Thumbnail {
+    fn from(t: &YtThumbnail) -> Self {
+        common::Thumbnail {
+            url: t.url.clone(),
+            width: t.width,
+            height: t.height,
+        }
+    }
 }
 
-/// Video in a playlist
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlaylistVideo {
-    pub video_id: String,
-    pub title: String,
-    pub index: Option<u64>,
-    pub duration: Option<String>,
-    pub thumbnails: Vec<Thumbnail>,
+impl From<YtChannel> for common::Channel {
+    fn from(c: YtChannel) -> Self {
+        common::Channel {
+            id: c.id,
+            name: c.name,
+            url: c.url,
+            thumbnails: c
+                .thumbnail
+                .map(|ts| ts.into_iter().map(|t| t.into()).collect())
+                .unwrap_or_default(),
+            verified: None,
+        }
+    }
 }
 
-/// Saved channel configuration (subscription and/or language override)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ChannelConfig {
-    pub channel_id: String,
-    pub channel_name: String,
-    pub channel_handle: Option<String>,
-    pub thumbnail_url: String,
-    /// Whether the user is subscribed to this channel
-    #[serde(default)]
-    pub subscribed: bool,
-    /// Timestamp when subscribed (ISO 8601), None if never subscribed
-    pub subscribed_at: Option<String>,
-    /// Per-channel language override (hl, gl)
-    #[serde(default)]
-    pub language: Option<(String, String)>,
+impl From<&YtChannel> for common::Channel {
+    fn from(c: &YtChannel) -> Self {
+        common::Channel {
+            id: c.id.clone(),
+            name: c.name.clone(),
+            url: c.url.clone(),
+            thumbnails: c
+                .thumbnail
+                .as_ref()
+                .map(|ts| ts.iter().map(|t| t.into()).collect())
+                .unwrap_or_default(),
+            verified: None,
+        }
+    }
+}
+
+impl From<YtSearchResult> for common::Video {
+    fn from(r: YtSearchResult) -> Self {
+        let video_id = r.video_id.unwrap_or_default();
+        common::Video {
+            platform_name: PLATFORM_NAME.to_string(),
+            id: video_id.clone(),
+            title: r.title,
+            description: r.description,
+            duration: r
+                .duration
+                .as_ref()
+                .and_then(|d| common::parse_duration_string(d))
+                .map(|d| d.as_secs()),
+            duration_string: r.duration,
+            view_count: r.view_count,
+            like_count: None,
+            published_text: r.published_text,
+            thumbnails: r.thumbnails.into_iter().map(|t| t.into()).collect(),
+            channel: r.channel.map(|c| c.into()),
+            watch_url: format!("https://www.youtube.com/watch?v={}", video_id),
+            instance: None,
+            is_premium: r.is_premium,
+            is_short: r.is_short,
+            badges: r.badges,
+        }
+    }
+}
+
+impl From<&YtSearchResult> for common::Video {
+    fn from(r: &YtSearchResult) -> Self {
+        let video_id = r.video_id.clone().unwrap_or_default();
+        common::Video {
+            platform_name: PLATFORM_NAME.to_string(),
+            id: video_id.clone(),
+            title: r.title.clone(),
+            description: r.description.clone(),
+            duration: r
+                .duration
+                .as_ref()
+                .and_then(|d| common::parse_duration_string(d))
+                .map(|d| d.as_secs()),
+            duration_string: r.duration.clone(),
+            view_count: r.view_count,
+            like_count: None,
+            published_text: r.published_text.clone(),
+            thumbnails: r.thumbnails.iter().map(|t| t.into()).collect(),
+            channel: r.channel.as_ref().map(|c| c.into()),
+            watch_url: format!("https://www.youtube.com/watch?v={}", video_id),
+            instance: None,
+            is_premium: r.is_premium,
+            is_short: r.is_short,
+            badges: r.badges.clone(),
+        }
+    }
+}
+
+impl From<YtSearchResults> for common::SearchResults {
+    fn from(r: YtSearchResults) -> Self {
+        let locale = r
+            .detected_locale
+            .clone()
+            .unwrap_or_else(|| ("en".to_string(), "US".to_string()));
+        common::SearchResults {
+            results: r.results.into_iter().map(|v| v.into()).collect(),
+            next_page_tokens: r
+                .continuation
+                .map(|token| {
+                    vec![common::NextPageToken {
+                        platform_name: PLATFORM_NAME.to_string(),
+                        token,
+                        locale,
+                    }]
+                })
+                .unwrap_or_default(),
+            detected_locale: r.detected_locale,
+        }
+    }
+}
+
+impl From<YtSortFilter> for common::SortFilter {
+    fn from(f: YtSortFilter) -> Self {
+        common::SortFilter {
+            label: f.label,
+            is_selected: f.is_selected,
+            continuation_token: f.continuation_token,
+        }
+    }
+}
+
+impl From<YtChannelInfo> for common::ChannelInfo {
+    fn from(c: YtChannelInfo) -> Self {
+        common::ChannelInfo {
+            platform_name: PLATFORM_NAME.to_string(),
+            id: c.id,
+            name: c.name,
+            handle: c.handle,
+            url: c.url,
+            description: c.description,
+            subscriber_count: c.subscriber_count,
+            video_count: c.video_count,
+            verified: c.verified,
+            thumbnails: c.thumbnails.into_iter().map(|t| t.into()).collect(),
+            banner: c.banner.map(|b| b.into_iter().map(|t| t.into()).collect()),
+            instance: None,
+        }
+    }
+}
+
+impl From<YtChannelVideos> for common::ChannelVideos {
+    fn from(c: YtChannelVideos) -> Self {
+        common::ChannelVideos {
+            videos: c.videos.into_iter().map(|v| v.into()).collect(),
+            continuation: c.continuation,
+            sort_filters: c
+                .sort_filters
+                .map(|f| f.into_iter().map(|s| s.into()).collect()),
+            detected_locale: c.detected_locale,
+        }
+    }
+}
+
+impl From<&VideoInfo> for common::Video {
+    fn from(v: &VideoInfo) -> Self {
+        common::Video {
+            platform_name: PLATFORM_NAME.to_string(),
+            id: v.video_id.clone(),
+            title: v.title.clone(),
+            description: v.description.clone(),
+            duration: v.duration,
+            duration_string: v.duration.map(common::format_duration),
+            view_count: v.view_count,
+            like_count: v.like_count,
+            published_text: v.published_date.clone(),
+            thumbnails: v.thumbnails.iter().map(|t| t.into()).collect(),
+            channel: Some((&v.channel).into()),
+            watch_url: format!("https://www.youtube.com/watch?v={}", v.video_id),
+            instance: None,
+            is_premium: None,
+            is_short: None,
+            badges: None,
+        }
+    }
+}
+
+impl From<VideoInfo> for common::Video {
+    fn from(v: VideoInfo) -> Self {
+        common::Video::from(&v)
+    }
 }

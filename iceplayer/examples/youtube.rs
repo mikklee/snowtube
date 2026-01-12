@@ -37,7 +37,9 @@ impl App {
             .nth(1)
             .unwrap_or_else(|| "dQw4w9WgXcQ".to_string()); // Default: Rick Astley
 
-        let source = VideoSource::YouTube(video_id.clone());
+        let source = VideoSource::YouTube {
+            video_id: video_id.clone(),
+        };
         let mut state =
             VideoPlayerState::new(source.clone()).with_title(format!("Video: {}", video_id));
         let (load_task, load_handle) = widget::start_loading(source);
