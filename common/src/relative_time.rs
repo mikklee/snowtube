@@ -858,7 +858,7 @@ fn get_cjk_keywords() -> &'static Vec<(&'static str, u64)> {
     })
 }
 
-use crate::utils::contains_asian_characters;
+use crate::time::contains_asian_characters;
 
 /// Extract a number from text
 fn extract_number(text: &str) -> u64 {
@@ -881,33 +881,6 @@ fn extract_number(text: &str) -> u64 {
     }
 
     num_str.parse().unwrap_or(0)
-}
-
-/// Format seconds into English relative time string (e.g., "2 hours ago")
-pub fn format_relative_time(seconds: u64) -> String {
-    let (value, unit) = if seconds < MINUTES {
-        (seconds, if seconds == 1 { "second" } else { "seconds" })
-    } else if seconds < HOURS {
-        let mins = seconds / MINUTES;
-        (mins, if mins == 1 { "minute" } else { "minutes" })
-    } else if seconds < DAYS {
-        let hours = seconds / HOURS;
-        (hours, if hours == 1 { "hour" } else { "hours" })
-    } else if seconds < WEEKS {
-        let days = seconds / DAYS;
-        (days, if days == 1 { "day" } else { "days" })
-    } else if seconds < MONTHS {
-        let weeks = seconds / WEEKS;
-        (weeks, if weeks == 1 { "week" } else { "weeks" })
-    } else if seconds < YEARS {
-        let months = seconds / MONTHS;
-        (months, if months == 1 { "month" } else { "months" })
-    } else {
-        let years = seconds / YEARS;
-        (years, if years == 1 { "year" } else { "years" })
-    };
-
-    format!("{} {} ago", value, unit)
 }
 
 /// Parse relative time text in any supported language into seconds for sorting.
@@ -961,24 +934,6 @@ mod tests {
         assert_eq!(parse_relative_time(None), u64::MAX);
         assert_eq!(parse_relative_time(Some("")), u64::MAX);
         assert_eq!(parse_relative_time(Some("invalid")), u64::MAX);
-    }
-
-    #[test]
-    fn test_format_relative_time() {
-        assert_eq!(format_relative_time(1), "1 second ago");
-        assert_eq!(format_relative_time(30), "30 seconds ago");
-        assert_eq!(format_relative_time(60), "1 minute ago");
-        assert_eq!(format_relative_time(300), "5 minutes ago");
-        assert_eq!(format_relative_time(3600), "1 hour ago");
-        assert_eq!(format_relative_time(7200), "2 hours ago");
-        assert_eq!(format_relative_time(86400), "1 day ago");
-        assert_eq!(format_relative_time(518400), "6 days ago");
-        assert_eq!(format_relative_time(604800), "1 week ago");
-        assert_eq!(format_relative_time(1814400), "3 weeks ago");
-        assert_eq!(format_relative_time(2592000), "1 month ago");
-        assert_eq!(format_relative_time(7776000), "3 months ago");
-        assert_eq!(format_relative_time(31536000), "1 year ago");
-        assert_eq!(format_relative_time(63072000), "2 years ago");
     }
 
     // ==========================================

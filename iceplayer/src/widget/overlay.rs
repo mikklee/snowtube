@@ -3,7 +3,7 @@
 //! Includes loading placeholder, seeking overlay, title overlay, centered play button, etc.
 
 use super::controls::glass_container_style;
-use super::spinner::spinner;
+use super::snowflake::snowflake_spinner;
 use iced::widget::{button, column, container, stack, text};
 use iced::{Color, Element, Length, Padding, Renderer, Theme};
 use iced_font_awesome::fa_icon_solid;
@@ -31,7 +31,7 @@ pub fn spinner_with_text<'a, Message: 'static>(
     status: Option<&'a str>,
     theme: &'a Theme,
 ) -> Element<'a, Message, Theme, Renderer> {
-    let spinner_widget: Element<'a, Message, Theme, Renderer> = spinner(48.0, theme);
+    let spinner_widget: Element<'a, Message, Theme, Renderer> = snowflake_spinner(128.0, theme);
 
     let mut content = column![spinner_widget]
         .spacing(16)
@@ -61,7 +61,7 @@ pub fn loading_overlay<'a, Message: 'static>(
 pub fn seeking_overlay<Message: 'static>(
     theme: &Theme,
 ) -> Element<'static, Message, Theme, Renderer> {
-    let spinner_widget: Element<'static, Message, Theme, Renderer> = spinner(48.0, theme);
+    let spinner_widget: Element<'static, Message, Theme, Renderer> = snowflake_spinner(96.0, theme);
 
     let seeking_content = column![
         spinner_widget,

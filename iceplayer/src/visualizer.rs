@@ -61,7 +61,7 @@ fn generate_noise_texture() -> Vec<u8> {
 
     // Simple hash function for noise generation
     fn hash(n: f32) -> f32 {
-        let n = (n * 43758.5453).sin();
+        let n = (n * 43_758.547).sin();
         n - n.floor()
     }
 

@@ -12,6 +12,24 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+/// Get the best available video converter element name.
+/// Prefers hardware-accelerated conversion: NVIDIA (nvvideoconvert), VA-API (vapostproc),
+/// falling back to software (videoconvert).
+fn get_best_video_convert() -> &'static str {
+    if gst::ElementFactory::find("nvvideoconvert").is_some() {
+        tracing::info!(
+            "Using nvvideoconvert (NVIDIA CUDA) for hardware-accelerated video conversion"
+        );
+        "nvvideoconvert"
+    } else if gst::ElementFactory::find("vapostproc").is_some() {
+        tracing::info!("Using vapostproc (VA-API) for hardware-accelerated video conversion");
+        "vapostproc"
+    } else {
+        tracing::info!("Using videoconvert (software) for video conversion");
+        "videoconvert"
+    }
+}
+
 /// Position in the media.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Position {
@@ -63,6 +81,18 @@ impl Frame {
             buffer
                 .meta::<VideoMeta>()
                 .map(|meta| meta.stride()[0] as u32)
+        })
+    }
+
+    /// Get the frame dimensions (width, height) from sample caps.
+    /// This is needed for HLS streams where resolution can change mid-stream.
+    pub fn dimensions(&self) -> Option<(u32, u32)> {
+        self.0.caps().and_then(|caps| {
+            caps.structure(0).and_then(|s| {
+                let w = s.get::<i32>("width").ok()?;
+                let h = s.get::<i32>("height").ok()?;
+                Some((w as u32, h as u32))
+            })
         })
     }
 }
@@ -290,6 +320,188 @@ impl Video {
         Self::from_gst_pipeline(pipeline, video_sink, Some(text_sink))
     }
 
+    /// Create an audio-only player from a PeerTube video URL.
+    ///
+    /// PeerTube doesn't have separate audio streams, so we use the video URL
+    /// but disable video decoding to save CPU. Includes spectrum analyzer for visualizations.
+    pub fn peertube_audio_only(uri: &url::Url) -> Result<Self, Error> {
+        gst::init()?;
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
+
+        // Build pipeline: fetch source, demux, decode audio only, add spectrum analyzer
+        // Using decodebin with caps to only decode audio
+        let pipeline_str = format!(
+            "playbin uri=\"{}\" flags=0x00000002 \
+             audio-sink=\"audioconvert ! audioresample ! \
+                 tee name=t ! queue ! autoaudiosink sync=true \
+                 t. ! queue ! spectrum name=spectrum bands={SPECTRUM_BANDS} interval=50000000 threshold=-80 post-messages=true message-magnitude=true ! fakesink sync=true\"",
+            uri.as_str()
+        );
+        // flags=0x02 means audio only (GstPlayFlags: audio=0x02, video=0x01, text=0x04)
+
+        tracing::info!("Creating PeerTube audio-only pipeline");
+
+        let pipeline = gst::parse::launch(&pipeline_str)?
+            .downcast::<gst::Pipeline>()
+            .map_err(|_| Error::Cast)?;
+
+        let bus = pipeline.bus().ok_or(Error::Bus)?;
+
+        macro_rules! cleanup {
+            ($expr:expr) => {
+                $expr.map_err(|e| {
+                    let _ = pipeline.set_state(gst::State::Null);
+                    e
+                })
+            };
+        }
+
+        cleanup!(pipeline.set_state(gst::State::Playing))?;
+        cleanup!(pipeline.state(gst::ClockTime::from_seconds(5)).0)?;
+
+        let duration = Duration::from_nanos(
+            pipeline
+                .query_duration::<gst::ClockTime>()
+                .map(|duration| duration.nseconds())
+                .unwrap_or(0),
+        );
+
+        // Audio-only: use 1080p dimensions for proper 16:9 aspect ratio
+        let width = 1920;
+        let height = 1080;
+        let framerate = 1.0;
+
+        let sync_av = pipeline.has_property("av-offset", None);
+
+        // Empty frame (no video)
+        let frame = Arc::new(Mutex::new(Frame::empty()));
+        let upload_frame = Arc::new(AtomicBool::new(false));
+        let alive = Arc::new(AtomicBool::new(true));
+        let last_frame_time = Arc::new(Mutex::new(Instant::now()));
+
+        let subtitle_text = Arc::new(Mutex::new(None));
+        let upload_text = Arc::new(AtomicBool::new(false));
+        let spectrum = Arc::new(Mutex::new([0.0f32; SPECTRUM_BANDS]));
+
+        Ok(Video(RwLock::new(Internal {
+            id,
+            bus,
+            source: pipeline,
+            alive,
+            worker: None,
+            width,
+            height,
+            framerate,
+            duration,
+            speed: 1.0,
+            sync_av,
+            frame,
+            upload_frame,
+            last_frame_time,
+            looping: false,
+            is_eos: false,
+            restart_stream: false,
+            sync_av_avg: 0,
+            sync_av_counter: 0,
+            subtitle_text,
+            upload_text,
+            ytdlp_process: None,
+            spectrum,
+        })))
+    }
+
+    /// Create an audio-only player from a YouTube live stream HLS URL.
+    ///
+    /// YouTube live streams don't have separate audio-only formats, so we use
+    /// the combined HLS stream but disable video decoding to save CPU.
+    /// Includes spectrum analyzer for visualizations.
+    pub fn youtube_live_audio_only(uri: &url::Url) -> Result<Self, Error> {
+        gst::init()?;
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
+
+        // Build pipeline: use playbin with audio-only flags
+        // flags=0x02 means audio only (GstPlayFlags: audio=0x02, video=0x01, text=0x04)
+        let pipeline_str = format!(
+            "playbin uri=\"{}\" flags=0x00000002 \
+             audio-sink=\"audioconvert ! audioresample ! \
+                 tee name=t ! queue ! autoaudiosink sync=true \
+                 t. ! queue ! spectrum name=spectrum bands={SPECTRUM_BANDS} interval=50000000 threshold=-80 post-messages=true message-magnitude=true ! fakesink sync=true\"",
+            uri.as_str()
+        );
+
+        tracing::info!("Creating YouTube live audio-only pipeline");
+
+        let pipeline = gst::parse::launch(&pipeline_str)?
+            .downcast::<gst::Pipeline>()
+            .map_err(|_| Error::Cast)?;
+
+        let bus = pipeline.bus().ok_or(Error::Bus)?;
+
+        macro_rules! cleanup {
+            ($expr:expr) => {
+                $expr.map_err(|e| {
+                    let _ = pipeline.set_state(gst::State::Null);
+                    e
+                })
+            };
+        }
+
+        cleanup!(pipeline.set_state(gst::State::Playing))?;
+        cleanup!(pipeline.state(gst::ClockTime::from_seconds(5)).0)?;
+
+        let duration = Duration::from_nanos(
+            pipeline
+                .query_duration::<gst::ClockTime>()
+                .map(|duration| duration.nseconds())
+                .unwrap_or(0),
+        );
+
+        // Audio-only: use 1080p dimensions for proper 16:9 aspect ratio
+        let width = 1920;
+        let height = 1080;
+        let framerate = 1.0;
+
+        let sync_av = pipeline.has_property("av-offset", None);
+
+        // Empty frame (no video)
+        let frame = Arc::new(Mutex::new(Frame::empty()));
+        let upload_frame = Arc::new(AtomicBool::new(false));
+        let alive = Arc::new(AtomicBool::new(true));
+        let last_frame_time = Arc::new(Mutex::new(Instant::now()));
+
+        let subtitle_text = Arc::new(Mutex::new(None));
+        let upload_text = Arc::new(AtomicBool::new(false));
+        let spectrum = Arc::new(Mutex::new([0.0f32; SPECTRUM_BANDS]));
+
+        Ok(Video(RwLock::new(Internal {
+            id,
+            bus,
+            source: pipeline,
+            alive,
+            worker: None,
+            width,
+            height,
+            framerate,
+            duration,
+            speed: 1.0,
+            sync_av,
+            frame,
+            upload_frame,
+            last_frame_time,
+            looping: false,
+            is_eos: false,
+            restart_stream: false,
+            sync_av_avg: 0,
+            sync_av_counter: 0,
+            subtitle_text,
+            upload_text,
+            ytdlp_process: None,
+            spectrum,
+        })))
+    }
+
     /// Create a new video player from direct video and audio URLs with custom HTTP headers.
     ///
     /// This is useful for playing YouTube videos where yt-dlp provides separate
@@ -317,19 +529,7 @@ impl Video {
         // Use souphttpsrc (requires GIO_EXTRA_MODULES for TLS) + downloadbuffer (enables seeking)
         // Note: curlhttpsrc fails when combined with downloadbuffer
         // multiqueue with sync-by-running-time=true ensures A/V synchronization after seeking
-        // Prefer hardware-accelerated video conversion: NVIDIA (nvvideoconvert), VA-API (vapostproc), or software fallback
-        let video_convert = if gst::ElementFactory::find("nvvideoconvert").is_some() {
-            tracing::info!(
-                "Using nvvideoconvert (NVIDIA CUDA) for hardware-accelerated video conversion"
-            );
-            "nvvideoconvert"
-        } else if gst::ElementFactory::find("vapostproc").is_some() {
-            tracing::info!("Using vapostproc (VA-API) for hardware-accelerated video conversion");
-            "vapostproc"
-        } else {
-            tracing::info!("Using videoconvert (software) for video conversion");
-            "videoconvert"
-        };
+        let video_convert = get_best_video_convert();
 
         let pipeline_str = format!(
             "souphttpsrc name=videosrc location=\"{video_url}\" user-agent=\"{user_agent}\" ! \

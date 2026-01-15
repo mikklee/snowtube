@@ -26,11 +26,11 @@
 
 mod client;
 mod constants;
+mod convert;
 mod error;
-pub mod locale_map;
 mod models;
 mod parsers;
-pub mod relative_time;
+mod provider;
 mod utils;
 
 #[cfg(test)]
@@ -40,7 +40,34 @@ mod parsers_tests;
 
 pub use client::InnerTube;
 pub use error::{Error, Result};
-pub use locale_map::{LanguageOption, get_all_languages, get_language_by_locale};
-pub use models::*;
-pub use relative_time::{format_relative_time, parse_relative_time};
-pub use utils::{contains_asian_characters, get_hq_thumbnail_url, parse_duration_string};
+pub use models::PLATFORM_NAME;
+pub use utils::contains_asian_characters;
+
+// Re-export all common types
+pub use common::{
+    // Video types
+    Channel,
+    ChannelConfig,
+    ChannelInfo,
+    // Channel provider trait
+    ChannelProvider,
+    ChannelTab,
+    ChannelVideos,
+    // Language types
+    LanguageOption,
+    ProviderError,
+    SearchResults,
+    SortFilter,
+    Thumbnail,
+    Video,
+    VideoProvider,
+    default_language,
+    default_locale,
+    // Time utilities
+    format_duration,
+    format_relative_time,
+    get_all_languages,
+    get_language_by_locale,
+    parse_duration_string,
+    parse_relative_time,
+};

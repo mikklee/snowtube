@@ -1,32 +1,43 @@
-# YTRS
+# Snowtube
+An online stream player for consolidating services such as Youtube and Peertube in a single pane of glass.
 
-A work in progress YouTube client and InnerTube API library in Rust. Originally based on [YouTube.JS](https://github.com/LuanRT/YouTube.js/).
+Originally built to solve a specific problem: watching YouTube content in its original language.
 
-Built to solve a specific problem: watching YouTube content in its original language.
+## Features
+- Cross-service search with ability to override locale, right in the search field, using `loc:<locale>`. Eg. `loc:jp`.
+- View channels and sort channel videos. Override the locale setting of a specific channel and all it's content.
+- Subscribe to channels. Get a single overview off all the most recent videos of your favourite channels.
+- Watch videos, or enable audio mode to just listen to the audio track. Spice up your audio listening with music visualisers.
 
 ## Why?
-
-YouTube's auto-translation often replaces original titles with poor machine translations. If you're multilingual, this makes discovering content in specific languages frustrating.
-
-ytrs automatically detects the language of your search query using [whatlang](https://crates.io/crates/whatlang) and [lingua](https://crates.io/crates/lingua), then requests results in that locale from the InnerTube API. You can also manually change the locale, and even save your preferred locale so you don't have to change it when you restart the application.
+Services such as Youtube use Auto-translation that often replaces original titles with poor machine translations. If you're multilingual, this makes discovering content in specific languages frustrating.
 
 **Limitations:** YouTube still uses your IP location for some results regardless of locale settings.
 
-## Features
+## Other
+- Built with [Iced](https://iced.rs/).
+- Embedded video player using iceplayer (GStreamer based, forked from [iced_video_player](https://github.com/jazzfool/iced_video_player))
+- Keyboard shortcuts for video playback:
+  - `Space` - play/pause
+  - `Arrow Left/Right` - seek backward/forward 5 seconds
+  - `F` - toggle fullscreen
+  - `Escape` or `Q` - exit fullscreen
+- Everything is stored locally, including subscripionts.
+- Responsive layout
+- Theme selection (16 themes including Catppuccin, Tokyo Night, Gruvbox, and more)
 
-### Library (`ytrs-lib`)
+**Requirements:** 
+- GStreamer for video playback. 
+- (Optional) MPV if you want to use the `Open in MPV` functionality
+
+### ytrs-lib (YouTube)
+
+Originally based on [YouTube.JS](https://github.com/LuanRT/YouTube.js/).
 
 Rust client library for YouTube's private InnerTube API.
 
-- Search with locale support (auto-detection or manual override)
-- Channel information and video listings
-- Tab navigation (Videos/Shorts/Streams)
-- Sort filters and pagination
-- Async API using [reqwest](https://crates.io/crates/reqwest) and [tokio](https://crates.io/crates/tokio)
-
 **Usage:**
 
-Basic example:
 ```rust
 use ytrs_lib::InnerTube;
 
@@ -43,25 +54,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Client (`ytrs-client`)
-
-GUI client built with [Iced](https://iced.rs/).
-
-- Video search
-- Channel browsing (videos/shorts/streams tabs)
-- Local subscriptions with per-channel language preferences (no account required)
-- Sort filters
-- Embedded video player using iceplayer (GStreamer based, forked from [iced_video_player](https://github.com/jazzfool/iced_video_player))
-- Keyboard shortcuts for video playback:
-  - `Space` - play/pause
-  - `Arrow Left/Right` - seek backward/forward 5 seconds
-  - `F` - toggle fullscreen
-  - `Escape` or `Q` - exit fullscreen
-- Persistent configuration
-- Responsive layout
-- Theme selection (16 themes including Catppuccin, Tokyo Night, Gruvbox, and more)
-
 **Requirements:** [yt-dlp](https://github.com/yt-dlp/yt-dlp) and GStreamer for video playback
+
+### ptrs-lib (PeerTube)
+
+Rust client library for [PeerTube](https://joinpeertube.org/)'s REST API using [SepiaSearch](https://sepiasearch.org/) for federated search across instances.
+
+**Usage:**
+
+```rust
+use ptrs_lib::PeerTubeClient;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = PeerTubeClient::new()?;
+    let results = client.search("rust programming").await?;
+
+    for video in results.results {
+        println!("{}", video.title);
+    }
+
+    Ok(())
+}
+```
+
 
 ## Screenshots
 

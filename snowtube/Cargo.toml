@@ -1,15 +1,17 @@
 [package]
-name = "ytrs-client"
-version = "0.3.0"
+name = "snowtube"
+version = "0.4.0"
 edition = "2024"
-authors = ["ytrs contributors"]
-description = "GUI client for ytrs - YouTube search and playback"
+authors = ["SnowTube contributors"]
+description = "SnowTube - A multi-platform video player for YouTube and PeerTube"
 license = "GPL-3.0"
 
 [dependencies]
-ytrs-lib = { path = "../ytrs-lib" }
-iced = { version = "0.14", features = ["tokio", "image", "lazy", "advanced", "wgpu", "debug", "canvas"], default-features = false }
-iceplayer = { path = "../iceplayer"}
+common = { path = "../common" }
+ytrs-lib = { path = "../ytrs-lib", optional = true }
+ptrs-lib = { path = "../ptrs-lib", optional = true }
+iced = { version = "0.14", features = ["tokio", "image", "lazy", "advanced", "wgpu", "debug", "canvas", "svg"], default-features = false }
+iceplayer = { path = "../iceplayer" }
 url = "2"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
@@ -26,3 +28,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "tracing-log"] }
 bytemuck = { version = "1", features = ["derive"] }
 iced_font_awesome = "0.4"
+
+[features]
+default = ["youtube", "peertube"]
+youtube = ["ytrs-lib"]
+peertube = ["ptrs-lib"]

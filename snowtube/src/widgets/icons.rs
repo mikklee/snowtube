@@ -2,7 +2,7 @@
 
 use iced::Theme;
 use iced::widget::text::Style;
-use iced_font_awesome::{Icon, fa_icon_solid};
+use iced_font_awesome::{Icon, fa_icon, fa_icon_solid};
 
 /// Get the text color from the theme for icons
 pub fn text_style(theme: &Theme) -> Style {
@@ -40,7 +40,7 @@ pub fn icon_cog(size: f32) -> Icon<'static, Theme> {
 }
 
 pub fn icon_star_outline(size: f32) -> Icon<'static, Theme> {
-    fa_icon_solid("star").size(size).style(text_style)
+    fa_icon("star").size(size).style(text_style)
 }
 
 pub fn icon_headphones(size: f32) -> Icon<'static, Theme> {
