@@ -162,12 +162,12 @@ impl VideoPipeline {
         // Handle resolution changes (e.g., HLS adaptive streaming)
         if let Some(existing) = self.videos.get(&video_id) {
             let tex_size = existing.texture_y.size();
-            if tex_size.width != width || tex_size.height != height {
-                if let Some(old) = self.videos.remove(&video_id) {
-                    old.texture_y.destroy();
-                    old.texture_uv.destroy();
-                    old.instances.destroy();
-                }
+            if (tex_size.width != width || tex_size.height != height)
+                && let Some(old) = self.videos.remove(&video_id)
+            {
+                old.texture_y.destroy();
+                old.texture_uv.destroy();
+                old.instances.destroy();
             }
         }
 
