@@ -82,17 +82,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Screenshots
 
 ### Search View
-![Search view](ytrs-client/screenshots/1.png)
+![Search view](snowtube/screenshots/1.png)
 ### Channel View
-![Channel view](ytrs-client/screenshots/2.png)
+![Channel view](snowtube/screenshots/2.png)
 ### Channels View
-![Channels view](ytrs-client/screenshots/3.png)
+![Channels view](snowtube/screenshots/3.png)
 ### Settings View
-![Settings](ytrs-client/screenshots/4.png)
+![Settings](snowtube/screenshots/4.png)
 ### Video View
-![Video ready](ytrs-client/screenshots/5.png)
-![Video loading](ytrs-client/screenshots/6.png)
-![Video playing](ytrs-client/screenshots/7.png)
+![Video ready](snowtube/screenshots/5.png)
+![Video loading](snowtube/screenshots/6.png)
+![Video playing](snowtube/screenshots/7.png)
 
 ## Dependencies
 
