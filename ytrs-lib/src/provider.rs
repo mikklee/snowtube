@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use common::{
     ChannelConfig, ChannelInfo, ChannelProvider, ChannelTab, ChannelVideos, ProviderError,
-    SearchResults, Video, VideoMetadata, VideoProvider,
+    SearchResults, Subtitle, Video, VideoMetadata, VideoProvider,
 };
 
 use crate::client::InnerTube;
@@ -84,6 +84,14 @@ impl VideoProvider for InnerTube {
             channel_id: metadata.channel_id,
             channel_avatar_url: metadata.channel_avatar_url,
         })
+    }
+
+    async fn get_subtitles(&self, video: &Video) -> Result<Vec<Subtitle>, ProviderError> {
+        InnerTube::get_subtitles(self, &video.id)
+            .await
+            .map_err(|e| ProviderError::Api {
+                message: e.to_string(),
+            })
     }
 }
 

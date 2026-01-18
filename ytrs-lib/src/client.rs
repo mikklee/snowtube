@@ -446,6 +446,28 @@ impl InnerTube {
             Err(Error::DataNotFound(format!("Failed to fetch: {}", url)))
         }
     }
+
+    /// Get subtitles for a video by video ID
+    ///
+    /// Returns a list of available manual subtitle tracks.
+    /// Auto-generated captions are excluded.
+    pub async fn get_subtitles(&self, video_id: &str) -> Result<Vec<common::Subtitle>> {
+        let video_info = self.get_video(video_id).await?;
+
+        let subtitles = video_info
+            .captions
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|c| !c.is_auto_generated)
+            .map(|c| common::Subtitle {
+                language_code: c.language_code,
+                language_name: c.language_name,
+                url: c.url,
+            })
+            .collect();
+
+        Ok(subtitles)
+    }
 }
 
 impl Default for InnerTube {

@@ -470,6 +470,8 @@ pub fn parse_video_info(data: &Value) -> Result<VideoInfo> {
 
     let formats = parse_formats(data.pointer("/streamingData/formats"));
     let adaptive_formats = parse_formats(data.pointer("/streamingData/adaptiveFormats"));
+    let captions =
+        parse_captions(data.pointer("/captions/playerCaptionsTracklistRenderer/captionTracks"));
 
     Ok(VideoInfo {
         video_id,
@@ -483,7 +485,7 @@ pub fn parse_video_info(data: &Value) -> Result<VideoInfo> {
         thumbnails,
         formats,
         adaptive_formats,
-        captions: None,
+        captions,
     })
 }
 
@@ -549,6 +551,53 @@ fn parse_formats(value: Option<&Value>) -> Vec<Format> {
     }
 
     formats
+}
+
+/// Parse captions/subtitles from InnerTube player response
+fn parse_captions(value: Option<&Value>) -> Option<Vec<Caption>> {
+    let caption_array = value?.as_array()?;
+
+    let captions: Vec<Caption> = caption_array
+        .iter()
+        .filter_map(|cap| {
+            let base_url = cap.pointer("/baseUrl").and_then(|u| u.as_str())?;
+            let language_code = cap.pointer("/languageCode").and_then(|l| l.as_str())?;
+
+            // Get the language name from name.simpleText or name.runs[0].text
+            let language_name = cap
+                .pointer("/name/simpleText")
+                .and_then(|n| n.as_str())
+                .or_else(|| cap.pointer("/name/runs/0/text").and_then(|n| n.as_str()))
+                .unwrap_or(language_code);
+
+            // Check if auto-generated (kind == "asr")
+            let is_auto_generated = cap
+                .pointer("/kind")
+                .and_then(|k| k.as_str())
+                .map(|k| k == "asr")
+                .unwrap_or(false);
+
+            // Append format parameter to get VTT format
+            let url = if base_url.contains('?') {
+                format!("{}&fmt=vtt", base_url)
+            } else {
+                format!("{}?fmt=vtt", base_url)
+            };
+
+            Some(Caption {
+                language_code: language_code.to_string(),
+                language_name: language_name.to_string(),
+                url,
+                is_auto_generated,
+            })
+        })
+        .collect();
+
+    if captions.is_empty() {
+        None
+    } else {
+        Some(captions)
+    }
 }
 
 /// Parse channel info from InnerTube browse response

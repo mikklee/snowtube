@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::{
     ChannelConfig, ChannelInfo, ChannelProvider, ChannelTab, ChannelVideos, NextPageToken,
-    ProviderError, SearchResults, Video, VideoMetadata, VideoProvider,
+    ProviderError, SearchResults, Subtitle, Video, VideoMetadata, VideoProvider,
 };
 
 /// A unified video service that combines multiple providers.
@@ -267,6 +267,15 @@ impl VideoService {
             Err(ProviderError::NotFound {
                 message: format!("{} provider not available", video.platform_name),
             })
+        }
+    }
+
+    /// Get available subtitles for a video
+    pub async fn get_subtitles(&self, video: &Video) -> Result<Vec<Subtitle>, ProviderError> {
+        if let Some(provider) = self.provider_for_platform(&video.platform_name) {
+            provider.get_subtitles(video).await
+        } else {
+            Ok(vec![])
         }
     }
 }

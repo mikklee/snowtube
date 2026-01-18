@@ -132,6 +132,14 @@ pub async fn get_video_metadata(video: &Video) -> Result<common::VideoMetadata, 
         .map_err(|e| e.to_string())
 }
 
+/// Fetch subtitles for a video
+pub async fn get_subtitles(video: &Video) -> Result<Vec<common::Subtitle>, String> {
+    service()
+        .get_subtitles(video)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // =============================================================================
 // Platform icons
 // =============================================================================
