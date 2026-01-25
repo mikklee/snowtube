@@ -238,9 +238,13 @@ impl VideoProvider for PeerTubeClient {
         })
     }
 
+    // PeerTube does not do forced machine translations like YouTube,
+    // so locale parameters are unused here.
     async fn get_video_metadata(
         &self,
         video: &Video,
+        _hl: &str,
+        _gl: &str,
     ) -> std::result::Result<VideoMetadata, ProviderError> {
         let instance = video.instance.as_ref().ok_or_else(|| ProviderError::Api {
             message: "PeerTube video requires instance URL for metadata".to_string(),

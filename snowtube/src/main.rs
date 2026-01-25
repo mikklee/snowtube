@@ -14,7 +14,8 @@ use std::cell::Cell;
 use std::collections::HashMap;
 
 use common::{
-    ChannelConfig, ChannelInfo, ChannelTab, LanguageOption, SortFilter, Video, get_all_languages,
+    ChannelConfig, ChannelInfo, ChannelKey, ChannelTab, LanguageOption, SortFilter, Video,
+    get_all_languages,
 };
 use std::sync::OnceLock;
 
@@ -1309,9 +1310,19 @@ impl App {
                 );
 
                 // Fetch video metadata (full description, channel info including avatar)
+                // Use channel's locale if available, otherwise fall back to search locale
                 let video_for_metadata = video.clone();
+                let (hl, gl) = video
+                    .channel
+                    .as_ref()
+                    .and_then(|ch| ch.id.as_ref())
+                    .and_then(|channel_id| {
+                        let key = ChannelKey::new(&video.platform_name, channel_id);
+                        self.config.channels.get(&key)?.language.clone()
+                    })
+                    .unwrap_or_else(|| self.search_locale.clone());
                 let metadata_task = Task::perform(
-                    async move { providers::get_video_metadata(&video_for_metadata).await },
+                    async move { providers::get_video_metadata(&video_for_metadata, &hl, &gl).await },
                     Message::VideoMetadataLoaded,
                 );
 
@@ -1380,9 +1391,19 @@ impl App {
                 );
 
                 // Fetch video metadata (full description, channel info including avatar)
+                // Use channel's locale if available, otherwise fall back to search locale
                 let video_for_metadata = video.clone();
+                let (hl, gl) = video
+                    .channel
+                    .as_ref()
+                    .and_then(|ch| ch.id.as_ref())
+                    .and_then(|channel_id| {
+                        let key = ChannelKey::new(&video.platform_name, channel_id);
+                        self.config.channels.get(&key)?.language.clone()
+                    })
+                    .unwrap_or_else(|| self.search_locale.clone());
                 let metadata_task = Task::perform(
-                    async move { providers::get_video_metadata(&video_for_metadata).await },
+                    async move { providers::get_video_metadata(&video_for_metadata, &hl, &gl).await },
                     Message::VideoMetadataLoaded,
                 );
 

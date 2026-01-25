@@ -234,9 +234,18 @@ impl InnerTube {
 
     /// Fetch additional video metadata (full description, channel info) from /next endpoint.
     /// This is useful when you have a video from search results and need the full description.
-    pub async fn get_video_metadata(&self, video_id: &str) -> Result<parsers::ParsedVideoMetadata> {
+    pub async fn get_video_metadata(
+        &self,
+        video_id: &str,
+        hl: &str,
+        gl: &str,
+    ) -> Result<parsers::ParsedVideoMetadata> {
+        let mut context = self.context.clone();
+        context.client.hl = hl.to_string();
+        context.client.gl = gl.to_string();
+
         let body = json!({
-            "context": self.context,
+            "context": context,
             "videoId": video_id,
         });
 

@@ -71,8 +71,13 @@ impl VideoProvider for InnerTube {
             })
     }
 
-    async fn get_video_metadata(&self, video: &Video) -> Result<VideoMetadata, ProviderError> {
-        let metadata = InnerTube::get_video_metadata(self, &video.id)
+    async fn get_video_metadata(
+        &self,
+        video: &Video,
+        hl: &str,
+        gl: &str,
+    ) -> Result<VideoMetadata, ProviderError> {
+        let metadata = InnerTube::get_video_metadata(self, &video.id, hl, gl)
             .await
             .map_err(|e| ProviderError::Api {
                 message: e.to_string(),
