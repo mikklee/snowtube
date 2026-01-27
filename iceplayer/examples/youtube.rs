@@ -39,6 +39,7 @@ impl App {
 
         let source = VideoSource::YouTube {
             video_id: video_id.clone(),
+            subtitles: vec![],
         };
         let mut state =
             VideoPlayerState::new(source.clone()).with_title(format!("Video: {}", video_id));
