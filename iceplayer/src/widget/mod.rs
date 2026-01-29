@@ -12,6 +12,7 @@ use crate::event::PlayerEvent;
 use crate::led_visualizer::LedVisualizer;
 use crate::loader::{LoadProgress, load_video};
 use crate::source::VideoSource;
+use crate::subtitle::SubtitleTrack;
 use crate::video::Video;
 use crate::video_player::VideoPlayer;
 use crate::visualizer::{AudioVisualizer, Visualizer};
@@ -23,7 +24,7 @@ use controls::{
 };
 use overlay::{
     centered_play_button, error_overlay, loading_overlay, loading_placeholder, seeking_overlay,
-    title_overlay,
+    subtitle_overlay, title_overlay,
 };
 
 use iced::widget::{column, container, mouse_area, stack};
@@ -66,6 +67,12 @@ pub struct VideoPlayerState {
     pub loading_handle: Option<iced::task::Handle>,
     /// Audio visualizer style for audio-only mode.
     pub visualizer: AudioVisualizer,
+    /// Currently selected subtitle index (None = subtitles off).
+    pub selected_subtitle: Option<usize>,
+    /// Loaded subtitle track (parsed VTT).
+    pub subtitle_track: Option<SubtitleTrack>,
+    /// Whether subtitles are currently loading.
+    pub subtitles_loading: bool,
 }
 
 impl VideoPlayerState {
@@ -89,6 +96,9 @@ impl VideoPlayerState {
             preset_duration: None,
             loading_handle: None,
             visualizer: AudioVisualizer::default(),
+            selected_subtitle: None,
+            subtitle_track: None,
+            subtitles_loading: false,
         }
     }
 
@@ -114,6 +124,32 @@ impl VideoPlayerState {
     pub fn with_duration(mut self, duration: Duration) -> Self {
         self.preset_duration = Some(duration);
         self
+    }
+
+    /// Set available subtitles for this video.
+    pub fn set_subtitles(&mut self, subtitles: Vec<common::Subtitle>) {
+        self.source.set_subtitles(subtitles);
+    }
+
+    /// Get available subtitles.
+    pub fn subtitles(&self) -> &[common::Subtitle] {
+        self.source.subtitles()
+    }
+
+    /// Select a subtitle track by index (None to disable).
+    pub fn select_subtitle(&mut self, index: Option<usize>) {
+        self.selected_subtitle = index;
+        if index.is_none() {
+            self.subtitle_track = None;
+        }
+        // Subtitle loading is handled by the update function via SubtitleLoaded message
+    }
+
+    /// Get the current subtitle text based on video position.
+    pub fn current_subtitle_text(&self) -> Option<&str> {
+        let track = self.subtitle_track.as_ref()?;
+        let position = self.position();
+        track.text_at(position)
     }
 
     /// Check if the video is paused.
@@ -173,6 +209,10 @@ pub enum VideoPlayerMessage {
     VideoEnded,
     /// Tick for updating position.
     Tick,
+    /// Select subtitle track (None = off).
+    SelectSubtitle(Option<usize>),
+    /// Subtitle track loaded (parsed VTT).
+    SubtitleLoaded(Option<SubtitleTrack>),
 }
 
 /// Create a Task to start loading a video.
@@ -310,7 +350,54 @@ pub fn update(
             // Just request a redraw to update the position display
             (None, Task::none())
         }
+        VideoPlayerMessage::SelectSubtitle(index) => {
+            state.select_subtitle(index);
+
+            // If a subtitle is selected, fetch and parse it
+            if let Some(idx) = index
+                && let Some(subtitle) = state.source.subtitles().get(idx)
+            {
+                let url = subtitle.url.clone();
+                state.subtitles_loading = true;
+                tracing::info!("Loading subtitle from: {}", url);
+
+                let task = Task::future(async move {
+                    match fetch_and_parse_subtitle(&url).await {
+                        Ok(track) => {
+                            tracing::info!("Subtitle loaded: {} cues", track.cues.len());
+                            VideoPlayerMessage::SubtitleLoaded(Some(track))
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to load subtitle: {}", e);
+                            VideoPlayerMessage::SubtitleLoaded(None)
+                        }
+                    }
+                });
+                (None, task)
+            } else {
+                (None, Task::none())
+            }
+        }
+        VideoPlayerMessage::SubtitleLoaded(track) => {
+            state.subtitles_loading = false;
+            state.subtitle_track = track;
+            (None, Task::none())
+        }
     }
+}
+
+/// Fetch a subtitle file and parse it as VTT.
+async fn fetch_and_parse_subtitle(url: &str) -> Result<SubtitleTrack, String> {
+    let response = reqwest::get(url)
+        .await
+        .map_err(|e| format!("Failed to fetch subtitle: {}", e))?;
+
+    let content = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read subtitle content: {}", e))?;
+
+    Ok(SubtitleTrack::parse_vtt(&content))
 }
 
 /// Create a subscription for the video player.
@@ -696,6 +783,12 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
         video_layers.push(loading_overlay(Some("Starting..."), theme));
     }
 
+    // Subtitle overlay (show above video, below controls)
+    if let Some(subtitle) = state.current_subtitle_text() {
+        // Position subtitles 20px above the bottom of the video frame
+        video_layers.push(subtitle_overlay(subtitle, 20.0));
+    }
+
     // Seeking overlay
     if state.seeking {
         video_layers.push(seeking_overlay(theme));
@@ -707,6 +800,7 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
 
     // Control bar below video
     let on_seek_preview = on_message.clone();
+    let on_select_subtitle = on_message.clone();
     let control_bar = video_control_bar(ControlBarParams {
         is_paused: state.is_paused(),
         position: state.position(),
@@ -716,6 +810,11 @@ fn view_playing_windowed<'a, Message: Clone + 'static>(
         on_seek_preview: Box::new(move |pos| on_seek_preview(VideoPlayerMessage::SeekPreview(pos))),
         on_seek_release: on_message.clone()(VideoPlayerMessage::SeekRelease),
         on_toggle_fullscreen: on_message(VideoPlayerMessage::ToggleFullscreen),
+        subtitles: state.subtitles(),
+        selected_subtitle: state.selected_subtitle,
+        on_select_subtitle: Box::new(move |idx| {
+            on_select_subtitle(VideoPlayerMessage::SelectSubtitle(idx))
+        }),
     });
 
     // Stack video and controls vertically
@@ -828,6 +927,7 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
     } else if state.controls_visible {
         // Fullscreen control bar at bottom
         let on_seek_preview = on_message.clone();
+        let on_select_subtitle = on_message.clone();
         layers.push(
             container(fullscreen_control_bar(ControlBarParams {
                 is_paused: state.is_paused(),
@@ -840,12 +940,24 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
                 }),
                 on_seek_release: on_message.clone()(VideoPlayerMessage::SeekRelease),
                 on_toggle_fullscreen: on_message.clone()(VideoPlayerMessage::ToggleFullscreen),
+                subtitles: state.subtitles(),
+                selected_subtitle: state.selected_subtitle,
+                on_select_subtitle: Box::new(move |idx| {
+                    on_select_subtitle(VideoPlayerMessage::SelectSubtitle(idx))
+                }),
             }))
             .width(Length::Fill)
             .height(Length::Fill)
             .align_y(iced::alignment::Vertical::Bottom)
             .into(),
         );
+    }
+
+    // Subtitle overlay (position above control bar in fullscreen)
+    if let Some(subtitle) = state.current_subtitle_text() {
+        // In fullscreen, position subtitles higher to avoid control bar overlap
+        let bottom_pad = if state.controls_visible { 80.0 } else { 40.0 };
+        layers.push(subtitle_overlay(subtitle, bottom_pad));
     }
 
     // Seeking overlay

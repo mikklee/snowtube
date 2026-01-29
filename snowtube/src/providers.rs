@@ -125,9 +125,21 @@ pub async fn fetch_thumbnail_for_video(video: &Video) -> Result<Vec<u8>, String>
 }
 
 /// Fetch additional video metadata (full description, channel info)
-pub async fn get_video_metadata(video: &Video) -> Result<common::VideoMetadata, String> {
+pub async fn get_video_metadata(
+    video: &Video,
+    hl: &str,
+    gl: &str,
+) -> Result<common::VideoMetadata, String> {
     service()
-        .get_video_metadata(video)
+        .get_video_metadata(video, hl, gl)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Fetch subtitles for a video
+pub async fn get_subtitles(video: &Video) -> Result<Vec<common::Subtitle>, String> {
+    service()
+        .get_subtitles(video)
         .await
         .map_err(|e| e.to_string())
 }

@@ -1,7 +1,8 @@
 //! Video control bar with play/pause, progress slider, time display, and fullscreen toggle.
 
-use iced::widget::{button, container, row, slider, text};
-use iced::{Color, Element, Length, Padding, Renderer, Theme};
+use common::Subtitle;
+use iced::widget::{button, container, pick_list, row, slider, text};
+use iced::{Border, Color, Element, Length, Padding, Renderer, Theme};
 use iced_font_awesome::fa_icon_solid;
 use std::time::Duration;
 
@@ -15,6 +16,28 @@ pub struct ControlBarParams<'a, Message: Clone + 'a> {
     pub on_seek_preview: Box<dyn Fn(f64) -> Message + 'a>,
     pub on_seek_release: Message,
     pub on_toggle_fullscreen: Message,
+    /// Available subtitles
+    pub subtitles: &'a [Subtitle],
+    /// Currently selected subtitle index (None = off)
+    pub selected_subtitle: Option<usize>,
+    /// Callback when subtitle is selected
+    pub on_select_subtitle: Box<dyn Fn(Option<usize>) -> Message + 'a>,
+}
+
+/// Subtitle option for the pick_list
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubtitleOption {
+    Off,
+    Track { index: usize, name: String },
+}
+
+impl std::fmt::Display for SubtitleOption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SubtitleOption::Off => write!(f, "Off"),
+            SubtitleOption::Track { name, .. } => write!(f, "{}", name),
+        }
+    }
 }
 
 pub fn play_button<'a, Message: Clone + 'a>(
@@ -188,6 +211,93 @@ fn progress_slider_style(theme: &Theme, status: slider::Status) -> slider::Style
     }
 }
 
+/// Style for subtitle pick_list in control bar
+fn subtitle_pick_list_style(theme: &Theme, status: pick_list::Status) -> pick_list::Style {
+    let palette = theme.palette();
+    let is_hovered = matches!(
+        status,
+        pick_list::Status::Hovered | pick_list::Status::Opened { .. }
+    );
+
+    pick_list::Style {
+        text_color: if is_hovered {
+            palette.primary
+        } else {
+            Color {
+                a: 0.9,
+                ..palette.text
+            }
+        },
+        placeholder_color: Color {
+            a: 0.5,
+            ..palette.text
+        },
+        handle_color: if is_hovered {
+            palette.primary
+        } else {
+            Color {
+                a: 0.7,
+                ..palette.text
+            }
+        },
+        background: iced::Background::Color(Color::TRANSPARENT),
+        border: Border {
+            radius: 4.0.into(),
+            width: 0.0,
+            color: Color::TRANSPARENT,
+        },
+    }
+}
+
+/// Create subtitle picker element if subtitles are available
+fn subtitle_picker<'a, Message: Clone + 'a>(
+    subtitles: &[Subtitle],
+    selected: Option<usize>,
+    on_select: impl Fn(Option<usize>) -> Message + 'a,
+) -> Option<Element<'a, Message, Theme, Renderer>> {
+    if subtitles.is_empty() {
+        return None;
+    }
+
+    let options: Vec<SubtitleOption> = std::iter::once(SubtitleOption::Off)
+        .chain(
+            subtitles
+                .iter()
+                .enumerate()
+                .map(|(i, s)| SubtitleOption::Track {
+                    index: i,
+                    name: s.language_name.clone(),
+                }),
+        )
+        .collect();
+
+    let current = match selected {
+        None => SubtitleOption::Off,
+        Some(idx) => subtitles
+            .get(idx)
+            .map(|s| SubtitleOption::Track {
+                index: idx,
+                name: s.language_name.clone(),
+            })
+            .unwrap_or(SubtitleOption::Off),
+    };
+
+    Some(
+        pick_list(options, Some(current), move |opt| match opt {
+            SubtitleOption::Off => on_select(None),
+            SubtitleOption::Track { index, .. } => on_select(Some(index)),
+        })
+        .padding(Padding {
+            top: 4.0,
+            bottom: 4.0,
+            left: 8.0,
+            right: 8.0,
+        })
+        .style(subtitle_pick_list_style)
+        .into(),
+    )
+}
+
 /// Format duration as MM:SS or HH:MM:SS
 pub fn format_duration(duration: Duration) -> String {
     let total_secs = duration.as_secs();
@@ -261,12 +371,15 @@ pub fn video_control_bar<'a, Message: Clone + 'a>(
             .into()
     };
 
-    let controls_row = row![
-        if params.is_paused {
-            play_button(params.on_toggle_play.clone(), false)
-        } else {
-            pause_button(params.on_toggle_play.clone(), false)
-        },
+    // Build controls row with optional subtitle picker
+    let play_pause = if params.is_paused {
+        play_button(params.on_toggle_play.clone(), false)
+    } else {
+        pause_button(params.on_toggle_play.clone(), false)
+    };
+
+    let mut controls = row![
+        play_pause,
         text(format_duration(display_position))
             .size(12)
             .width(Length::Shrink),
@@ -274,17 +387,29 @@ pub fn video_control_bar<'a, Message: Clone + 'a>(
         text(format_duration(params.duration))
             .size(12)
             .width(Length::Shrink),
-        fullscreen_button(params.on_toggle_fullscreen, false),
     ]
     .spacing(8)
-    .align_y(iced::Alignment::Center)
-    .padding(Padding {
-        top: 4.0,
-        bottom: 4.0,
-        left: 8.0,
-        right: 8.0,
-    })
-    .width(Length::Fill);
+    .align_y(iced::Alignment::Center);
+
+    // Add subtitle picker if subtitles are available
+    if let Some(picker) = subtitle_picker(
+        params.subtitles,
+        params.selected_subtitle,
+        params.on_select_subtitle,
+    ) {
+        controls = controls.push(picker);
+    }
+
+    controls = controls.push(fullscreen_button(params.on_toggle_fullscreen, false));
+
+    let controls_row = controls
+        .padding(Padding {
+            top: 4.0,
+            bottom: 4.0,
+            left: 8.0,
+            right: 8.0,
+        })
+        .width(Length::Fill);
 
     container(controls_row)
         .width(Length::Fill)
@@ -328,12 +453,15 @@ pub fn fullscreen_control_bar<'a, Message: Clone + 'a>(
             .into()
     };
 
-    let controls_row = row![
-        if params.is_paused {
-            play_button(params.on_toggle_play.clone(), false)
-        } else {
-            pause_button(params.on_toggle_play.clone(), false)
-        },
+    // Build controls row with optional subtitle picker
+    let play_pause = if params.is_paused {
+        play_button(params.on_toggle_play.clone(), false)
+    } else {
+        pause_button(params.on_toggle_play.clone(), false)
+    };
+
+    let mut controls = row![
+        play_pause,
         text(format_duration(display_position))
             .size(12)
             .color(Color::WHITE)
@@ -343,17 +471,29 @@ pub fn fullscreen_control_bar<'a, Message: Clone + 'a>(
             .size(12)
             .color(Color::WHITE)
             .width(Length::Shrink),
-        exit_fullscreen_button(params.on_toggle_fullscreen, false),
     ]
     .spacing(8)
-    .align_y(iced::Alignment::Center)
-    .padding(Padding {
-        top: 8.0,
-        bottom: 8.0,
-        left: 12.0,
-        right: 12.0,
-    })
-    .width(Length::Fill);
+    .align_y(iced::Alignment::Center);
+
+    // Add subtitle picker if subtitles are available
+    if let Some(picker) = subtitle_picker(
+        params.subtitles,
+        params.selected_subtitle,
+        params.on_select_subtitle,
+    ) {
+        controls = controls.push(picker);
+    }
+
+    controls = controls.push(exit_fullscreen_button(params.on_toggle_fullscreen, false));
+
+    let controls_row = controls
+        .padding(Padding {
+            top: 8.0,
+            bottom: 8.0,
+            left: 12.0,
+            right: 12.0,
+        })
+        .width(Length::Fill);
 
     container(controls_row)
         .width(Length::Fill)

@@ -222,6 +222,61 @@ impl ApiVideo {
     }
 }
 
+/// Subtitle track from PeerTube API
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiSubtitle {
+    /// Language information
+    pub language: SubtitleLanguage,
+    /// Path to the subtitle file (relative to instance) - may be null for remote storage
+    pub caption_path: Option<String>,
+    /// Direct URL to subtitle file (used when caption_path is null)
+    pub file_url: Option<String>,
+}
+
+/// Language information for a subtitle track
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubtitleLanguage {
+    /// Language code (e.g., "en", "pl")
+    pub id: String,
+    /// Human-readable language name (e.g., "English", "Polski")
+    pub label: String,
+}
+
+/// Response from /api/v1/videos/{id}/captions endpoint
+#[derive(Debug, Clone, Deserialize)]
+pub struct ApiSubtitlesResponse {
+    pub data: Vec<ApiSubtitle>,
+}
+
+impl ApiSubtitle {
+    /// Get the full URL for the subtitle file
+    pub fn subtitle_url(&self, instance: &str) -> Option<String> {
+        // Prefer file_url (direct URL) over caption_path (relative path)
+        if let Some(ref url) = self.file_url {
+            return Some(url.clone());
+        }
+        if let Some(ref path) = self.caption_path {
+            if path.starts_with("http") {
+                return Some(path.clone());
+            } else {
+                return Some(format!("{}{}", instance.trim_end_matches('/'), path));
+            }
+        }
+        None
+    }
+
+    /// Convert to common::Subtitle (returns None if no URL available)
+    pub fn to_common_subtitle(&self, instance: &str) -> Option<common::Subtitle> {
+        self.subtitle_url(instance).map(|url| common::Subtitle {
+            language_code: self.language.id.clone(),
+            language_name: self.language.label.clone(),
+            url,
+        })
+    }
+}
+
 impl ApiVideoChannel {
     /// Convert to common::ChannelInfo
     pub fn to_channel_info(&self, instance: &str) -> common::ChannelInfo {

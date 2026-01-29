@@ -36,6 +36,7 @@ mod led_visualizer;
 mod loader;
 mod pipeline;
 mod source;
+mod subtitle;
 mod video;
 mod video_player;
 mod visualizer;

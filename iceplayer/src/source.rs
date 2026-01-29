@@ -1,14 +1,23 @@
 //! Video source types for the video player.
 
+use common::Subtitle;
+
 /// Represents the source of a video to be played.
 #[derive(Debug, Clone)]
 pub enum VideoSource {
     /// YouTube video by ID
-    YouTube { video_id: String },
+    YouTube {
+        video_id: String,
+        subtitles: Vec<Subtitle>,
+    },
     /// YouTube audio-only by ID
     YouTubeAudioOnly { video_id: String },
     /// PeerTube video
-    PeerTube { instance: String, video_id: String },
+    PeerTube {
+        instance: String,
+        video_id: String,
+        subtitles: Vec<Subtitle>,
+    },
     /// PeerTube audio-only
     PeerTubeAudioOnly { instance: String, video_id: String },
     /// Direct video URL (e.g., file:// or https://)
@@ -18,15 +27,17 @@ pub enum VideoSource {
 }
 
 impl VideoSource {
-    /// Create a VideoSource from a common::Video
-    pub fn from_video(video: &common::Video) -> Result<Self, String> {
+    /// Create a VideoSource from a common::Video with subtitles
+    pub fn from_video(video: &common::Video, subtitles: Vec<Subtitle>) -> Result<Self, String> {
         match video.platform_name.as_str() {
             "youtube" => Ok(Self::YouTube {
                 video_id: video.id.clone(),
+                subtitles,
             }),
             "peertube" => Ok(Self::PeerTube {
                 instance: video.instance.clone().unwrap_or_default(),
                 video_id: video.id.clone(),
+                subtitles,
             }),
             other => Err(format!("Unknown platform: {}", other)),
         }
@@ -47,9 +58,10 @@ impl VideoSource {
     }
 
     /// Create a YouTube source from a video ID.
-    pub fn youtube(id: impl Into<String>) -> Self {
+    pub fn youtube(id: impl Into<String>, subtitles: Vec<Subtitle>) -> Self {
         Self::YouTube {
             video_id: id.into(),
+            subtitles,
         }
     }
 
@@ -61,10 +73,15 @@ impl VideoSource {
     }
 
     /// Create a PeerTube source from instance URL and video ID.
-    pub fn peertube(instance: impl Into<String>, video_id: impl Into<String>) -> Self {
+    pub fn peertube(
+        instance: impl Into<String>,
+        video_id: impl Into<String>,
+        subtitles: Vec<Subtitle>,
+    ) -> Self {
         Self::PeerTube {
             instance: instance.into(),
             video_id: video_id.into(),
+            subtitles,
         }
     }
 
@@ -84,5 +101,23 @@ impl VideoSource {
             self,
             Self::YouTubeAudioOnly { .. } | Self::PeerTubeAudioOnly { .. }
         )
+    }
+
+    /// Get available subtitles for this source.
+    pub fn subtitles(&self) -> &[Subtitle] {
+        match self {
+            Self::YouTube { subtitles, .. } | Self::PeerTube { subtitles, .. } => subtitles,
+            _ => &[],
+        }
+    }
+
+    /// Set subtitles for this source.
+    pub fn set_subtitles(&mut self, new_subtitles: Vec<Subtitle>) {
+        match self {
+            Self::YouTube { subtitles, .. } | Self::PeerTube { subtitles, .. } => {
+                *subtitles = new_subtitles;
+            }
+            _ => {}
+        }
     }
 }
