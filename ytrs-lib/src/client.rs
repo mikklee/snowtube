@@ -460,20 +460,60 @@ impl InnerTube {
     ///
     /// Returns a list of available manual subtitle tracks.
     /// Auto-generated captions are excluded.
+    ///
+    /// Note: This uses yt-dlp to fetch subtitle info because the InnerTube API
+    /// no longer returns caption tracks for the WEB client.
     pub async fn get_subtitles(&self, video_id: &str) -> Result<Vec<common::Subtitle>> {
-        let video_info = self.get_video(video_id).await?;
+        let url = format!("https://www.youtube.com/watch?v={}", video_id);
 
-        let subtitles = video_info
-            .captions
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|c| !c.is_auto_generated)
-            .map(|c| common::Subtitle {
-                language_code: c.language_code,
-                language_name: c.language_name,
-                url: c.url,
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new("yt-dlp")
+                .args(["--dump-single-json", "--skip-download", &url])
+                .output()
+        })
+        .await
+        .map_err(|e| Error::DataNotFound(format!("Task join error: {}", e)))?
+        .map_err(|e| Error::DataNotFound(format!("Failed to run yt-dlp: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(Error::DataNotFound(format!("yt-dlp failed: {}", stderr)));
+        }
+
+        let json: Value = serde_json::from_slice(&output.stdout)
+            .map_err(|e| Error::DataNotFound(format!("Failed to parse yt-dlp JSON: {}", e)))?;
+
+        // Parse subtitles from yt-dlp output (excludes auto-generated)
+        let subtitles = json
+            .get("subtitles")
+            .and_then(|s| s.as_object())
+            .map(|subs| {
+                subs.iter()
+                    .filter_map(|(lang_code, tracks)| {
+                        // Find VTT format track
+                        let vtt_track = tracks
+                            .as_array()?
+                            .iter()
+                            .find(|t| t.get("ext").and_then(|e| e.as_str()) == Some("vtt"))?;
+
+                        let url = vtt_track.get("url")?.as_str()?.to_string();
+
+                        // Get language name from the track or use code as fallback
+                        let language_name = vtt_track
+                            .get("name")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or(lang_code)
+                            .to_string();
+
+                        Some(common::Subtitle {
+                            language_code: lang_code.clone(),
+                            language_name,
+                            url,
+                        })
+                    })
+                    .collect()
             })
-            .collect();
+            .unwrap_or_default();
 
         Ok(subtitles)
     }
