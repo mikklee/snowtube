@@ -1,4 +1,15 @@
 { pkgs ? import <nixpkgs> { }
+, yt-dlp-master ? pkgs.yt-dlp.overrideAttrs (old: {
+    version = "master";
+    src = pkgs.fetchFromGitHub {
+      owner = "yt-dlp";
+      repo = "yt-dlp";
+      rev = "master";
+      sha256 = "sha256-nw/L71aoAJSCbW1y8ir8obrFPSbVlBA0UtlrxL6YtCQ=";
+    };
+    patches = [ ];
+    postPatch = "";
+  })
 ,
 }:
 let
@@ -79,7 +90,7 @@ in
           nil
           nixd
           mpv
-          yt-dlp
+          yt-dlp-master
         ]
         ++ platformDeps
         ++ gstreamerDeps;
