@@ -115,12 +115,16 @@ async fn load_youtube(
     let url = format!("https://www.youtube.com/watch?v={}", video_id);
 
     // Phase 1: Run yt-dlp (blocking)
-    // If no hardware AV1 decode, prefer H.264/VP9/HEVC to avoid software decode overhead
+    // Exclude AI-upscaled formats (format_note contains "upscaled") as they may have issues
+    // If no hardware AV1 decode, also prefer H.264/VP9/HEVC to avoid software decode overhead
     let format_selector = if has_hw_av1_decode() {
-        None
+        // Still exclude AI-upscaled formats
+        Some("bv[format_note!*=upscaled]+ba/bv+ba/b")
     } else {
-        // Prefer vp9, then avc (H.264), then hevc, then any format as fallback
-        Some("bv[vcodec^=vp9]+ba/bv[vcodec^=avc]+ba/bv[vcodec^=hev]+ba/bv+ba/b")
+        // Prefer vp9, then avc (H.264), then hevc, exclude AI-upscaled
+        Some(
+            "bv[vcodec^=vp9][format_note!*=upscaled]+ba/bv[vcodec^=avc][format_note!*=upscaled]+ba/bv[vcodec^=hev][format_note!*=upscaled]+ba/bv[format_note!*=upscaled]+ba/b",
+        )
     };
 
     let yt_dlp_result = tokio::task::spawn_blocking(move || {
