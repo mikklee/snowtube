@@ -17,6 +17,19 @@
       let
         pkgs = import nixpkgs { inherit system; };
 
+        yt-dlp-git = pkgs.yt-dlp.overrideAttrs (old: {
+            version = "2026.02.21";
+            src = pkgs.fetchFromGitHub {
+              owner = "yt-dlp";
+              repo = "yt-dlp";
+              rev = "2026.02.21";
+              sha256 = "sha256-r9I/zLyqGPeIzsHsLxJcfnLC3jpuyKMyX1UaMoM08jk=";
+            };
+            patches = [ ];
+            postPatch = "";
+          });
+
+
         isDarwin = pkgs.stdenv.isDarwin;
 
         # GStreamer packages - only used on Linux due to nixpkgs packaging issues on macOS
@@ -45,7 +58,7 @@
             rustup
             pkg-config
             mpv
-            yt-dlp
+            yt-dlp-git
             nil
             nixd
           ]
