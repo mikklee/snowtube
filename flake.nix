@@ -23,6 +23,8 @@
         gstPkgs = pkgs.gst_all_1;
 
         gstreamerPlugins = [
+          pkgs.glib
+          pkgs.glib-networking
           gstPkgs.gstreamer
           gstPkgs.gst-plugins-base
           gstPkgs.gst-plugins-good
@@ -42,8 +44,6 @@
           [
             rustup
             pkg-config
-            glib
-            glib-networking
             mpv
             yt-dlp
             nil
