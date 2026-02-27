@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 /// Check if hardware AV1 decoding is available.
-/// Checks for VA-API (Intel/AMD), NVDEC (NVIDIA) on Linux, or VideoToolbox on macOS.
+/// Checks for VA-API (Intel/AMD), NVDEC (NVIDIA) on Linux
 fn has_hw_av1_decode() -> bool {
     static HAS_HW_AV1: OnceLock<bool> = OnceLock::new();
     *HAS_HW_AV1.get_or_init(|| {
@@ -17,32 +17,6 @@ fn has_hw_av1_decode() -> bool {
             return false;
         }
 
-        #[cfg(target_os = "macos")]
-        {
-            // Check for VideoToolbox hardware decoder with AV1 support (macOS M3+)
-            // vtdec_hw exists on all Apple Silicon, but only M3+ supports AV1
-            // We check if the factory's sink pad template caps include AV1
-            let has_vtdec_av1 = gst::ElementFactory::find("vtdec_hw")
-                .and_then(|factory| {
-                    factory
-                        .static_pad_templates()
-                        .iter()
-                        .find(|t| t.direction() == gst::PadDirection::Sink)
-                        .map(|t| {
-                            let caps = t.caps();
-                            caps.iter().any(|s| s.name().as_str() == "video/x-av1")
-                        })
-                })
-                .unwrap_or(false);
-            tracing::info!(
-                "Hardware AV1 decode (macOS): vtdec_hw av1={}",
-                has_vtdec_av1
-            );
-            has_vtdec_av1
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
             // Check for VA-API AV1 decoder (Intel/AMD)
             let has_vaav1 = gst::ElementFactory::find("vaav1dec").is_some();
             // Check for NVDEC AV1 decoder (NVIDIA RTX 30+)
@@ -55,7 +29,6 @@ fn has_hw_av1_decode() -> bool {
                 has_nvav1
             );
             result
-        }
     })
 }
 
