@@ -38,7 +38,7 @@ fn has_hw_av1_decode() -> bool {
                 "Hardware AV1 decode (macOS): vtdec_hw av1={}",
                 has_vtdec_av1
             );
-            return has_vtdec_av1;
+            has_vtdec_av1
         }
 
         #[cfg(not(target_os = "macos"))]
