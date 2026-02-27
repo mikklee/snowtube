@@ -17,18 +17,18 @@ fn has_hw_av1_decode() -> bool {
             return false;
         }
 
-            // Check for VA-API AV1 decoder (Intel/AMD)
-            let has_vaav1 = gst::ElementFactory::find("vaav1dec").is_some();
-            // Check for NVDEC AV1 decoder (NVIDIA RTX 30+)
-            let has_nvav1 = gst::ElementFactory::find("nvav1dec").is_some();
-            let result = has_vaav1 || has_nvav1;
-            tracing::info!(
-                "Hardware AV1 decode: {} (vaav1dec={}, nvav1dec={})",
-                result,
-                has_vaav1,
-                has_nvav1
-            );
-            result
+        // Check for VA-API AV1 decoder (Intel/AMD)
+        let has_vaav1 = gst::ElementFactory::find("vaav1dec").is_some();
+        // Check for NVDEC AV1 decoder (NVIDIA RTX 30+)
+        let has_nvav1 = gst::ElementFactory::find("nvav1dec").is_some();
+        let result = has_vaav1 || has_nvav1;
+        tracing::info!(
+            "Hardware AV1 decode: {} (vaav1dec={}, nvav1dec={})",
+            result,
+            has_vaav1,
+            has_nvav1
+        );
+        result
     })
 }
 
