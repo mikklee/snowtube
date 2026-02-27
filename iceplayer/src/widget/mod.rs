@@ -748,8 +748,13 @@ fn view_playing_fullscreen<'a, Message: Clone + 'static>(
 
     // Wrap in mouse area for tracking mouse movement
     // Hide cursor when controls are hidden (after inactivity)
+    //
+    // On macOS, winit's invisible_cursor() creates an NSImage from embedded GIF data,
+    // which seems to cause a crash on macOS 26 (Tahoe). This disables cursor hiding on macOS until winit ships a fix.
+    // See: https://github.com/rust-windowing/winit/blob/v0.30.12/src/platform_impl/macos/cursor.rs#L166
     let on_mouse_move = on_message.clone();
-    let video_with_mouse = if state.controls_visible {
+    let hide_cursor = !state.controls_visible && !cfg!(target_os = "macos");
+    let video_with_mouse = if !hide_cursor {
         mouse_area(video_widget).on_move(move |_| on_mouse_move(VideoPlayerMessage::MouseMoved))
     } else {
         mouse_area(video_widget)
