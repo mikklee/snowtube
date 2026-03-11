@@ -69,6 +69,20 @@ impl PeerTubeClient {
         let search_response: ApiSearchResponse = response.json().await?;
         Ok(search_response)
     }
+
+    /// Get subtitles for a video
+    ///
+    /// # Arguments
+    /// * `instance` - The PeerTube instance URL (e.g., "https://video.example.com")
+    /// * `video_id` - The video UUID
+    pub async fn get_subtitles(
+        &self,
+        instance: &str,
+        video_id: &str,
+    ) -> Result<Vec<common::Subtitle>> {
+        let pt = self.for_instance(instance);
+        pt.get_subtitles(video_id).await
+    }
 }
 
 impl Default for PeerTubeClient {
@@ -224,9 +238,13 @@ impl VideoProvider for PeerTubeClient {
         })
     }
 
+    // PeerTube does not do forced machine translations like YouTube,
+    // so locale parameters are unused here.
     async fn get_video_metadata(
         &self,
         video: &Video,
+        _hl: &str,
+        _gl: &str,
     ) -> std::result::Result<VideoMetadata, ProviderError> {
         let instance = video.instance.as_ref().ok_or_else(|| ProviderError::Api {
             message: "PeerTube video requires instance URL for metadata".to_string(),
@@ -253,6 +271,21 @@ impl VideoProvider for PeerTubeClient {
             channel_id: Some(video_details.channel.name),
             channel_avatar_url,
         })
+    }
+
+    async fn get_subtitles(
+        &self,
+        video: &Video,
+    ) -> std::result::Result<Vec<common::Subtitle>, ProviderError> {
+        let instance = video.instance.as_ref().ok_or_else(|| ProviderError::Api {
+            message: "PeerTube video requires instance URL for subtitles".to_string(),
+        })?;
+
+        self.get_subtitles(instance, &video.id)
+            .await
+            .map_err(|e| ProviderError::Api {
+                message: e.to_string(),
+            })
     }
 }
 
@@ -398,6 +431,31 @@ impl PeerTube {
 
         let video: crate::models::ApiVideo = response.json().await?;
         Ok(video)
+    }
+
+    /// Get subtitles/captions for a video by UUID
+    pub async fn get_subtitles(&self, uuid: &str) -> Result<Vec<common::Subtitle>> {
+        let url = format!("{}/api/v1/videos/{}/captions", self.instance, uuid);
+
+        let response = self.client.get(&url).send().await?;
+
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            // No subtitles available
+            return Ok(vec![]);
+        }
+
+        if !response.status().is_success() {
+            return Err(Error::Api {
+                message: format!("Get subtitles failed with status: {}", response.status()),
+            });
+        }
+
+        let captions: crate::models::ApiSubtitlesResponse = response.json().await?;
+        Ok(captions
+            .data
+            .iter()
+            .filter_map(|c| c.to_common_subtitle(&self.instance))
+            .collect())
     }
 }
 

@@ -68,6 +68,7 @@ pub enum Message {
     VideoEvent(PlayerEvent),                       // High-level events from player
     VideoThumbnailLoaded(Result<Vec<u8>, String>), // High-res thumbnail for player
     VideoMetadataLoaded(Result<common::VideoMetadata, String>), // Full description, channel info
+    SubtitlesLoaded(Result<Vec<common::Subtitle>, String>), // Subtitles for current video
     BackFromVideo,                                 // Navigate back from video view
     LaunchInMpv(String),                           // Launch video in mpv (video_id)
     CopyVideoUrl(String),                          // Copy video URL to clipboard

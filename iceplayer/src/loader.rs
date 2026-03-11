@@ -53,13 +53,15 @@ pub fn load_video(
 ) -> impl futures::Stream<Item = LoadProgress> + Send + 'static {
     iced::stream::channel(10, move |mut sender| async move {
         match source {
-            VideoSource::YouTube { video_id } => {
+            VideoSource::YouTube { video_id, .. } => {
                 load_youtube(&mut sender, &video_id).await;
             }
             VideoSource::YouTubeAudioOnly { video_id } => {
                 load_youtube_audio_only(&mut sender, &video_id).await;
             }
-            VideoSource::PeerTube { instance, video_id } => {
+            VideoSource::PeerTube {
+                instance, video_id, ..
+            } => {
                 load_peertube(&mut sender, &instance, &video_id).await;
             }
             VideoSource::PeerTubeAudioOnly { instance, video_id } => {

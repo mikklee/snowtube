@@ -14,7 +14,8 @@ use std::cell::Cell;
 use std::collections::HashMap;
 
 use common::{
-    ChannelConfig, ChannelInfo, ChannelTab, LanguageOption, SortFilter, Video, get_all_languages,
+    ChannelConfig, ChannelInfo, ChannelKey, ChannelTab, LanguageOption, SortFilter, Video,
+    get_all_languages,
 };
 use std::sync::OnceLock;
 
@@ -1283,7 +1284,8 @@ impl App {
                 }
 
                 // Create video player state with the new high-level API
-                let source = match VideoSource::from_video(&video) {
+                // Subtitles will be fetched asynchronously
+                let source = match VideoSource::from_video(&video, vec![]) {
                     Ok(s) => s,
                     Err(e) => {
                         return Task::done(Message::ShowError(format!("Cannot play video: {}", e)));
@@ -1308,13 +1310,30 @@ impl App {
                 );
 
                 // Fetch video metadata (full description, channel info including avatar)
+                // Use channel's locale if available, otherwise fall back to search locale
                 let video_for_metadata = video.clone();
+                let (hl, gl) = video
+                    .channel
+                    .as_ref()
+                    .and_then(|ch| ch.id.as_ref())
+                    .and_then(|channel_id| {
+                        let key = ChannelKey::new(&video.platform_name, channel_id);
+                        self.config.channels.get(&key)?.language.clone()
+                    })
+                    .unwrap_or_else(|| self.search_locale.clone());
                 let metadata_task = Task::perform(
-                    async move { providers::get_video_metadata(&video_for_metadata).await },
+                    async move { providers::get_video_metadata(&video_for_metadata, &hl, &gl).await },
                     Message::VideoMetadataLoaded,
                 );
 
-                Task::batch([thumb_task, metadata_task])
+                // Fetch subtitles
+                let video_for_subs = video.clone();
+                let subs_task = Task::perform(
+                    async move { providers::get_subtitles(&video_for_subs).await },
+                    Message::SubtitlesLoaded,
+                );
+
+                Task::batch([thumb_task, metadata_task, subs_task])
             }
             Message::PlayAudioOnly(video) => {
                 // Similar to PlayVideo but uses audio-only source
@@ -1372,9 +1391,19 @@ impl App {
                 );
 
                 // Fetch video metadata (full description, channel info including avatar)
+                // Use channel's locale if available, otherwise fall back to search locale
                 let video_for_metadata = video.clone();
+                let (hl, gl) = video
+                    .channel
+                    .as_ref()
+                    .and_then(|ch| ch.id.as_ref())
+                    .and_then(|channel_id| {
+                        let key = ChannelKey::new(&video.platform_name, channel_id);
+                        self.config.channels.get(&key)?.language.clone()
+                    })
+                    .unwrap_or_else(|| self.search_locale.clone());
                 let metadata_task = Task::perform(
-                    async move { providers::get_video_metadata(&video_for_metadata).await },
+                    async move { providers::get_video_metadata(&video_for_metadata, &hl, &gl).await },
                     Message::VideoMetadataLoaded,
                 );
 
@@ -1482,6 +1511,15 @@ impl App {
                             );
                         }
                     }
+                }
+                Task::none()
+            }
+
+            Message::SubtitlesLoaded(result) => {
+                if let Ok(subtitles) = result
+                    && let Some(ref mut state) = self.video_player
+                {
+                    state.set_subtitles(subtitles);
                 }
                 Task::none()
             }

@@ -103,3 +103,14 @@ pub struct VideoMetadata {
     /// Channel avatar URL (best quality available)
     pub channel_avatar_url: Option<String>,
 }
+
+/// Subtitle track information (platform-agnostic)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Subtitle {
+    /// Language code (e.g., "en", "pl", "ru")
+    pub language_code: String,
+    /// Human-readable language name (e.g., "English", "Polski")
+    pub language_name: String,
+    /// URL to the subtitle file (VTT, SRT, or other format)
+    pub url: String,
+}

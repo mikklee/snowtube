@@ -1303,12 +1303,29 @@ impl Video {
     }
 
     /// Set the subtitle URL to display.
-    pub fn set_subtitle_url(&mut self, url: &url::Url) -> Result<(), Error> {
+    pub fn set_subtitle_url(&self, url: &url::Url) -> Result<(), Error> {
         let paused = self.paused();
-        let mut inner = self.get_mut();
-        inner.source.set_state(gst::State::Ready)?;
-        inner.source.set_property("suburi", url.as_str());
-        inner.set_paused(paused);
+        let position = self.position();
+
+        tracing::info!("Setting subtitle URL: {}", url.as_str());
+
+        {
+            let inner = self.write();
+            // Set suburi property - playbin handles this dynamically
+            inner.source.set_property("suburi", url.as_str());
+        }
+
+        // Seek to current position to trigger subtitle loading
+        if position.as_millis() > 0
+            && let Err(e) = self.seek(position, false)
+        {
+            tracing::warn!("Failed to seek after setting subtitle: {:?}", e);
+        }
+
+        if !paused {
+            self.set_paused(false);
+        }
+
         Ok(())
     }
 

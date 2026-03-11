@@ -228,3 +228,30 @@ pub fn error_overlay<'a, Message: 'a>(
         .center_y(Length::Fill)
         .into()
 }
+
+/// Subtitle text overlay at the bottom of the video.
+/// White text on semi-transparent black background.
+pub fn subtitle_overlay<'a, Message: 'a>(
+    subtitle: &'a str,
+    bottom_padding: f32,
+) -> Element<'a, Message, Theme, Renderer> {
+    let subtitle_box = container(text(subtitle).size(24).color(Color::WHITE))
+        .padding(Padding::from([8, 16]))
+        .style(|_| container::Style {
+            background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.7).into()),
+            ..Default::default()
+        });
+
+    container(subtitle_box)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(iced::alignment::Horizontal::Center)
+        .align_y(iced::alignment::Vertical::Bottom)
+        .padding(Padding {
+            top: 0.0,
+            right: 20.0,
+            bottom: bottom_padding,
+            left: 20.0,
+        })
+        .into()
+}

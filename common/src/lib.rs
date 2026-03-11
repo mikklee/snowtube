@@ -70,7 +70,16 @@ pub trait VideoProvider: Send + Sync {
     /// Fetch additional metadata for a video (full description, channel info).
     /// This is separate from get_video() because search results contain enough
     /// info to play videos, but may have truncated descriptions.
-    async fn get_video_metadata(&self, video: &Video) -> Result<VideoMetadata, ProviderError>;
+    async fn get_video_metadata(
+        &self,
+        video: &Video,
+        hl: &str,
+        gl: &str,
+    ) -> Result<VideoMetadata, ProviderError>;
+
+    /// Get available subtitles for a video.
+    /// Returns manual (non-auto-generated) subtitles only.
+    async fn get_subtitles(&self, video: &Video) -> Result<Vec<Subtitle>, ProviderError>;
 }
 
 /// Trait for providers that support channel browsing
