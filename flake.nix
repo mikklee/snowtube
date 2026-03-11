@@ -61,6 +61,7 @@
             yt-dlp-git
             nil
             nixd
+            deno # yt-dlp needs this to solve challenges
           ]
           ++ (if isDarwin then [ ] else gstreamerPlugins);
 
