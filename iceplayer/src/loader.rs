@@ -6,7 +6,8 @@ use gstreamer as gst;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-/// Check if hardware AV1 decoding is available (VA-API or NVDEC).
+/// Check if hardware AV1 decoding is available.
+/// Checks for VA-API (Intel/AMD), NVDEC (NVIDIA) on Linux
 fn has_hw_av1_decode() -> bool {
     static HAS_HW_AV1: OnceLock<bool> = OnceLock::new();
     *HAS_HW_AV1.get_or_init(|| {
@@ -15,6 +16,7 @@ fn has_hw_av1_decode() -> bool {
             tracing::warn!("Failed to initialize GStreamer for AV1 detection, assuming no HW AV1");
             return false;
         }
+
         // Check for VA-API AV1 decoder (Intel/AMD)
         let has_vaav1 = gst::ElementFactory::find("vaav1dec").is_some();
         // Check for NVDEC AV1 decoder (NVIDIA RTX 30+)
@@ -88,12 +90,16 @@ async fn load_youtube(
     let url = format!("https://www.youtube.com/watch?v={}", video_id);
 
     // Phase 1: Run yt-dlp (blocking)
-    // If no hardware AV1 decode, prefer H.264/VP9/HEVC to avoid software decode overhead
+    // Exclude AI-upscaled formats (format_note contains "upscaled") as they may have issues
+    // If no hardware AV1 decode, also prefer H.264/VP9/HEVC to avoid software decode overhead
     let format_selector = if has_hw_av1_decode() {
-        None
+        // Still exclude AI-upscaled formats
+        Some("bv[format_note!*=upscaled]+ba/bv+ba/b")
     } else {
-        // Prefer vp9, then avc (H.264), then hevc, then any format as fallback
-        Some("bv[vcodec^=vp9]+ba/bv[vcodec^=avc]+ba/bv[vcodec^=hev]+ba/bv+ba/b")
+        // Prefer vp9, then avc (H.264), then hevc, exclude AI-upscaled
+        Some(
+            "bv[vcodec^=vp9][format_note!*=upscaled]+ba/bv[vcodec^=avc][format_note!*=upscaled]+ba/bv[vcodec^=hev][format_note!*=upscaled]+ba/bv[format_note!*=upscaled]+ba/b",
+        )
     };
 
     let yt_dlp_result = tokio::task::spawn_blocking(move || {
