@@ -113,6 +113,7 @@
                   export OPENSSL_LIB_DIR="${pkgs.openssl.out}/lib"
                   export PATH="$HOME/.cargo/bin:$PATH"
                   export RUST_LOG="debug"
+                  export GIO_EXTRA_MODULES="${pkgs.glib-networking}/lib/gio/modules:$GIO_EXTRA_MODULES"
                 ''
             }
             rustup default stable 2>/dev/null || true
