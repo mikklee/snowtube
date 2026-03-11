@@ -103,7 +103,6 @@
                   # Clear any stale gstreamer cache
                   rm -rf ~/.cache/gstreamer-1.0 2>/dev/null || true
 
-                  export GST_PLUGIN_SYSTEM_PATH_1_0=""
                   export GST_PLUGIN_PATH_1_0="${gstPluginPath}"
                   export LD_LIBRARY_PATH="${
                     pkgs.lib.makeLibraryPath (linuxDeps ++ gstreamerPlugins)
