@@ -171,6 +171,13 @@ impl YtdlpWrapper {
             .await
             .context(CommandSnafu)?;
 
+        if !output.status.success() {
+            return Err(wrap_media_error("unknown")(&format!(
+                "YT-dlp command failed to complete: {}",
+                std::str::from_utf8(output.stderr.as_ref()).unwrap()
+            )));
+        }
+
         let dto_raw: serde_json::Value =
             serde_json::from_slice(&output.stdout).context(ParseSnafu)?;
 
