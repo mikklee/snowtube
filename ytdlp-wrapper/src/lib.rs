@@ -2,11 +2,10 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::cache::{CacheError, CacheItem};
-use serde::Deserialize;
 use snafu::{self, ResultExt, Snafu};
 use tokio::sync::mpsc::{self};
 use tokio::sync::oneshot;
-use tracing::{info, trace};
+use tracing::trace;
 
 mod cache;
 
