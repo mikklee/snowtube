@@ -173,7 +173,8 @@ impl YtdlpWrapper {
         if !output.status.success() {
             return Err(wrap_media_error("unknown")(&format!(
                 "YT-dlp command failed to complete: {}",
-                std::str::from_utf8(output.stderr.as_ref()).unwrap()
+                std::str::from_utf8(output.stderr.as_ref())
+                    .unwrap_or("Failed to parse yt-dlp stderr. Invalid UTF8.")
             )));
         }
 
