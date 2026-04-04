@@ -4,6 +4,7 @@ use crate::source::VideoSource;
 use crate::video::Video;
 use gstreamer as gst;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::OnceLock;
 
 /// Check if hardware AV1 decoding is available.
@@ -83,190 +84,89 @@ async fn load_youtube(
 ) {
     use iced::futures::SinkExt;
 
+    let ytdlp_wrapper = LazyLock::new(|| ytdlp_wrapper::YtdlpWrapper::new());
     let _ = sender
         .send(LoadProgress::Status("Fetching video info...".to_string()))
         .await;
 
     let url = format!("https://www.youtube.com/watch?v={}", video_id);
 
-    // Phase 1: Run yt-dlp (blocking)
     // Exclude AI-upscaled formats (format_note contains "upscaled") as they may have issues
     // If no hardware AV1 decode, also prefer H.264/VP9/HEVC to avoid software decode overhead
     let format_selector = if has_hw_av1_decode() {
         // Still exclude AI-upscaled formats
-        Some("bv[format_note!*=upscaled]+ba/bv+ba/b")
+        "bv[format_note!*=upscaled]+ba/bv+ba/b"
     } else {
         // Prefer vp9, then avc (H.264), then hevc, exclude AI-upscaled
-        Some(
-            "bv[vcodec^=vp9][format_note!*=upscaled]+ba/bv[vcodec^=avc][format_note!*=upscaled]+ba/bv[vcodec^=hev][format_note!*=upscaled]+ba/bv[format_note!*=upscaled]+ba/b",
-        )
+        "bv[vcodec^=vp9][format_note!*=upscaled]+ba/bv[vcodec^=avc][format_note!*=upscaled]+ba/bv[vcodec^=hev][format_note!*=upscaled]+ba/bv[format_note!*=upscaled]+ba/b"
     };
 
-    let yt_dlp_result = tokio::task::spawn_blocking(move || {
-        tracing::info!("Starting yt-dlp for URL: {}", url);
-        let mut cmd = std::process::Command::new("yt-dlp");
-        if let Some(fmt) = format_selector {
-            cmd.args(["-f", fmt]);
-        }
-        let output = cmd
-            .args(["--dump-single-json", &url])
-            .output()
-            .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
+    let video_result = ytdlp_wrapper
+        .get_stream_info(url, Some(format_selector.to_string()))
+        .await;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("yt-dlp failed: {}", stderr));
-        }
-
-        serde_json::from_slice(&output.stdout)
-            .map_err(|e| format!("Failed to parse yt-dlp JSON: {}", e))
-    })
-    .await
-    .map_err(|e| format!("Task join error: {}", e))
-    .and_then(|r| r);
-
-    let json: serde_json::Value = match yt_dlp_result {
-        Ok(j) => j,
-        Err(e) => {
-            let _ = sender.send(LoadProgress::Error(e)).await;
-            return;
-        }
-    };
-
-    let is_live = json["is_live"].as_bool().unwrap_or(false);
-
-    if is_live {
-        let _ = sender
-            .send(LoadProgress::Status("Loading live stream...".to_string()))
-            .await;
-
-        let hls_url = match json["url"].as_str() {
-            Some(u) => u.to_string(),
-            None => {
+    match video_result {
+        Ok(video_info) => match video_info {
+            ytdlp_wrapper::YtReply::Livestream { url } => {
                 let _ = sender
-                    .send(LoadProgress::Error("No URL for live stream".to_string()))
+                    .send(LoadProgress::Status("Loading live stream...".to_string()))
                     .await;
-                return;
+                load_live(sender, &url).await;
             }
-        };
-
-        load_live(sender, &hls_url).await;
-    } else {
-        // VOD path
-        let requested_formats = match json["requested_formats"].as_array() {
-            Some(f) => f,
-            None => {
+            ytdlp_wrapper::YtReply::Video {
+                video_url,
+                audio_url,
+                http_headers,
+            } => {
                 let _ = sender
-                    .send(LoadProgress::Error("No formats in output".to_string()))
-                    .await;
-                return;
-            }
-        };
-
-        let video_format = requested_formats
-            .iter()
-            .find(|f| f["vcodec"].as_str().map(|v| v != "none").unwrap_or(false));
-        let audio_format = requested_formats
-            .iter()
-            .find(|f| f["acodec"].as_str().map(|a| a != "none").unwrap_or(false));
-
-        let (video_format, audio_format) = match (video_format, audio_format) {
-            (Some(v), Some(a)) => (v, a),
-            _ => {
-                let _ = sender
-                    .send(LoadProgress::Error(
-                        "Missing video/audio format".to_string(),
+                    .send(LoadProgress::Status(
+                        "Loading on demand video...".to_string(),
                     ))
                     .await;
-                return;
-            }
-        };
 
-        let video_url = video_format["url"].as_str().unwrap_or("").to_string();
-        let audio_url = audio_format["url"].as_str().unwrap_or("").to_string();
-
-        if video_url.is_empty() || audio_url.is_empty() {
-            let _ = sender
-                .send(LoadProgress::Error("Missing URLs".to_string()))
-                .await;
-            return;
-        }
-
-        let headers: Vec<(String, String)> = video_format["http_headers"]
-            .as_object()
-            .map(|h| {
-                h.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        // Check for throttle wait
-        // GStreamer video player already waits 5 seconds, so we only need
-        // to wait the remaining time beyond that
-        const GSTREAMER_WAIT_SECS: i64 = 5;
-        if let Some(available_at) = video_format["available_at"].as_i64() {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
-            let wait_secs = (available_at - now - GSTREAMER_WAIT_SECS).max(0);
-            if wait_secs > 0 {
-                tracing::info!(
-                    "Waiting {} seconds for YouTube throttle (after GStreamer's {}s)",
-                    wait_secs,
-                    GSTREAMER_WAIT_SECS
-                );
-                // Countdown each second
-                for remaining in (1..=wait_secs).rev() {
-                    let _ = sender
-                        .send(LoadProgress::Status(format!(
-                            "Waiting {} seconds...",
-                            remaining
-                        )))
-                        .await;
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                }
-            }
-        }
-
-        let _ = sender
-            .send(LoadProgress::Status("Loading video stream...".to_string()))
-            .await;
-
-        let result = tokio::task::spawn_blocking(move || {
-            let header_refs: Vec<(&str, &str)> = headers
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
-                .collect();
-            let mut last_error = None;
-            for attempt in 1..=3 {
-                match Video::from_url_with_headers(&video_url, &audio_url, &header_refs) {
-                    Ok(video) => return Ok(Arc::new(video)),
-                    Err(e) => {
-                        last_error = Some(e);
-                        if attempt < 3 {
-                            std::thread::sleep(std::time::Duration::from_millis(500));
+                let result = tokio::task::spawn_blocking(move || {
+                    let header_refs: Vec<(&str, &str)> = http_headers
+                        .iter()
+                        .map(|(k, v)| (k.as_str(), v.as_str()))
+                        .collect();
+                    let mut last_error = None;
+                    for attempt in 1..=3 {
+                        match Video::from_url_with_headers(&video_url, &audio_url, &header_refs) {
+                            Ok(video) => return Ok(Arc::new(video)),
+                            Err(e) => {
+                                last_error = Some(e);
+                                if attempt < 3 {
+                                    std::thread::sleep(std::time::Duration::from_millis(500));
+                                }
+                            }
                         }
+                    }
+                    Err(format!(
+                        "Failed after 3 attempts: {:?}",
+                        last_error.unwrap()
+                    ))
+                })
+                .await
+                .map_err(|e| format!("Task join error: {}", e))
+                .and_then(|r| r);
+
+                match result {
+                    Ok(video) => {
+                        let _ = sender.send(LoadProgress::Done(video)).await;
+                    }
+                    Err(e) => {
+                        let _ = sender.send(LoadProgress::Error(e)).await;
                     }
                 }
             }
-            Err(format!(
-                "Failed after 3 attempts: {:?}",
-                last_error.unwrap()
-            ))
-        })
-        .await
-        .map_err(|e| format!("Task join error: {}", e))
-        .and_then(|r| r);
-
-        match result {
-            Ok(video) => {
-                let _ = sender.send(LoadProgress::Done(video)).await;
-            }
-            Err(e) => {
-                let _ = sender.send(LoadProgress::Error(e)).await;
-            }
+        },
+        Err(err) => {
+            _ = sender
+                .send(LoadProgress::Error(format!(
+                    "Error when fetching video info: {:?}",
+                    err
+                )))
+                .await;
         }
     }
 }

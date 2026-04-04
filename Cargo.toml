@@ -1,3 +1,3 @@
 [workspace]
-members = ["common", "ytrs-lib", "ptrs-lib", "snowtube", "iceplayer"]
+members = ["common", "ytrs-lib", "ptrs-lib", "snowtube", "iceplayer", "ytdlp-wrapper"]
 resolver = "2"

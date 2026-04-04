@@ -37,6 +37,7 @@ serde = { version = "1", features = ["derive"] } # serialization
 strum = { version = "0.27", features = ["derive"] } # enum utilities
 iced_font_awesome = "0.4"
 resvg = "0.45"
+ytdlp_wrapper = { path = "../ytdlp-wrapper" }
 
 [package.metadata.nix]
 systems = ["x86_64-linux"]
